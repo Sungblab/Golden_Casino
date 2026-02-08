@@ -261,4 +261,4 @@ node server.js
 
 ---
 
-Copyright © 2024 Golden Casino Project. All Rights Reserved.
+Copyright © 2026 Golden Casino Project. All Rights Reserved.
