@@ -1,6 +1,6 @@
 # 🎰 Golden Casino
 
-[한국어](README.md) | [English](README.en.md)
+[English](README.md) | [한국어](README.ko.md)
 
 ![Project Status](https://img.shields.io/badge/status-active-success.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -10,7 +10,7 @@
 
 ---
 
-### 📖 프로젝트 개요
+## 📖 프로젝트 개요
 
 **Golden Casino**는 실제 바카라 테이블의 현장감을 웹으로 옮겨온 프리미엄 카지노 플랫폼입니다. 플레이어 간의 소통(채팅, 송금) 기능을 강화하고, 관리자는 게임 흐름과 경제 시스템을 완벽하게 통제할 수 있도록 설계되었습니다. "다크 & 골드" 테마를 적용하여 고급스러운 시각적 경험을 제공합니다.
 
