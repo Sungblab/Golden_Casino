@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>골든 카지노</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+        font-family: "Noto Serif KR", serif;
+      }
+      .login-container {
+        background: linear-gradient(to bottom, #2a2a2a, #1a1a1a);
+        border: 1px solid #b8860b;
+        box-shadow: 0 0 20px rgba(184, 134, 11, 0.2);
+      }
+      .input-field {
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid #b8860b;
+        transition: all 0.3s ease;
+      }
+      .input-field:focus {
+        border-color: #ffd700;
+        box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+      }
+      .login-btn {
+        background: linear-gradient(to right, #b8860b, #daa520);
+        transition: all 0.3s ease;
+      }
+      .login-btn:hover {
+        background: linear-gradient(to right, #daa520, #ffd700);
+        transform: translateY(-2px);
+      }
+      .notice-link {
+        background: transparent;
+        border: 1px solid #b8860b;
+        color: #b8860b;
+        transition: all 0.3s ease;
+      }
+      .notice-link:hover {
+        background: #b8860b;
+        color: white;
+      }
+    </style>
+  </head>
+  <body class="flex items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-sm sm:max-w-md login-container p-8 rounded-lg">
+      <h2
+        class="text-2xl sm:text-3xl font-bold mb-8 text-center text-yellow-500"
+        style="text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5)"
+      >
+        GOLDEN CASINO
+      </h2>
+
+      <form id="loginForm">
+        <div class="mb-6">
+          <label class="block text-yellow-500 mb-2 font-medium">이름</label>
+          <input
+            type="text"
+            id="username"
+            required
+            class="input-field w-full px-4 py-3 rounded-lg text-white"
+          />
+        </div>
+        <div class="mb-8">
+          <label class="block text-yellow-500 mb-2 font-medium">비밀번호</label>
+          <input
+            type="password"
+            id="password"
+            required
+            class="input-field w-full px-4 py-3 rounded-lg text-white"
+          />
+        </div>
+        <button
+          type="submit"
+          class="login-btn w-full py-3 rounded-lg text-white text-lg font-bold shadow-lg"
+        >
+          로그인
+        </button>
+      </form>
+      <div class="mt-6 text-center text-gray-400">
+        <p>
+          계정이 없으신가요?
+          <a
+            href="register.html"
+            class="text-yellow-500 hover:text-yellow-400 font-medium"
+            >회원가입</a
+          >
+        </p>
+        <div class="mt-4">
+          <a
+            href="notice.html"
+            class="notice-link inline-block w-full py-2 rounded-lg text-sm font-bold"
+          >
+            게임 이용 안내 및 유의사항
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document
+        .getElementById("loginForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const username = document.getElementById("username").value.trim();
+          const password = document.getElementById("password").value.trim();
+
+          if (!username || !password) {
+            alert("모든 필드를 입력해주세요.");
+            return;
+          }
+
+          try {
+            const res = await fetch(
+              "http://127.0.0.1:5000/api/auth/login",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password }),
+              }
+            );
+
+            const data = await res.json();
+
+            if (res.ok) {
+              // 토큰 저장 후 사용자 페이지로 이동
+              localStorage.setItem("token", data.token);
+              // 토큰 디코딩하여 역할 확인
+              const payload = JSON.parse(atob(data.token.split(".")[1]));
+              if (payload.role === "admin") {
+                window.location.href = "admin.html";
+              } else {
+                window.location.href = "user.html";
+              }
+            } else {
+              alert(data.message);
+            }
+          } catch (err) {
+            console.error(err);
+            alert("서버 에러");
+          }
+        });
+    </script>
+  </body>
+</html>

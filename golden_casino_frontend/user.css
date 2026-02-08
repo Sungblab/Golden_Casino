@@ -1,0 +1,938 @@
+body {
+        background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+        font-family: "Noto Serif KR", serif;
+      }
+
+      /* 모바일 최적화 스타일 */
+      body {
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      /* 스크롤바 스타일링 */
+      .custom-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: #b8860b transparent;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: #b8860b;
+        border-radius: 3px;
+      }
+
+      /* 버튼 활성화 효과 */
+      .choice-button.active {
+        transform: scale(0.95);
+        box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+      }
+
+      .coin-button.active {
+        transform: scale(0.95);
+        box-shadow: 0 0 10px rgba(255, 223, 0, 0.3);
+      }
+
+      /* 헤더 스타일 */
+      .header-container {
+        background: linear-gradient(to bottom, #2a2a2a, #1a1a1a);
+        border-bottom: 1px solid #b8860b;
+        box-shadow: 0 4px 6px -1px rgba(184, 134, 11, 0.1);
+      }
+
+      /* 버튼 스타일 */
+      .golden-btn {
+        background: linear-gradient(to right, #b8860b, #daa520);
+        transition: all 0.3s ease;
+      }
+      .golden-btn:hover {
+        background: linear-gradient(to right, #daa520, #ffd700);
+        transform: translateY(-2px);
+      }
+
+      /* 베팅 기록 테이블 스타일 */
+      .betting-history-card {
+        background: linear-gradient(to bottom, #2a2a2a, #1a1a1a);
+        backdrop-filter: blur(8px);
+        border-radius: 12px;
+        margin-bottom: 8px;
+        padding: 12px;
+        border: 1px solid #b8860b;
+      }
+
+      /* 기존 스타일에 추가 */
+      #historyModal {
+        transition: opacity 0.3s ease-in-out;
+      }
+
+      #historyModal.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #historyModal .betting-history-card {
+        animation: slideUp 0.3s ease-out;
+      }
+
+      @keyframes slideUp {
+        from {
+          transform: translateY(20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      /* 최근 게임 결과 스타일 - Big Road */
+      #recentResults {
+        display: flex;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 4px; /* 8px -> 4px */
+        min-height: 90px; /* 120px -> 90px */
+        align-items: flex-start;
+        gap: 2px; /* 4px -> 2px */
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .result-column {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .result-cell {
+        width: 14px; /* 16px -> 14px */
+        height: 14px; /* 16px -> 14px */
+        border-radius: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 0.7rem;
+        font-weight: bold;
+        color: white;
+        text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        flex-shrink: 0;
+      }
+
+      /* 예측 셀 스타일 */
+      .result-cell.prediction {
+        border: 2px dashed #666; /* 점선 테두리로 예측 표시 */
+        opacity: 0.7;
+        animation: pulse 1s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.7;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      /* 승리 메시지 애니메이션 */
+      @keyframes winSlideIn {
+        0% {
+          transform: translateY(-20px) scale(0.9);
+          opacity: 0;
+        }
+        100% {
+          transform: translateY(0) scale(1);
+          opacity: 1;
+        }
+      }
+
+      @keyframes winSlideOut {
+        0% {
+          transform: translateY(0) scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: translateY(-20px) scale(0.9);
+          opacity: 0;
+        }
+      }
+
+      .win-message-enter {
+        animation: winSlideIn 0.3s ease-out forwards;
+      }
+
+      .win-message-exit {
+        animation: winSlideOut 0.3s ease-in forwards;
+      }
+
+      .result-cell.player {
+        border: 2px solid #3b82f6; /* 파란색 테두리 */
+        background-color: transparent; /* 비어있는 원 */
+      }
+
+      .result-cell.banker {
+        border: 2px solid #ef4444; /* 빨간색 테두리 */
+        background-color: transparent; /* 비어있는 원 */
+      }
+
+      .result-cell.tie {
+        border: 2px solid #10b981; /* 녹색 테두리 */
+        background-color: transparent; /* 비어있는 원 */
+      }
+
+      /* Scoreboard container to hold all roads */
+      #scoreboardsContainer {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+      }
+
+      /* Derived roads container */
+      #derivedRoadsContainer {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        height: 52px; /* 고정 높이 */
+      }
+
+      /* Common style for derived road grids */
+      .derived-road-grid {
+        display: flex;
+        flex-direction: row;
+        overflow: hidden;
+        gap: 2px;
+        align-items: flex-start;
+        padding: 2px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+        height: 100%;
+      }
+
+      .derived-road-grid .result-column {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .derived-road-cell {
+        width: 7px;
+        height: 7px;
+        flex-shrink: 0;
+        border-radius: 50%;
+      }
+
+      /* Big Eye Road: Hollow circles */
+      #bigEyeRoad .derived-road-cell.player {
+        /* Blue in this context */
+        border: 2px solid #3b82f6 !important;
+        background: transparent !important;
+        background-color: transparent !important;
+      }
+
+      #bigEyeRoad .derived-road-cell.banker {
+        /* Red in this context */
+        border: 2px solid #ef4444 !important;
+        background: transparent !important;
+        background-color: transparent !important;
+      }
+
+      /* Big Eye Road 전체 셀에 대해 배경 강제 제거 */
+      #bigEyeRoad .derived-road-cell {
+        background: none !important;
+        background-color: transparent !important;
+      }
+
+      /* Small Road: Solid circles */
+      #smallRoad .derived-road-cell.player {
+        background-color: #3b82f6;
+      }
+
+      #smallRoad .derived-road-cell.banker {
+        background-color: #ef4444;
+      }
+
+      /* Cockroach Road: Slashes */
+      #cockroachRoad .derived-road-cell {
+        background: transparent;
+        border-radius: 0;
+        position: relative;
+      }
+
+      #cockroachRoad .derived-road-cell.player::before {
+        /* Blue slash / */
+        content: "";
+        position: absolute;
+        width: 6px;
+        height: 2px;
+        background: #3b82f6;
+        top: 2.5px;
+        left: 0.5px;
+        transform: rotate(45deg);
+        transform-origin: center;
+        border-radius: 1px;
+      }
+
+      #cockroachRoad .derived-road-cell.banker::before {
+        /* Red slash \ */
+        content: "";
+        position: absolute;
+        width: 6px;
+        height: 2px;
+        background: #ef4444;
+        top: 2.5px;
+        left: 0.5px;
+        transform: rotate(-45deg);
+        transform-origin: center;
+        border-radius: 1px;
+      }
+
+      #smallAndCockroachContainer {
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        gap: 4px;
+      }
+
+      /* 에볼루션 스타일 베팅 영역 */
+      .betting-area {
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+        gap: 4px; /* 버튼 간 간격 */
+        margin-bottom: 1rem;
+        padding: 0 4px;
+        height: 100px; /* 모바일 기본 높이 - 120px에서 110px로 감소 */
+      }
+
+      /* 모바일 우선 - 베팅 영역 기본 스타일 */
+      .betting-area {
+        height: 120px; /* 모바일 기본 높이 */
+        gap: 4px; /* 모바일 기본 간격 */
+        display: flex;
+        padding: 8px;
+        overflow: hidden;
+      }
+
+      /* 점진적 향상 - 더 큰 화면에서 개선 */
+      @media (min-width: 480px) {
+        .betting-area {
+          height: 130px;
+          gap: 5px;
+        }
+      }
+
+      @media (min-width: 640px) {
+        .betting-area {
+          height: 140px;
+          gap: 6px;
+        }
+      }
+
+      @media (min-width: 768px) {
+        .betting-area {
+          height: 160px;
+          gap: 8px;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .betting-area {
+          gap: 10px;
+        }
+      }
+
+      /* 패드 가로 화면 최적화 (768px ~ 1366px) */
+      @media (min-width: 768px) and (max-width: 1600px) and (orientation: landscape) {
+        /* 미니게임 컨테이너 높이 줄이기 */
+        #miniGameContainer {
+          height: 180px !important; /* 기본 288px에서 180px로 감소 */
+        }
+
+        /* 베팅 영역 높이 줄이기 */
+        .betting-area {
+          height: 120px !important; /* 160px에서 120px로 감소 */
+          gap: 6px;
+        }
+
+        /* 베팅 옵션 패딩 줄이기 */
+        .bet-option {
+          padding: 2px 3px !important; /* 4px 4px에서 2px 3px로 감소 */
+        }
+
+        /* 최근 게임 결과 섹션 높이 줄이기 */
+        #recentResults {
+          min-height: 80px !important; /* 120px에서 80px로 감소 */
+        }
+
+        /* 마진과 패딩 줄이기 */
+        .mt-2,
+        .mb-2 {
+          margin-top: 0.25rem !important;
+          margin-bottom: 0.25rem !important;
+        }
+
+        /* 금액 선택 버튼 영역 패딩 줄이기 */
+        .amount-button {
+          padding: 4px 6px !important; /* 기본 패딩에서 더 줄임 (6px 8px -> 4px 6px) */
+          font-size: 0.7rem !important; /* 폰트 크기도 살짝 줄임 */
+        }
+
+        /* 하단 버튼 그리드 패딩 줄이기 */
+        .grid.grid-cols-3 {
+          margin-top: 0.25rem !important;
+          margin-bottom: 0.25rem !important;
+          padding-left: 0.5rem !important;
+          padding-right: 0.5rem !important;
+        }
+
+        /* 헤더 높이도 약간 줄이기 */
+        header {
+          height: 56px !important; /* 64px에서 56px로 감소 */
+        }
+
+        main {
+          padding-top: 56px !important; /* 헤더 높이에 맞춰 조정 */
+        }
+
+        /* 게임 상태 표시 영역 마진 줄이기 */
+        .mt-2.lg\\:mt-1 {
+          margin-top: 0.125rem !important;
+        }
+
+        /* 미니게임 컨테이너 래퍼 마진도 줄이기 */
+        #miniGameContainerWrapper {
+          margin-top: 0.25rem !important;
+          margin-bottom: 0.25rem !important;
+        }
+
+        /* 관리자/강조 메시지 바 위치 조정 */
+        #adminMessageBar {
+          top: 56px !important; /* 헤더 높이에 맞춰 조정 */
+        }
+      }
+
+      /* 모바일 우선 - 베팅 옵션 기본 스타일 */
+      .bet-option {
+        position: relative;
+        padding: 4px; /* 모바일에서 최소 패딩 */
+        border-radius: 8px; /* 모바일에서 적당한 둥글기 */
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        color: white;
+        font-weight: bold;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        flex-grow: 1;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        min-height: 80px; /* 모바일 최소 높이 */
+        touch-action: manipulation; /* 터치 최적화 */
+      }
+
+      /* 점진적 향상 - 더 큰 화면 */
+      @media (min-width: 480px) {
+        .bet-option {
+          padding: 6px;
+          border-radius: 9px;
+          min-height: 90px;
+        }
+      }
+
+      @media (min-width: 640px) {
+        .bet-option {
+          padding: 8px;
+          border-radius: 10px;
+          min-height: 100px;
+        }
+      }
+
+      @media (min-width: 768px) {
+        .bet-option {
+          padding: 10px;
+          border-radius: 12px;
+          min-height: 110px;
+        }
+      }
+
+      /* 모바일 우선 - 베팅 옵션 타이틀 기본 스타일 */
+      .bet-option .title {
+        font-size: 0.75rem; /* 모바일 기본 사이즈 */
+        margin-bottom: 2px;
+        line-height: 1.1;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+        position: relative;
+        z-index: 10;
+        font-weight: 700;
+      }
+
+      /* P/B/T 메인 옵션 타이틀 - 모바일 기본 */
+      .bet-option.player .title,
+      .bet-option.banker .title,
+      .bet-option.tie .title {
+        font-size: 0.8rem; /* 메인 옵션은 조금 더 크게 */
+      }
+
+      /* 페어 옵션 타이틀 - 모바일 기본 */
+      .bet-option.player-pair .title,
+      .bet-option.banker-pair .title {
+        font-size: 0.7rem; /* 페어는 더 작게 */
+      }
+
+      /* 점진적 향상 - 작은 태블릿 */
+      @media (min-width: 480px) {
+        .bet-option .title {
+          font-size: 0.85rem;
+        }
+        .bet-option.player .title,
+        .bet-option.banker .title,
+        .bet-option.tie .title {
+          font-size: 0.9rem;
+        }
+        .bet-option.player-pair .title,
+        .bet-option.banker-pair .title {
+          font-size: 0.75rem;
+        }
+      }
+
+      /* 중간 화면 */
+      @media (min-width: 640px) {
+        .bet-option .title {
+          font-size: 1rem;
+        }
+        .bet-option.player .title,
+        .bet-option.banker .title,
+        .bet-option.tie .title {
+          font-size: 1rem;
+        }
+        .bet-option.player-pair .title,
+        .bet-option.banker-pair .title {
+          font-size: 0.8rem;
+        }
+      }
+
+      /* 태블릿 */
+      @media (min-width: 768px) {
+        .bet-option .title {
+          font-size: 1.1rem;
+        }
+        .bet-option.player .title,
+        .bet-option.banker .title,
+        .bet-option.tie .title {
+          font-size: 1.1rem;
+        }
+        .bet-option.player-pair .title,
+        .bet-option.banker-pair .title {
+          font-size: 0.85rem;
+        }
+      }
+
+      /* 데스크톱 */
+      @media (min-width: 1024px) {
+        .bet-option .title {
+          font-size: 1.2rem;
+        }
+        .bet-option.player .title,
+        .bet-option.banker .title,
+        .bet-option.tie .title {
+          font-size: 1.2rem;
+        }
+        .bet-option.player-pair .title,
+        .bet-option.banker-pair .title {
+          font-size: 0.9rem;
+        }
+      }
+
+      .bet-option .odds {
+        font-size: 0.75rem; /* 배당률 폰트 크기 */
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      /* P/B/T 공통 내부 스타일 */
+      .bet-option.player .title,
+      .bet-option.banker .title,
+      .bet-option.tie .title {
+        font-size: 0.9rem; /* 1.2rem -> 0.9rem으로 축소 */
+        font-family: "Noto Serif KR", serif;
+        font-weight: 700;
+        margin-top: 4px; /* 원래 스타일 복원 또는 유지 */
+      }
+
+      .bet-option.player {
+        background: linear-gradient(
+          160deg,
+          rgba(0, 60, 180, 0.8),
+          /* 진한 파란색 계열 */ rgba(0, 40, 120, 0.9)
+        );
+        border: 2px solid rgba(59, 130, 246, 0.6); /* Blue */
+        flex-grow: 3; /* 플레이어 영역을 더 넓게 */
+      }
+      .bet-option.player.active {
+        transform: scale(1.03);
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);
+        border-color: rgba(96, 165, 250, 0.9);
+      }
+
+      .bet-option.banker {
+        background: linear-gradient(
+          160deg,
+          rgba(180, 0, 0, 0.8),
+          /* 진한 빨간색 계열 */ rgba(130, 0, 0, 0.9)
+        );
+        border: 2px solid rgba(239, 68, 68, 0.6); /* Red */
+        flex-grow: 3; /* 뱅커 영역을 더 넓게 */
+      }
+      .bet-option.banker.active {
+        transform: scale(1.03);
+        box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+        border-color: rgba(248, 113, 113, 0.9);
+      }
+
+      .bet-option.tie {
+        background: linear-gradient(
+          160deg,
+          rgba(0, 110, 60, 0.8),
+          /* 진한 녹색 계열 */ rgba(0, 80, 30, 0.9)
+        );
+        border: 2px solid rgba(16, 185, 129, 0.6); /* Green */
+        flex-grow: 1.5; /* 타이는 중간 크기 */
+      }
+      .bet-option.tie.active {
+        transform: scale(1.03);
+        box-shadow: 0 0 20px rgba(16, 185, 129, 0.8);
+        border-color: rgba(52, 211, 153, 0.9);
+      }
+
+      .bet-option.player-pair,
+      .bet-option.banker-pair {
+        background: linear-gradient(
+          /* P PAIR, B PAIR 배경 수정 */ 160deg,
+          rgba(40, 40, 90, 0.7),
+          /* 약간 푸른/붉은 기운이 도는 어두운 배경 */ rgba(20, 20, 50, 0.8)
+        );
+        border: 1px solid rgba(107, 114, 128, 0.5);
+        flex-grow: 1; /* 페어는 가장 작게 */
+        justify-content: center;
+        padding-top: 12px; /* P PAIR, B PAIR 텍스트 위치 조정 */
+        padding-bottom: 12px;
+      }
+      .bet-option.player-pair {
+        border-left-color: rgba(
+          59,
+          130,
+          246,
+          0.6
+        ); /* 플레이어쪽 페어는 파란색 테두리 힌트 */
+      }
+      .bet-option.banker-pair {
+        border-right-color: rgba(
+          239,
+          68,
+          68,
+          0.6
+        ); /* 뱅커쪽 페어는 빨간색 테두리 힌트 */
+      }
+
+      .bet-option.player-pair .title,
+      .bet-option.banker-pair .title {
+        font-size: 0.75rem; /* 0.9rem -> 0.75rem으로 축소 */
+        margin-bottom: 2px;
+      }
+      .bet-option.player-pair .odds,
+      .bet-option.banker-pair .odds {
+        font-size: 0.75rem;
+      }
+
+      .bet-option.player-pair.active,
+      .bet-option.banker-pair.active {
+        transform: scale(1.03);
+        box-shadow: 0 0 15px rgba(107, 114, 128, 0.7);
+        border: 1px solid rgba(156, 163, 175, 0.8);
+      }
+
+      /* P/B/T 버튼 내 통계 표시 스타일 수정 */
+      .bet-stats-container {
+        display: flex;
+        flex-direction: column; /* 세로로 배치 */
+        align-items: center; /* 중앙 정렬 */
+        justify-content: center; /* 중앙 정렬 */
+        gap: 4px; /* 요소 간 간격 */
+        width: 100%;
+        padding: 0 5px;
+        margin-top: auto; /* 타이틀과 배당률 아래로 밀기 */
+        margin-bottom: 5px; /* 하단 여백 추가 */
+        position: relative; /* z-index 적용을 위해 */
+        z-index: 10; /* 카드보다 위에 오도록 */
+      }
+
+      .bet-stats-container .percentage-circle {
+        width: 32px; /* 코인 크기 조정 */
+        height: 32px;
+        border-radius: 50%;
+        background-color: rgba(0, 0, 0, 0.4); /* 배경 약간 더 어둡게 */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 0.8rem; /* 폰트 크기 조정 */
+        font-weight: bold;
+        color: #ffd700;
+        border: 2px solid; /* 테두리 두께 유지 */
+        flex-shrink: 0;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.5); /* 약간의 그림자 */
+      }
+
+      .bet-option.player .percentage-circle {
+        border-color: #60a5fa; /* 밝은 파랑 */
+      }
+      .bet-option.banker .percentage-circle {
+        border-color: #f87171; /* 밝은 빨강 */
+      }
+      .bet-option.tie .percentage-circle {
+        border-color: #34d399; /* 밝은 초록 */
+      }
+
+      .bet-stats-container .stats-details {
+        display: flex;
+        flex-direction: column;
+        align-items: center; /* 중앙 정렬 */
+        font-size: 0.65rem; /* 폰트 크기 조정 */
+        color: rgba(255, 255, 255, 0.9);
+        line-height: 1.1;
+      }
+      .bet-stats-container .stats-details .total-bet {
+        font-weight: bold;
+        color: #60a5fa; /* 전체 베팅액 파란색 구분 */
+        font-size: 0.7rem;
+      }
+      .bet-stats-container .stats-details .my-bet-amount {
+        font-weight: bold;
+        color: #fbbf24; /* 내 베팅액 금색 텍스트 */
+        font-size: 0.75rem; /* 폰트 크기 증가 */
+        padding: 1px 2px; /* 패딩 최소화 */
+        order: -1; /* 맨 위로 정렬 */
+      }
+      .bet-amounts-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px; /* 간격 증가 */
+        line-height: 1.1;
+      }
+      .bet-stats-container .stats-details .bettor-count {
+        font-size: 0.6rem;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      /* 금액 선택 영역 동그라미 버튼 스타일 유지 */
+      .amount-button {
+        width: 46px; /* 모바일 기본 크기 (50px -> 46px) */
+        height: 46px;
+        border-radius: 50%;
+        background: linear-gradient(145deg, #374151, #4b5563);
+        border: 2px solid #6b7280;
+        color: #fbbf24;
+        font-weight: 600;
+        font-size: 0.65rem; /* 모바일 기본 폰트 (0.7rem -> 0.65rem) */
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+      }
+
+      /* 모바일 우선 - 카지노 칩 스타일 금액 선택 버튼 */
+      .amount-button {
+        width: 40px; /* 모바일 기본 크기 - 칩 스타일 (45px -> 40px) */
+        height: 40px;
+        font-size: 0.5rem; /* 모바일 기본 폰트 (0.55rem -> 0.5rem) */
+        border-radius: 50%; /* 완전한 원형 칩 */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        transition: all 0.3s ease;
+        touch-action: manipulation; /* 터치 최적화 */
+        min-width: 40px; /* 최소 터치 타겟 크기 보장 (45px -> 40px) */
+        min-height: 40px;
+
+        /* 카지노 칩 그라데이션 효과 */
+        background: linear-gradient(
+          145deg,
+          #b8860b 0%,
+          #daa520 30%,
+          #ffd700 50%,
+          #daa520 70%,
+          #b8860b 100%
+        );
+        border: 3px solid #2a2a2a; /* 어두운 테두리 */
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4),
+          /* 그림자 */ inset 0 2px 4px rgba(255, 255, 255, 0.3),
+          /* 상단 하이라이트 */ inset 0 -2px 4px rgba(0, 0, 0, 0.3); /* 하단 그림자 */
+        color: #1a1a1a; /* 어두운 텍스트 */
+        font-weight: 900; /* 굵은 폰트 */
+        text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.3);
+      }
+
+      /* 점진적 향상 - 작은 태블릿 */
+      @media (min-width: 480px) {
+        .amount-button {
+          width: 50px;
+          height: 50px;
+          font-size: 0.6rem;
+          border-width: 3px;
+        }
+      }
+
+      /* 중간 화면 */
+      @media (min-width: 640px) {
+        .amount-button {
+          width: 55px;
+          height: 55px;
+          font-size: 0.65rem;
+          border-width: 4px;
+        }
+      }
+
+      /* 태블릿 */
+      @media (min-width: 768px) {
+        .amount-button {
+          width: 60px;
+          height: 60px;
+          font-size: 0.7rem;
+          border-width: 4px;
+        }
+      }
+
+      /* 데스크톱 */
+      @media (min-width: 1024px) {
+        .amount-button {
+          width: 65px;
+          height: 65px;
+          font-size: 0.75rem;
+          border-width: 5px;
+        }
+      }
+      /* 활성 카지노 칩 스타일 */
+      .amount-button.active {
+        background: linear-gradient(
+          145deg,
+          #dc2626 0%,
+          #ef4444 30%,
+          #f87171 50%,
+          #ef4444 70%,
+          #dc2626 100%
+        );
+        color: white;
+        transform: scale(1.1);
+        box-shadow: 0 0 20px rgba(239, 68, 68, 0.6),
+          0 6px 15px rgba(0, 0, 0, 0.4),
+          inset 0 2px 6px rgba(255, 255, 255, 0.4),
+          inset 0 -2px 6px rgba(0, 0, 0, 0.4);
+        border-color: #7f1d1d;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+        animation: chipGlow 1.5s ease-in-out infinite alternate;
+      }
+
+      /* 칩 호버 효과 */
+      .amount-button:hover {
+        transform: scale(1.05) translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4),
+          inset 0 3px 6px rgba(255, 255, 255, 0.4),
+          inset 0 -3px 6px rgba(0, 0, 0, 0.4);
+      }
+
+      /* 칩 클릭 효과 */
+      .amount-button:active {
+        transform: scale(0.95) translateY(1px);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4),
+          inset 0 1px 3px rgba(255, 255, 255, 0.2),
+          inset 0 -1px 3px rgba(0, 0, 0, 0.5);
+      }
+
+      /* 칩 반짝임 애니메이션 */
+      @keyframes chipGlow {
+        0% {
+          box-shadow: 0 0 15px rgba(239, 68, 68, 0.4),
+            0 6px 15px rgba(0, 0, 0, 0.4),
+            inset 0 2px 6px rgba(255, 255, 255, 0.4),
+            inset 0 -2px 6px rgba(0, 0, 0, 0.4);
+        }
+        100% {
+          box-shadow: 0 0 25px rgba(239, 68, 68, 0.8),
+            0 6px 15px rgba(0, 0, 0, 0.4),
+            inset 0 2px 6px rgba(255, 255, 255, 0.4),
+            inset 0 -2px 6px rgba(0, 0, 0, 0.4);
+        }
+      }
+
+      /* P PAIR, B PAIR 내부 통계 표시를 위한 스타일 추가 */
+      .bet-option.player-pair .bet-stats-container,
+      .bet-option.banker-pair .bet-stats-container {
+        margin-top: 2px; /* odds와 간격 */
+        margin-bottom: 2px; /* 하단 간격 */
+        /* 기존 .bet-stats-container 스타일이 적용되지만, 필요시 여기서 P/B PAIR에 특화된 스타일 추가 가능 */
+      }
+      .bet-option.player-pair .percentage-circle, /* 페어 베팅에는 퍼센트 코인 미표시 */
+      .bet-option.banker-pair .percentage-circle {
+        display: none;
+      }
+      /* P PAIR, B PAIR는 인원수와 금액만 표시하므로 stats-details 정렬 조정 */
+      .bet-option.player-pair .stats-details,
+      .bet-option.banker-pair .stats-details {
+        justify-content: center; /* 수직 중앙 정렬 */
+        gap: 2px; /* 금액과 인원수 간격 */
+      }
+
+      /* 카드 표시 영역 스타일 */
+      .card-display-area {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 2px; /* 카드 간 간격 */
+        position: absolute;
+        left: 50%;
+        top: 50%; /* 세로 중앙 기준으로 설정 */
+        transform: translate(
+          -50%,
+          -85%
+        ); /* 가로 중앙, 세로 약간 위로(-100%에서 -85%로) 조정 */
+        height: 25px;
+        z-index: 5; /* 타이틀과 통계 사이에 오도록 z-index 조정 */
+        /* 버튼 내부 다른 요소들과의 간격을 위해 필요시 margin 추가 */
+      }
+
+      .card-slot {
+        width: 18px; /* 카드 너비 (기존 15px에서 증가) */
+        height: 25px; /* 카드 높이 (사용자 요청 반영) */
+        border-radius: 3px; /* 모서리 둥글기 약간 증가 */
+        background-color: rgba(255, 255, 255, 0.8);
+        color: black;
+        font-size: 0.8rem; /* 카드 텍스트 크기 (기존 0.7rem에서 증가) */
+        font-weight: bold;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+      }
+
+      .player-cards .card-slot {
+        border: 1px solid #3b82f6; /* 플레이어 카드 테두리 */
+      }
+
+      .banker-cards .card-slot {
+        border: 1px solid #ef4444; /* 뱅커 카드 테두리 */
+      }
