@@ -2,11 +2,13 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-![Project Status](https://img.shields.io/badge/status-active-success.svg)
+![Project Status](https://img.shields.io/badge/status-reference-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-1.0.0-gold.svg)
 
 **Golden Casino** is a premium, web-based Baccarat game platform featuring real-time multiplayer gameplay, a robust financial system (deposit/withdrawal), and a comprehensive admin dashboard. Designed with a luxury "Dark & Gold" aesthetic, it provides an immersive experience for players and powerful tools for operators.
+
+> This is a public portfolio and learning demo. It does not provide real-money gambling, deposits, withdrawals, or betting services.
 
 ---
 
@@ -130,4 +132,4 @@ Access the app at: `http://127.0.0.1:5500`
 
 ---
 
-Copyright © 2026 Golden Casino Project. All Rights Reserved.
+Released under the MIT License. See [LICENSE](./LICENSE).

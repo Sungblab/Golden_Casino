@@ -2,11 +2,13 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-![Project Status](https://img.shields.io/badge/status-active-success.svg)
+![Project Status](https://img.shields.io/badge/status-reference-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-1.0.0-gold.svg)
 
 **Golden Casino**는 실제 바카라 테이블의 현장감을 웹으로 옮겨온 프리미엄 카지노 플랫폼입니다. 플레이어 간의 소통(채팅, 송금) 기능을 강화하고, 관리자는 게임 흐름과 경제 시스템을 완벽하게 통제할 수 있도록 설계되었습니다. "다크 & 골드" 테마를 적용하여 고급스러운 시각적 경험을 제공합니다.
+
+> 공개 포트폴리오 및 학습용 데모입니다. 실제 금전 거래, 환전, 도박 서비스를 제공하지 않습니다.
 
 ---
 
@@ -130,4 +132,4 @@ node server.js
 
 ---
 
-Copyright © 2026 Golden Casino Project. All Rights Reserved.
+Released under the MIT License. See [LICENSE](./LICENSE).
