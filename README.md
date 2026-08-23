@@ -1,135 +1,43 @@
-# 🎰 Golden Casino
+# Golden Casino Platform
 
-[한국어](README.md) | [English](README.en.md)
+Golden Casino의 React + TypeScript 차세대 플랫폼입니다. 기존 Vanilla JS/MongoDB 구현은 삭제하지 않고 [`reference/legacy`](./reference/legacy)에 보존되어 있습니다.
 
-![Project Status](https://img.shields.io/badge/status-reference-lightgrey.svg)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.0.0-gold.svg)
+현재 첫 마일스톤은 다음 흐름을 실제로 연결합니다.
 
-**Golden Casino**는 실제 바카라 테이블의 현장감을 웹으로 옮겨온 프리미엄 카지노 플랫폼입니다. 플레이어 간의 소통(채팅, 송금) 기능을 강화하고, 관리자는 게임 흐름과 경제 시스템을 완벽하게 통제할 수 있도록 설계되었습니다. "다크 & 골드" 테마를 적용하여 고급스러운 시각적 경험을 제공합니다.
-
-> 공개 포트폴리오 및 학습용 데모입니다. 실제 금전 거래, 환전, 도박 서비스를 제공하지 않습니다.
-
----
-
-### 📖 프로젝트 개요
-
-**Golden Casino**는 실제 바카라 테이블의 현장감을 웹으로 옮겨온 프리미엄 카지노 플랫폼입니다. 플레이어 간의 소통(채팅, 송금) 기능을 강화하고, 관리자는 게임 흐름과 경제 시스템을 완벽하게 통제할 수 있도록 설계되었습니다. "다크 & 골드" 테마를 적용하여 고급스러운 시각적 경험을 제공합니다.
-
-### ✨ 주요 기능
-
-#### 👤 플레이어 (User) 기능
-
-- **실시간 바카라 게임**:
-  - 실제 바카라 룰(플레이어, 뱅커, 타이, 페어)을 완벽하게 구현했습니다.
-  - Socket.IO를 이용한 실시간 게임 진행 및 결과 동기화.
-  - 베팅, 승리, 배경음 등 몰입감 있는 사운드 효과 제공.
-- **경제 시스템 (재정 관리)**:
-  - **충전 및 환전**: 직관적인 UI로 코인 충전/환전을 신청하고 내역을 조회할 수 있습니다.
-  - **유저 간 송금 (뽀찌)**: 다른 플레이어에게 코인을 선물할 수 있는 송금 시스템을 지원합니다.
-  - **롤링 시스템**: 환전 가능한 조건을 충족했는지 롤링(베팅 총액) 현황을 보여줍니다.
-- **커뮤니티 및 소셜**:
-  - **실시간 채팅**: 관리자 강조 메시지 수신 및 일반 유저 간 대화 기능.
-  - **리더보드**: 보유 코인 및 승률에 따른 실시간 전체 랭킹 제공.
-  - **마이페이지**: 상세한 베팅 기록과 개인 승패 통계 제공.
-
-#### 🛡️ 관리자 (Admin) 기능
-
-- **대시보드**:
-  - 접속 중인 유저 현황과 진행 중인 베팅 상태를 한눈에 파악.
-  - **하우스 통계**: 전체 베팅액, 하우스 수익(딜러 수익), 전반적인 재정 상태 모니터링.
-- **회원 관리**:
-  - 신규 회원 가입 승인 처리.
-  - 비밀번호 초기화 및 악성 유저 삭제/차단.
-  - 관리자 권한 부여 및 회수.
-  - **잔액 수동 조절**: 특정 유저의 코인을 즉시 지급하거나 회수하는 기능.
-- **게임 관리**:
-  - **자동 게임 모드**: 원하는 횟수만큼 게임을 자동으로 진행시킵니다.
-  - **공지 메시지 바**: 화면 상단에 긴급 공지나 강조 메시지를 띄울 수 있습니다.
-
-### 🛠️ 기술 스택
-
-| 분류             | 기술              | 설명                                           |
-| ---------------- | ----------------- | ---------------------------------------------- |
-| **프론트엔드**   | HTML5, Vanilla JS | 가볍고 표준화된 웹 기술 사용.                  |
-| **스타일링**     | Tailwind CSS      | 빠르고 유연한 반응형 디자인 구현.              |
-| **백엔드**       | Node.js, Express  | 확장성 높은 서버 로직 처리.                    |
-| **데이터베이스** | MongoDB, Mongoose | 유저 데이터 및 로그 저장을 위한 유연한 스키마. |
-| **실시간 통신**  | Socket.IO         | 게임 상태 및 채팅을 위한 양방향 통신.          |
-| **보안**         | JWT, bcryptjs     | 안전한 사용자 인증 및 비밀번호 암호화.         |
-
-### 📂 프로젝트 구조
-
-```bash
-Golden_Casino/
-├── golden_casino_backend/      # 백엔드 (서버) 코드
-│   ├── server.js               # 메인 서버 로직 (API & 소켓)
-│   ├── package.json            # 라이브러리 의존성
-│   └── .env                    # 환경 변수 설정 파일
-└── golden_casino_frontend/     # 프론트엔드 (클라이언트) 코드
-    ├── index.html              # 로그인 및 랜딩 페이지
-    ├── register.html           # 회원가입 페이지
-    ├── user.html               # 플레이어용 메인 게임 화면
-    ├── user.js                 # 플레이어 게임 로직 스크립트
-    ├── admin.html              # 관리자용 대시보드 화면
-    ├── admin.js                # 관리자 기능 로직 스크립트
-    └── assets/                 # 이미지, 사운드(.mp3), 폰트 등 리소스
+```text
+로그인 → 게임 로비 → 한도별 바카라 방 → 자동 라운드 → 원장 기반 베팅·정산
 ```
 
-### 🚀 설치 및 실행 가이드
+## 기술 구성
 
-#### 1. 사전 준비 사항
+- `apps/web`: React, Vite, Socket.IO Client
+- `apps/api`: Express, Socket.IO, PostgreSQL
+- `packages/contracts`: 프론트·백엔드 공통 타입과 Zod 계약
+- `packages/game-core`: 외부 의존성 없는 바카라 규칙 엔진
+- `reference/legacy`: 기존 Golden Casino 프론트·백엔드와 HTML 프로토타입
 
-- **Node.js**: v14.x 이상 버전.
-- **MongoDB**: 로컬 설치 또는 MongoDB Atlas 클라우드 주소.
+코인은 PostgreSQL `BIGINT` minor unit으로 기록되며 1코인은 내부적으로 100단위입니다. 모든 코인 이동은 합계가 0인 원장 엔트리로 처리됩니다.
 
-#### 2. 백엔드 설정 및 실행
-
-터미널에서 `golden_casino_backend` 폴더로 이동 후 패키지를 설치합니다.
+## 로컬 실행
 
 ```bash
-cd golden_casino_backend
 npm install
+npm run db:up
+npm run db:migrate
+npm run db:seed
+npm run dev
 ```
 
-`golden_casino_backend` 폴더 안에 `.env` 파일을 생성하고 아래 내용을 입력하세요.
+- React: http://127.0.0.1:5173
+- API: http://127.0.0.1:5100
+- 개발 계정: `demo` / `demo1234`
 
-```env
-# .env 환경 변수 예시
-JWT_SECRET=원하는_비밀_키_입력
-MONGO_URI=mongodb://localhost:27017/betting_game
-FRONTEND_URL=http://127.0.0.1:5500
-PORT=5000
-```
-
-서버를 실행합니다.
+## 검증
 
 ```bash
-npm start
-# 또는 개발 모드로 실행 시(로그 확인 용이)
-node server.js
+npm run check
 ```
 
-#### 3. 프론트엔드 실행
+자세한 설계와 진행 범위는 [`docs/architecture.md`](./docs/architecture.md), [`docs/roadmap.md`](./docs/roadmap.md)를 참고하세요.
 
-프론트엔드는 정적 파일이므로, CORS 문제 방지를 위해 로컬 웹 서버를 통해 실행해야 합니다.
-
-- **VS Code 사용 시**: `index.html` 파일 우클릭 -> "Open with Live Server" 선택.
-- **Python 사용 시**: `golden_casino_frontend` 폴더에서 `python -m http.server 5500` 입력.
-
-브라우저 주소창에 `http://127.0.0.1:5500` 입력하여 접속합니다.
-
-### 📝 API 문서 요약
-
-| 메서드 | 엔드포인트                          | 설명                            | 인증 필요  |
-| :----: | ----------------------------------- | ------------------------------- | :--------: |
-| `POST` | `/api/auth/register`                | 신규 회원 가입 요청.            |     ❌     |
-| `POST` | `/api/auth/login`                   | 로그인 및 토큰 발급.            |     ❌     |
-| `GET`  | `/api/auth/user-info`               | 현재 로그인된 사용자 정보 조회. |     ✅     |
-| `GET`  | `/api/admin/users`                  | 전체 회원 목록 조회 (관리자용). | ✅ (Admin) |
-| `PUT`  | `/api/admin/users/:id/approve`      | 대기 중인 회원 가입 승인.       | ✅ (Admin) |
-| `PUT`  | `/api/admin/users/:id/adjust-coins` | 회원 잔액 수동 변경.            | ✅ (Admin) |
-
----
-
-Released under the MIT License. See [LICENSE](./LICENSE).
+> 포트폴리오 및 학습용 코인 데모입니다. 실제 금전 거래나 도박 서비스를 제공하지 않습니다.

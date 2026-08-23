@@ -1,0 +1,115 @@
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import type { GameRoom, PublicAuthUser } from "@golden/contracts";
+import { AppShell } from "../components/AppShell";
+import { BigRoad } from "../components/BigRoad";
+import { getLobby, pauseRoom, resumeRoom } from "../api";
+
+const POLL_INTERVAL_MS = 5_000;
+
+export function LobbyPage({ token, user, onLogout }: { token: string; user: PublicAuthUser | null; onLogout: () => void }) {
+  const navigate = useNavigate();
+  const [rooms, setRooms] = useState<GameRoom[]>([]);
+  const [balance, setBalance] = useState(0);
+  const [selectedGame, setSelectedGame] = useState<"all" | "baccarat" | "blackjack">("all");
+  const [error, setError] = useState("");
+  const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    getLobby(token)
+      .then((data) => {
+        setRooms(data.rooms);
+        setBalance(data.walletBalance);
+        setError("");
+      })
+      .catch((caught) => setError(caught instanceof Error ? caught.message : "로비 정보를 불러오지 못했습니다."));
+  }, [token]);
+
+  useEffect(() => reload(), [reload]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      reload();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [reload]);
+
+  const togglePause = async (room: GameRoom) => {
+    setBusyRoomId(room.id);
+    try {
+      if (room.paused) await resumeRoom(token, room.id);
+      else await pauseRoom(token, room.id);
+      reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "요청에 실패했습니다.");
+    } finally {
+      setBusyRoomId(null);
+    }
+  };
+
+  const baccaratRooms = rooms.filter((room) => room.gameType === "baccarat");
+  const blackjackRooms = rooms.filter((room) => room.gameType === "blackjack");
+
+  const renderCard = (room: GameRoom) => (
+    <article className="room-card" key={room.id}>
+      <div className="room-top">
+        <span className={room.paused ? "waiting" : room.phase === "WAITING" ? "waiting" : "live-pill"}>
+          {room.paused ? "일시정지" : room.phase === "WAITING" ? "대기 중" : room.phase}
+        </span>
+        <span>{room.playerCount}명</span>
+      </div>
+      <h3>{room.name}</h3>
+      <p>
+        {room.minBet}–{room.maxBet} 코인
+      </p>
+      {room.gameType === "baccarat" && <BigRoad history={room.recentResults ?? []} compact />}
+      <button className="outline-button" onClick={() => navigate(room.gameType === "blackjack" ? `/rooms/blackjack/${room.id}` : `/rooms/${room.id}`)}>
+        테이블 입장
+      </button>
+      {user?.role === "admin" && (
+        <button className="admin-toggle-button" disabled={busyRoomId === room.id} onClick={() => togglePause(room)}>
+          {room.paused ? "방 재개" : "방 일시정지"}
+        </button>
+      )}
+    </article>
+  );
+
+  return (
+    <AppShell balance={balance} onLogout={onLogout}>
+      <div className="lobby-toolbar">
+        <div className="game-switcher" role="tablist" aria-label="게임 선택">
+          <button className={selectedGame === "all" ? "active" : ""} onClick={() => setSelectedGame("all")} role="tab" aria-selected={selectedGame === "all"}>
+            전체 <span>{rooms.length}</span>
+          </button>
+          <button className={selectedGame === "baccarat" ? "active" : ""} onClick={() => setSelectedGame("baccarat")} role="tab" aria-selected={selectedGame === "baccarat"}>
+            바카라 <span>{baccaratRooms.length}</span>
+          </button>
+          <button className={selectedGame === "blackjack" ? "active" : ""} onClick={() => setSelectedGame("blackjack")} role="tab" aria-selected={selectedGame === "blackjack"}>
+            블랙잭 <span>{blackjackRooms.length}</span>
+          </button>
+        </div>
+      </div>
+
+      {selectedGame === "all" ? (
+        <>
+          <section className="room-section">
+            <h2 className="room-section-title">
+              바카라 <span>{baccaratRooms.length}</span>
+            </h2>
+            <div className="room-grid">{baccaratRooms.map(renderCard)}</div>
+          </section>
+          <section className="room-section">
+            <h2 className="room-section-title">
+              블랙잭 <span>{blackjackRooms.length}</span>
+            </h2>
+            <div className="room-grid">{blackjackRooms.map(renderCard)}</div>
+          </section>
+        </>
+      ) : (
+        <div className="room-grid">{(selectedGame === "baccarat" ? baccaratRooms : blackjackRooms).map(renderCard)}</div>
+      )}
+      {error && <p className="error-message">{error}</p>}
+    </AppShell>
+  );
+}

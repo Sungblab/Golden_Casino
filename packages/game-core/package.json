@@ -1,0 +1,23 @@
+{
+  "name": "@golden/game-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./big-road": "./src/big-road.ts",
+    "./derived-roads": "./src/derived-roads.ts",
+    "./baccarat": "./src/baccarat.ts",
+    "./blackjack": "./src/blackjack.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@golden/contracts": "*"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.7"
+  }
+}

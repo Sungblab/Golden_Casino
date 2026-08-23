@@ -1,0 +1,29 @@
+{
+  "name": "golden-casino-platform",
+  "private": true,
+  "version": "2.0.0-dev",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c yellow,green \"npm run dev -w @golden/api\" \"npm run dev -w @golden/web\"",
+    "dev:api": "npm run dev -w @golden/api",
+    "dev:web": "npm run dev -w @golden/web",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate -w @golden/api",
+    "db:seed": "npm run db:seed -w @golden/api",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+*.tsbuildinfo
+dist/
+.env
+.env.local
+coverage/
+*.log
+.DS_Store
+.vite/
+
+# Local tooling and visual QA artifacts
+/.claude/
+/.playwright-mcp/
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
