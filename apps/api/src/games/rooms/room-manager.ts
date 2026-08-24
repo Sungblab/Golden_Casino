@@ -44,6 +44,21 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/**
+ * Round timing. Named the same way as blackjack-room-manager.ts so the two tables are
+ * read side by side.
+ *
+ * DEALING_MS is the one value that is not free to pick: the web client reveals the round's
+ * cards one at a time (see DEAL_STEP_MS in BaccaratRoomPage.tsx) and a six-card round takes
+ * ~2.8s to finish that animation. Anything shorter here and the table settles while the
+ * player is still watching cards land, so the result banner flashes past.
+ */
+const BETTING_MS = 12_000;
+const LOCKED_MS = 700;
+const DEALING_MS = 3_400;
+const SETTLING_MS = 1_000;
+const RESULT_MS = 4_000;
+
 class BaccaratRoomActor {
   private phase: RoomPhase = "WAITING";
   private roundId: string | null = null;
@@ -62,7 +77,10 @@ class BaccaratRoomActor {
   constructor(private readonly io: GoldenServer, readonly room: RoomRow) {}
 
   async loadHistory(): Promise<void> {
-    this.recentResults = await baccaratBetService.recentResults(this.room.id);
+    // The shoe itself is in memory and is freshly shuffled after a server restart.
+    // Loading results from an older shoe would create a false road, so a new process
+    // deliberately starts with a clean scoreboard as a physical table would after a shuffle.
+    this.recentResults = [];
   }
 
   setPaused(paused: boolean): void {
@@ -185,7 +203,7 @@ class BaccaratRoomActor {
           game: "baccarat",
           username: this.usernames.get(win.userId) ?? "player",
           choiceLabel: BACCARAT_CHOICE_LABEL[win.choice],
-          amount: Math.floor(win.payoutMinor / COIN_SCALE),
+          amount: win.profitMinor / COIN_SCALE,
         }),
       );
       this.recentWinners = pushWinnerEntries(this.recentWinners, entries);
@@ -263,18 +281,23 @@ class BaccaratRoomActor {
       [this.room.id, Number(next.rows[0]!.next_number)],
     );
     this.roundId = created.rows[0]!.id;
-    await this.setPhase("BETTING", 12_000);
-    await delay(12_000);
+    await this.setPhase("BETTING", BETTING_MS);
+    await delay(BETTING_MS);
     if (token !== this.cycleToken) return;
 
     // Persist LOCKED before dealing so late bets observe the closed DB phase.
-    await this.setPhase("LOCKED", 700);
+    await this.setPhase("LOCKED", LOCKED_MS);
     // A participant keeps the table alive even when they skip this round.
     // We still deal and publish a result; settlement simply has no ledger work
     // when the round contains no wagers.
-    await delay(700);
-    await this.setPhase("DEALING", 2_000);
-    if (this.shoe.remaining < 60) this.shoe = new Shoe(6);
+    await delay(LOCKED_MS);
+    await this.setPhase("DEALING", DEALING_MS);
+    // Road maps represent the active shoe, which is how a live baccarat table
+    // presents statistics. A fresh six-deck shoe starts with a fresh road.
+    if (this.shoe.remaining < 60) {
+      this.shoe = new Shoe(6);
+      this.recentResults = [];
+    }
     this.result = playBaccaratRound(this.shoe);
     this.recentResults = [
       ...this.recentResults,
@@ -290,16 +313,16 @@ class BaccaratRoomActor {
     // "sequence >= current" can keep the empty-hand snapshot and never see the cards.
     this.sequence += 1;
     await this.emitSnapshots();
-    await delay(2_000);
-    await this.setPhase("SETTLING", 1_000);
+    await delay(DEALING_MS);
+    await this.setPhase("SETTLING", SETTLING_MS);
     const { balances, wins } = await this.settleWithRetry(this.result);
     for (const [userId, balance] of balances) {
       for (const socketId of this.participants.get(userId) ?? []) this.io.to(socketId).emit("wallet.updated", { balance });
     }
     this.broadcastWinners(wins);
     await pool.query("UPDATE game_rounds SET phase='RESULT',settled_at=now() WHERE id=$1", [this.roundId]);
-    await this.setPhase("RESULT", 4_000);
-    await delay(4_000);
+    await this.setPhase("RESULT", RESULT_MS);
+    await delay(RESULT_MS);
     this.phase = "WAITING";
     this.phaseEndsAt = null;
     this.roundId = null;

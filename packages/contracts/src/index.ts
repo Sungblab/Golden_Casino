@@ -9,6 +9,7 @@ export const roomPhaseSchema = z.enum([
   "LOCKED",
   "DEALING",
   // Blackjack-only phases: players act on their own hands, then the dealer plays out.
+  "INSURANCE",
   "PLAYER_TURN",
   "DEALER_TURN",
   "SETTLING",
@@ -88,11 +89,11 @@ export const adminUserSchema = z.object({
   totalWagered: z.number().int().nonnegative(),
   wins: z.number().int().nonnegative(),
   losses: z.number().int().nonnegative(),
+  wageringRemaining: z.number().int().nonnegative(),
 });
 export type AdminUser = z.infer<typeof adminUserSchema>;
 
 export const adminHouseStatsSchema = z.object({
-  balance: z.number().int(),
   totalWagered: z.number().int().nonnegative(),
   houseProfit: z.number().int(),
   settledWagers: z.number().int().nonnegative(),
@@ -105,7 +106,6 @@ export const adminHouseStatsSchema = z.object({
 export type AdminHouseStats = z.infer<typeof adminHouseStatsSchema>;
 
 export const adminOverviewSchema = z.object({
-  walletBalance: z.number().int().nonnegative(),
   rooms: z.array(gameRoomSchema),
   users: z.array(adminUserSchema),
   house: adminHouseStatsSchema,
@@ -150,29 +150,61 @@ export const cancelBetCommandSchema = z.object({
 export type CancelBetCommand = z.infer<typeof cancelBetCommandSchema>;
 
 // ---------------------------------------------------------------------------
-// Blackjack: one hand per seated player against a shared dealer hand. Players
-// act on their own hand independently (no turn order) during PLAYER_TURN; the
-// dealer then plays out and every hand settles together. No split/insurance yet.
+// Blackjack: seven seats share a dealer. A seat may hold up to four hands after
+// splits, while insurance remains a separate wager against dealer blackjack.
 // ---------------------------------------------------------------------------
 
-export const blackjackHandStatusSchema = z.enum(["playing", "stand", "bust", "blackjack", "doubled"]);
+export const blackjackHandStatusSchema = z.enum(["playing", "stand", "bust", "blackjack", "doubled", "surrendered"]);
 export type BlackjackHandStatus = z.infer<typeof blackjackHandStatusSchema>;
 
-export const blackjackOutcomeSchema = z.enum(["win", "lose", "push", "blackjack"]);
+export const blackjackOutcomeSchema = z.enum(["win", "lose", "push", "blackjack", "surrender"]);
 export type BlackjackOutcome = z.infer<typeof blackjackOutcomeSchema>;
 
-export const blackjackActionSchema = z.enum(["hit", "stand", "double"]);
+export const blackjackActionSchema = z.enum(["hit", "stand", "double", "split", "surrender"]);
 export type BlackjackAction = z.infer<typeof blackjackActionSchema>;
 
 export const blackjackPlayerHandSchema = z.object({
+  handId: z.string().uuid(),
   userId: z.string().uuid(),
   username: z.string(),
+  seatNumber: z.number().int().min(1).max(7),
+  handIndex: z.number().int().min(0).max(3),
+  fromSplit: z.boolean(),
+  splitAces: z.boolean(),
   cards: z.array(cardSchema),
   bet: z.number().int().positive(),
   status: blackjackHandStatusSchema,
   outcome: blackjackOutcomeSchema.nullable(),
 });
 export type BlackjackPlayerHand = z.infer<typeof blackjackPlayerHandSchema>;
+
+export const blackjackBehindBetSnapshotSchema = z.object({
+  userId: z.string().uuid(),
+  username: z.string(),
+  targetSeat: z.number().int().min(1).max(7),
+  amount: z.number().int().positive(),
+  outcome: blackjackOutcomeSchema.nullable(),
+});
+export type BlackjackBehindBetSnapshot = z.infer<typeof blackjackBehindBetSnapshotSchema>;
+
+export const blackjackInsuranceSnapshotSchema = z.object({
+  amount: z.number().int().positive(),
+  outcome: z.enum(["win", "lose"]).nullable(),
+});
+export type BlackjackInsuranceSnapshot = z.infer<typeof blackjackInsuranceSnapshotSchema>;
+
+export const blackjackSeatSnapshotSchema = z.object({
+  seatNumber: z.number().int().min(1).max(7),
+  userId: z.string().uuid().nullable(),
+  username: z.string().nullable(),
+  hand: blackjackPlayerHandSchema.nullable(),
+  hands: z.array(blackjackPlayerHandSchema).max(4),
+  behindBetTotal: z.number().int().nonnegative(),
+  behindBetCount: z.number().int().nonnegative(),
+  myBehindBet: z.number().int().nonnegative(),
+  winStreak: z.number().int().nonnegative(),
+});
+export type BlackjackSeatSnapshot = z.infer<typeof blackjackSeatSnapshotSchema>;
 
 export const blackjackRoomSnapshotSchema = z.object({
   room: gameRoomSchema,
@@ -184,8 +216,16 @@ export const blackjackRoomSnapshotSchema = z.object({
   /** True while the dealer's second card is still face-down (during BETTING/LOCKED/PLAYER_TURN). */
   dealerHoleHidden: z.boolean(),
   hands: z.array(blackjackPlayerHandSchema),
+  seats: z.array(blackjackSeatSnapshotSchema).length(7),
+  mySeat: z.number().int().min(1).max(7).nullable(),
+  spectatorCount: z.number().int().nonnegative(),
+  behindBets: z.array(blackjackBehindBetSnapshotSchema),
   myBet: z.number().int().nonnegative(),
   myHand: blackjackPlayerHandSchema.nullable(),
+  myHands: z.array(blackjackPlayerHandSchema).max(4),
+  activeHandId: z.string().uuid().nullable(),
+  insuranceOffered: z.boolean(),
+  myInsurance: blackjackInsuranceSnapshotSchema.nullable(),
   walletBalance: z.number().int().nonnegative(),
   shoeRemaining: z.number().int().nonnegative(),
 });
@@ -200,11 +240,35 @@ export const blackjackBetCommandSchema = z.object({
 export type BlackjackBetCommand = z.infer<typeof blackjackBetCommandSchema>;
 
 export const blackjackActionCommandSchema = z.object({
+  requestId: z.string().uuid(),
   roomId: z.string().uuid(),
   roundId: z.string().uuid(),
+  handId: z.string().uuid(),
   action: blackjackActionSchema,
 });
 export type BlackjackActionCommand = z.infer<typeof blackjackActionCommandSchema>;
+
+export const blackjackInsuranceCommandSchema = z.object({
+  requestId: z.string().uuid(),
+  roomId: z.string().uuid(),
+  roundId: z.string().uuid(),
+});
+export type BlackjackInsuranceCommand = z.infer<typeof blackjackInsuranceCommandSchema>;
+
+export const blackjackSeatCommandSchema = z.object({
+  roomId: z.string().uuid(),
+  seatNumber: z.number().int().min(1).max(7),
+});
+export type BlackjackSeatCommand = z.infer<typeof blackjackSeatCommandSchema>;
+
+export const blackjackBehindBetCommandSchema = z.object({
+  requestId: z.string().uuid(),
+  roomId: z.string().uuid(),
+  roundId: z.string().uuid(),
+  targetSeat: z.number().int().min(1).max(7),
+  amount: z.number().int().positive(),
+});
+export type BlackjackBehindBetCommand = z.infer<typeof blackjackBehindBetCommandSchema>;
 
 export const walletTransactionItemSchema = z.object({
   id: z.string(),
@@ -231,6 +295,7 @@ export const adminCashRequestSchema = z.object({
   status: cashRequestStatusSchema,
   created_at: z.string(),
   username: z.string(),
+  wageringRemaining: z.number().int().nonnegative(),
 });
 export type AdminCashRequest = z.infer<typeof adminCashRequestSchema>;
 export const cashRequestSchema = z.object({
@@ -252,10 +317,20 @@ export const profileStatsSchema = z.object({
 });
 export type ProfileStats = z.infer<typeof profileStatsSchema>;
 
+export const wageringProgressSchema = z.object({
+  required: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  remaining: z.number().int().nonnegative(),
+  progressPercent: z.number().int().min(0).max(100),
+  canWithdraw: z.boolean(),
+});
+export type WageringProgress = z.infer<typeof wageringProgressSchema>;
+
 export const profileResponseSchema = z.object({
   user: authUserSchema,
   walletBalance: z.number().int().nonnegative(),
   stats: profileStatsSchema,
+  wagering: wageringProgressSchema,
   cashRequests: z.array(cashRequestSchema),
   transactions: z.array(walletTransactionItemSchema),
   recipients: z.array(z.object({ username: z.string() })),
@@ -325,6 +400,7 @@ export interface ServerToClientEvents {
   "room.chat.message": (message: ChatMessage) => void;
   "room.winners": (payload: { entries: WinnerFeedEntry[] }) => void;
   "support.message": (message: ChatMessage) => void;
+  "cash.request.created": (payload: { id: string; type: CashRequestType; amount: number; username: string; createdAt: string }) => void;
   "wallet.updated": (payload: { balance: number }) => void;
   "notification": (payload: { type: "success" | "error" | "info"; message: string }) => void;
   "blackjack.snapshot": (snapshot: BlackjackRoomSnapshot) => void;
@@ -341,6 +417,10 @@ export interface ClientToServerEvents {
   "blackjack.join": (payload: { roomId: string }, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.leave": (payload: { roomId: string }, ack: (response: SocketAck) => void) => void;
   "blackjack.bet": (payload: BlackjackBetCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
+  "blackjack.seat.claim": (payload: BlackjackSeatCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
+  "blackjack.seat.leave": (payload: { roomId: string }, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
+  "blackjack.betBehind": (payload: BlackjackBehindBetCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
+  "blackjack.insurance": (payload: BlackjackInsuranceCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.action": (payload: BlackjackActionCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
 }
 

@@ -2,12 +2,12 @@ import bcrypt from "bcryptjs";
 import { pool } from "./pool.js";
 
 const rooms = [
-  ["10000000-0000-4000-8000-000000000001", "baccarat", "baccarat-rookie", "Rookie Baccarat", 1, 10, true],
-  ["10000000-0000-4000-8000-000000000002", "baccarat", "baccarat-standard", "Standard Baccarat", 10, 50, true],
-  ["10000000-0000-4000-8000-000000000003", "baccarat", "baccarat-high", "High Roller Baccarat", 50, 200, true],
-  ["20000000-0000-4000-8000-000000000001", "blackjack", "blackjack-rookie", "Rookie Blackjack", 1, 10, true],
-  ["20000000-0000-4000-8000-000000000002", "blackjack", "blackjack-standard", "Standard Blackjack", 10, 50, true],
-  ["20000000-0000-4000-8000-000000000003", "blackjack", "blackjack-high", "High Roller Blackjack", 50, 200, true],
+  ["10000000-0000-4000-8000-000000000001", "baccarat", "baccarat-rookie", "Rookie Baccarat", 1, 50, true],
+  ["10000000-0000-4000-8000-000000000002", "baccarat", "baccarat-standard", "Standard Baccarat", 10, 100, true],
+  ["10000000-0000-4000-8000-000000000003", "baccarat", "baccarat-high", "High Roller Baccarat", 50, 500, true],
+  ["20000000-0000-4000-8000-000000000001", "blackjack", "blackjack-rookie", "Rookie Blackjack", 1, 50, true],
+  ["20000000-0000-4000-8000-000000000002", "blackjack", "blackjack-standard", "Standard Blackjack", 10, 100, true],
+  ["20000000-0000-4000-8000-000000000003", "blackjack", "blackjack-high", "High Roller Blackjack", 50, 500, true],
 ] as const;
 
 const client = await pool.connect();

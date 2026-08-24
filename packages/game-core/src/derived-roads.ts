@@ -19,7 +19,7 @@ export interface DerivedRoads {
  *   - First row of a column (a new streak start): compare the two preceding columns' depth.
  *     Same depth -> "banker" (steady), different depth -> "player" (choppy).
  *   - Any other row (a streak continuing): if the reference column has a cell in the same
- *     row -> "player", otherwise -> "banker".
+ *     row -> "banker" (red/regular), otherwise -> "player" (blue/irregular).
  * The three roads only differ in how many columns back they compare (1 / 2 / 3).
  */
 export function buildDerivedRoads(history: RoundHistoryEntry[]): DerivedRoads {
@@ -28,19 +28,35 @@ export function buildDerivedRoads(history: RoundHistoryEntry[]): DerivedRoads {
   if (nonTie.length < 2) return roads;
 
   const coords: Array<{ row: number; col: number }> = [];
-  let col = 0;
-  let row = 0;
+  let streakStartCol = 0;
   let lastOutcome: "player" | "banker" | null = null;
+  let previous: { row: number; col: number } | null = null;
+  const occupied = new Set<string>();
 
   for (const entry of nonTie) {
     const outcome = entry.result as "player" | "banker";
-    if (lastOutcome && outcome !== lastOutcome) {
-      col += 1;
-      row = 0;
+    let row = 0;
+    let col = streakStartCol;
+    if (lastOutcome === null) {
+      // First mark starts at the origin.
+    } else if (outcome !== lastOutcome) {
+      streakStartCol += 1;
+      col = streakStartCol;
+      while (occupied.has(`0:${col}`)) col += 1;
+      streakStartCol = col;
+    } else if (previous) {
+      row = previous.row + 1;
+      col = previous.col;
+      if (row >= 6 || occupied.has(`${row}:${col}`)) {
+        row = previous.row;
+        col = previous.col + 1;
+        while (occupied.has(`${row}:${col}`)) col += 1;
+      }
     }
     coords.push({ row, col });
+    occupied.add(`${row}:${col}`);
+    previous = { row, col };
     lastOutcome = outcome;
-    row += 1;
   }
 
   const columnDepth = (c: number): number => coords.filter((p) => p.col === c).length;
@@ -50,9 +66,9 @@ export function buildDerivedRoads(history: RoundHistoryEntry[]): DerivedRoads {
     if (c < offset) return null;
     if (r === 0) {
       if (c < offset + 1) return null;
-      return columnDepth(c - offset) === columnDepth(c - offset - 1) ? "banker" : "player";
+      return columnDepth(c - 1) === columnDepth(c - offset - 1) ? "banker" : "player";
     }
-    return cellExists(r, c - offset) ? "player" : "banker";
+    return cellExists(r, c - offset) ? "banker" : "player";
   };
 
   for (let i = 1; i < coords.length; i += 1) {
@@ -70,25 +86,42 @@ export function buildDerivedRoads(history: RoundHistoryEntry[]): DerivedRoads {
 
 export interface DerivedRoadCell {
   outcome: DerivedRoadMark;
+  row: number;
 }
 
 /** Lays out a derived road's flat mark sequence into Big-Road-style columns for rendering. */
 export function layoutDerivedRoad(marks: DerivedRoadMark[], maxRows: number): DerivedRoadCell[][] {
   const columns: DerivedRoadCell[][] = [];
   let lastMark: DerivedRoadMark | null = null;
+  let streakStartCol = 0;
+  let previous: { row: number; col: number } | null = null;
+  const occupied = new Set<string>();
 
   for (const mark of marks) {
-    if (mark === lastMark) {
-      const column = columns[columns.length - 1]!;
-      if (column.length < maxRows) {
-        column.push({ outcome: mark });
-      } else {
-        columns.push([{ outcome: mark }]);
+    let row = 0;
+    let col = streakStartCol;
+    if (lastMark === null) {
+      // Origin.
+    } else if (mark !== lastMark) {
+      streakStartCol += 1;
+      col = streakStartCol;
+      while (occupied.has(`0:${col}`)) col += 1;
+      streakStartCol = col;
+    } else if (previous) {
+      row = previous.row + 1;
+      col = previous.col;
+      if (row >= maxRows || occupied.has(`${row}:${col}`)) {
+        row = previous.row;
+        col = previous.col + 1;
+        while (occupied.has(`${row}:${col}`)) col += 1;
       }
-    } else {
-      columns.push([{ outcome: mark }]);
-      lastMark = mark;
     }
+
+    while (columns.length <= col) columns.push([]);
+    columns[col]!.push({ outcome: mark, row });
+    occupied.add(`${row}:${col}`);
+    previous = { row, col };
+    lastMark = mark;
   }
 
   return columns;

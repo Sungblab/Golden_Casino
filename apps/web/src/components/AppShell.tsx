@@ -5,7 +5,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { SoundToggle } from "./SoundToggle";
 import { useCountUp } from "../lib/useCountUp";
 
-export function AppShell({ balance, onLogout, children }: { balance: number; onLogout: () => void; children: ReactNode }) {
+export function AppShell({ balance, onLogout, children, headerCenter, showAdminLink = true, showBalance = true }: { balance: number; onLogout: () => void; children: ReactNode; headerCenter?: ReactNode; showAdminLink?: boolean; showBalance?: boolean }) {
   const displayBalance = useCountUp(balance);
   const isAdmin = (() => {
     try {
@@ -16,16 +16,15 @@ export function AppShell({ balance, onLogout, children }: { balance: number; onL
   })();
   return (
     <>
-      <header className="topbar">
+      <header className={`topbar ${headerCenter ? "has-header-center" : ""}`}>
         <Link className="brand-home" to="/lobby" aria-label="Golden Casino 로비">
           <Brand />
         </Link>
+        {headerCenter}
         <div className="account">
-          {isAdmin && <Link className="admin-nav-link" to="/admin">관리</Link>}
+          {isAdmin && showAdminLink && <Link className="admin-nav-link" to="/admin">관리</Link>}
           <SoundToggle />
-          <div className="balance-display" aria-label="현재 잔액">
-            <strong>{displayBalance.toLocaleString()}코인</strong>
-          </div>
+          {showBalance && <div className="balance-display" aria-label="현재 잔액"><strong>{displayBalance.toLocaleString()}코인</strong></div>}
           <ProfileMenu onLogout={onLogout} />
         </div>
       </header>

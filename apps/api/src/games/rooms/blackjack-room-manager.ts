@@ -2,11 +2,15 @@ import type { Server, Socket } from "socket.io";
 import {
   COIN_SCALE,
   type BlackjackActionCommand,
+  type BlackjackBehindBetCommand,
+  type BlackjackBehindBetSnapshot,
   type BlackjackBetCommand,
   type BlackjackHandStatus,
+  type BlackjackInsuranceCommand,
   type BlackjackOutcome,
   type BlackjackPlayerHand,
   type BlackjackRoomSnapshot,
+  type BlackjackSeatCommand,
   type Card,
   type ClientToServerEvents,
   type GameRoom,
@@ -14,7 +18,7 @@ import {
   type ServerToClientEvents,
   type WinnerFeedEntry,
 } from "@golden/contracts";
-import { dealerShouldHit, handValue, isBlackjack, Shoe } from "@golden/game-core";
+import { canSplitPair, dealerShouldHit, handValue, isBlackjack, Shoe } from "@golden/game-core";
 import { pool } from "../../database/pool.js";
 import { walletService } from "../../wallet/wallet-service.js";
 import { blackjackHandService, type BlackjackWin } from "../blackjack/hand-service.js";
@@ -26,6 +30,7 @@ const BLACKJACK_OUTCOME_LABEL: Record<BlackjackOutcome, string> = {
   lose: "패배",
   push: "푸시",
   blackjack: "블랙잭",
+  surrender: "서렌더",
 };
 
 type GoldenServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, { user: AuthUser }>;
@@ -45,10 +50,29 @@ interface LiveHand {
   handId: string;
   userId: string;
   username: string;
+  seatNumber: number;
+  handIndex: number;
+  fromSplit: boolean;
+  splitAces: boolean;
   cards: Card[];
   bet: number;
   status: BlackjackHandStatus;
   outcome: BlackjackPlayerHand["outcome"];
+}
+
+interface LiveInsurance {
+  amount: number;
+  outcome: "win" | "lose" | null;
+}
+
+interface LiveBehindBet {
+  betId: string;
+  userId: string;
+  username: string;
+  targetSeat: number;
+  targetHandId: string;
+  amount: number;
+  outcome: BlackjackOutcome | null;
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -56,9 +80,12 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 const BETTING_MS = 12_000;
-const PLAYER_TURN_MS = 20_000;
+const PLAYER_TURN_MS = 30_000;
 const DEALER_STEP_MS = 700;
 const RESULT_MS = 4_500;
+const DEAL_STEP_MS = 260;
+const INSURANCE_MS = 7_000;
+const SEAT_COUNT = 7;
 
 class BlackjackRoomActor {
   private phase: RoomPhase = "WAITING";
@@ -69,6 +96,10 @@ class BlackjackRoomActor {
   private dealerCards: Card[] = [];
   private dealerHoleHidden = true;
   private hands = new Map<string, LiveHand>();
+  private insuranceBets = new Map<string, LiveInsurance>();
+  private behindBets = new Map<string, LiveBehindBet>();
+  private seats: Array<string | null> = Array.from({ length: SEAT_COUNT }, () => null);
+  private winStreaks = new Map<string, number>();
   private participants = new Map<string, Set<string>>();
   private usernames = new Map<string, string>();
   private recentWinners: WinnerFeedEntry[] = [];
@@ -76,6 +107,7 @@ class BlackjackRoomActor {
   private cycleRunning = false;
   private paused = false;
   private playerTurnEarlyResolve: (() => void) | null = null;
+  private actionRequests = new Set<string>();
 
   constructor(private readonly io: GoldenServer, readonly room: RoomRow) {}
 
@@ -85,6 +117,10 @@ class BlackjackRoomActor {
   }
 
   get playerCount(): number {
+    return this.seats.filter(Boolean).length;
+  }
+
+  private get participantCount(): number {
     return this.participants.size;
   }
 
@@ -112,7 +148,7 @@ class BlackjackRoomActor {
     await socket.join(this.channel);
     this.emitPresence();
     socket.emit("room.winners", { entries: this.recentWinners });
-    if (this.phase === "WAITING") this.launchCycle();
+    if (this.phase === "WAITING" && this.playerCount > 0) this.launchCycle();
     return this.snapshot(user.id);
   }
 
@@ -120,9 +156,14 @@ class BlackjackRoomActor {
     const userId = socket.data.user.id;
     const sockets = this.participants.get(userId);
     sockets?.delete(socket.id);
-    if (sockets?.size === 0) this.participants.delete(userId);
+    if (sockets?.size === 0) {
+      this.participants.delete(userId);
+      if (this.userHands(userId).length === 0) this.releaseSeatFor(userId);
+    }
     await socket.leave(this.channel);
     this.emitPresence();
+    this.sequence += 1;
+    await this.emitSnapshots();
   }
 
   hasSocket(socketId: string): boolean {
@@ -134,17 +175,48 @@ class BlackjackRoomActor {
     return this.participants.has(userId);
   }
 
+  async claimSeat(userId: string, command: BlackjackSeatCommand): Promise<BlackjackRoomSnapshot> {
+    if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
+    const existingSeat = this.seatOf(userId);
+    if (existingSeat === command.seatNumber) return this.snapshot(userId);
+    if (existingSeat !== null) throw new Error("SEAT_ALREADY_CLAIMED");
+    if (this.seats[command.seatNumber - 1]) throw new Error("SEAT_TAKEN");
+    this.seats[command.seatNumber - 1] = userId;
+    this.sequence += 1;
+    this.emitPresence();
+    await this.emitSnapshots();
+    if (this.phase === "WAITING") this.launchCycle();
+    return this.snapshot(userId);
+  }
+
+  async leaveSeat(userId: string): Promise<BlackjackRoomSnapshot> {
+    if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
+    if (this.userHands(userId).length > 0) throw new Error("SEAT_LOCKED");
+    this.releaseSeatFor(userId);
+    this.sequence += 1;
+    this.emitPresence();
+    await this.emitSnapshots();
+    return this.snapshot(userId);
+  }
+
   async placeBet(userId: string, command: BlackjackBetCommand): Promise<BlackjackRoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
-    if (this.hands.has(userId)) throw new Error("BET_ALREADY_PLACED");
-    await blackjackHandService.place(userId, command, this.room.min_bet, this.room.max_bet);
-    this.hands.set(userId, {
-      handId: command.requestId,
+    const seatNumber = this.seatOf(userId);
+    if (seatNumber === null) throw new Error("SEAT_REQUIRED");
+    const placed = await blackjackHandService.place(userId, command, seatNumber, this.room.min_bet, this.room.max_bet);
+    const existing = this.userHands(userId)[0];
+    if (existing) existing.bet = placed.totalBet;
+    else this.hands.set(placed.handId, {
+      handId: placed.handId,
       userId,
       username: this.usernames.get(userId) ?? "player",
+      seatNumber,
+      handIndex: 0,
+      fromSplit: false,
+      splitAces: false,
       cards: [],
-      bet: command.amount,
+      bet: placed.totalBet,
       status: "playing",
       outcome: null,
     });
@@ -153,46 +225,174 @@ class BlackjackRoomActor {
     return this.snapshot(userId);
   }
 
-  async act(userId: string, command: BlackjackActionCommand): Promise<BlackjackRoomSnapshot> {
+  async placeBehind(userId: string, command: BlackjackBehindBetCommand): Promise<BlackjackRoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
-    if (this.phase !== "PLAYER_TURN" || command.roundId !== this.roundId) throw new Error("NOT_YOUR_TURN");
-    const hand = this.hands.get(userId);
-    if (!hand || hand.status !== "playing") throw new Error("NO_ACTIVE_HAND");
-
-    if (command.action === "hit") {
-      hand.cards.push(this.draw());
-      const value = handValue(hand.cards);
-      if (value.total > 21) hand.status = "bust";
-      else if (value.total === 21) hand.status = "stand";
-    } else if (command.action === "stand") {
-      hand.status = "stand";
-    } else if (command.action === "double") {
-      if (hand.cards.length !== 2) throw new Error("DOUBLE_NOT_ALLOWED");
-      await blackjackHandService.placeDouble(userId, this.room.id, this.roundId!, hand.handId, hand.bet * COIN_SCALE);
-      hand.bet *= 2;
-      hand.cards.push(this.draw());
-      // A double always ends the turn after exactly one more card — bust if it busts, otherwise "doubled"
-      // (kept distinct from a plain stand so the settlement/UI can show it was doubled).
-      hand.status = handValue(hand.cards).total > 21 ? "bust" : "doubled";
-    }
-
-    await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+    if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
+    const targetUserId = this.seats[command.targetSeat - 1];
+    if (!targetUserId) throw new Error("FOLLOW_TARGET_UNAVAILABLE");
+    if (targetUserId === userId) throw new Error("CANNOT_FOLLOW_SELF");
+    const targetHand = this.userHands(targetUserId)[0];
+    if (!targetHand) throw new Error("FOLLOW_TARGET_UNAVAILABLE");
+    const key = this.behindKey(userId, command.targetSeat);
+    const placed = await blackjackHandService.placeBehind(userId, command, targetHand.handId, this.room.min_bet, this.room.max_bet);
+    const existing = this.behindBets.get(key);
+    if (existing) existing.amount = placed.totalBet;
+    else this.behindBets.set(key, {
+      betId: placed.betId,
+      userId,
+      username: this.usernames.get(userId) ?? "player",
+      targetSeat: command.targetSeat,
+      targetHandId: targetHand.handId,
+      amount: placed.totalBet,
+      outcome: null,
+    });
     this.sequence += 1;
     await this.emitSnapshots();
-    if ([...this.hands.values()].every((entry) => entry.status !== "playing")) this.advancePastPlayerTurn();
     return this.snapshot(userId);
   }
 
+  async takeInsurance(userId: string, command: BlackjackInsuranceCommand): Promise<BlackjackRoomSnapshot> {
+    if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
+    if (this.phase !== "INSURANCE" || command.roundId !== this.roundId || this.dealerCards[0]?.rank !== "A") throw new Error("INSURANCE_CLOSED");
+    const hand = this.userHands(userId)[0];
+    if (!hand) throw new Error("NO_ACTIVE_HAND");
+    if (Math.floor(hand.bet / 2) < 1) throw new Error("INSURANCE_NOT_ALLOWED");
+    const placed = await blackjackHandService.placeInsurance(userId, command, hand.handId, hand.bet * COIN_SCALE);
+    this.insuranceBets.set(userId, { amount: placed.amount, outcome: null });
+    this.sequence += 1;
+    await this.emitSnapshots();
+    return this.snapshot(userId);
+  }
+
+  async act(userId: string, command: BlackjackActionCommand): Promise<BlackjackRoomSnapshot> {
+    if (this.actionRequests.has(command.requestId)) return this.snapshot(userId);
+    this.actionRequests.add(command.requestId);
+    let completed = false;
+    try {
+      if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
+      if (this.phase !== "PLAYER_TURN" || command.roundId !== this.roundId) throw new Error("NOT_YOUR_TURN");
+      const hand = this.hands.get(command.handId);
+      const activeHand = this.activeHandFor(userId);
+      if (!hand || hand.userId !== userId || hand.handId !== activeHand?.handId || hand.status !== "playing") throw new Error("NO_ACTIVE_HAND");
+
+      if (command.action === "hit") {
+        hand.cards.push(this.draw());
+        const value = handValue(hand.cards);
+        if (value.total > 21) hand.status = "bust";
+        else if (value.total === 21) hand.status = "stand";
+        await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+      } else if (command.action === "stand") {
+        hand.status = "stand";
+        await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+      } else if (command.action === "double") {
+        if (hand.cards.length !== 2 || hand.fromSplit) throw new Error("DOUBLE_NOT_ALLOWED");
+        const reserved = await blackjackHandService.placeDouble(userId, this.room.id, this.roundId!, hand.handId, hand.bet * COIN_SCALE);
+        if (!reserved.duplicate) {
+          hand.bet *= 2;
+          hand.cards.push(this.draw());
+          hand.status = handValue(hand.cards).total > 21 ? "bust" : "doubled";
+          await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+        }
+      } else if (command.action === "surrender") {
+        if (hand.cards.length !== 2 || hand.fromSplit || this.userHands(userId).length !== 1 || hand.bet % 2 !== 0) throw new Error("SURRENDER_NOT_ALLOWED");
+        hand.status = "surrendered";
+        await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+      } else if (command.action === "split") {
+        const userHands = this.userHands(userId);
+        if (!canSplitPair(hand.cards) || userHands.length >= 4 || hand.splitAces) throw new Error("SPLIT_NOT_ALLOWED");
+        const originalCard = hand.cards[0]!;
+        const splitCard = hand.cards[1]!;
+        const splitAces = originalCard.rank === "A" && splitCard.rank === "A";
+        const nextHandIndex = Math.max(...userHands.map((entry) => entry.handIndex)) + 1;
+        const reserved = await blackjackHandService.splitHand({
+          userId,
+          roomId: this.room.id,
+          roundId: this.roundId!,
+          requestId: command.requestId,
+          handId: hand.handId,
+          seatNumber: hand.seatNumber,
+          nextHandIndex,
+          betMinor: hand.bet * COIN_SCALE,
+          originalCard,
+          splitCard,
+          splitAces,
+        });
+        if (!reserved.duplicate) {
+          hand.cards = [originalCard, this.draw()];
+          hand.fromSplit = true;
+          hand.splitAces = splitAces;
+          hand.status = splitAces || handValue(hand.cards).total === 21 ? "stand" : "playing";
+          const newHand: LiveHand = {
+            ...hand,
+            handId: reserved.newHandId,
+            handIndex: nextHandIndex,
+            cards: [splitCard, this.draw()],
+            status: "playing",
+            outcome: null,
+          };
+          newHand.status = splitAces || handValue(newHand.cards).total === 21 ? "stand" : "playing";
+          this.hands.set(newHand.handId, newHand);
+          await Promise.all([
+            blackjackHandService.syncHand(hand.handId, hand.cards, hand.status),
+            blackjackHandService.syncHand(newHand.handId, newHand.cards, newHand.status),
+          ]);
+        }
+      }
+
+      completed = true;
+      this.sequence += 1;
+      await this.emitSnapshots();
+      if ([...this.hands.values()].every((entry) => entry.status !== "playing")) this.advancePastPlayerTurn();
+      return this.snapshot(userId);
+    } finally {
+      if (!completed) this.actionRequests.delete(command.requestId);
+    }
+  }
+
   async snapshot(userId: string): Promise<BlackjackRoomSnapshot> {
-    const publicHands: BlackjackPlayerHand[] = [...this.hands.values()].map((hand) => ({
+    const publicHands: BlackjackPlayerHand[] = [...this.hands.values()].sort((a, b) => a.seatNumber - b.seatNumber || a.handIndex - b.handIndex).map((hand) => ({
+      handId: hand.handId,
       userId: hand.userId,
       username: hand.username,
+      seatNumber: hand.seatNumber,
+      handIndex: hand.handIndex,
+      fromSplit: hand.fromSplit,
+      splitAces: hand.splitAces,
       cards: hand.cards,
       bet: hand.bet,
       status: hand.status,
       outcome: hand.outcome,
     }));
-    const myHand = publicHands.find((hand) => hand.userId === userId) ?? null;
+    const myHands = publicHands.filter((hand) => hand.userId === userId);
+    const activeLiveHand = this.activeHandFor(userId);
+    const activeHandId = activeLiveHand?.handId ?? null;
+    const myHand = publicHands.find((hand) => hand.handId === activeHandId) ?? myHands[0] ?? null;
+    const myBehindBets: BlackjackBehindBetSnapshot[] = [...this.behindBets.values()]
+      .filter((bet) => bet.userId === userId)
+      .map((bet) => ({
+        userId: bet.userId,
+        username: bet.username,
+        targetSeat: bet.targetSeat,
+        amount: bet.amount,
+        outcome: bet.outcome,
+      }));
+    const seats = this.seats.map((seatUserId, index) => {
+      const seatNumber = index + 1;
+      const seatHands = publicHands.filter((entry) => entry.seatNumber === seatNumber);
+      const hand = seatHands.find((entry) => entry.status === "playing") ?? seatHands[0] ?? null;
+      const followers = [...this.behindBets.values()].filter((bet) => bet.targetSeat === seatNumber);
+      return {
+        seatNumber,
+        userId: seatUserId,
+        username: seatUserId ? (this.usernames.get(seatUserId) ?? "player") : null,
+        hand,
+        hands: seatHands,
+        behindBetTotal: followers.reduce((sum, bet) => sum + bet.amount, 0),
+        behindBetCount: followers.length,
+        myBehindBet: followers.find((bet) => bet.userId === userId)?.amount ?? 0,
+        winStreak: seatUserId ? (this.winStreaks.get(seatUserId) ?? 0) : 0,
+      };
+    });
     const dealerCards = this.dealerHoleHidden ? this.dealerCards.slice(0, 1) : this.dealerCards;
     return {
       room: this.publicRoom(),
@@ -203,8 +403,16 @@ class BlackjackRoomActor {
       dealerScore: this.dealerHoleHidden ? null : (this.dealerCards.length ? handValue(this.dealerCards).total : null),
       dealerHoleHidden: this.dealerHoleHidden,
       hands: publicHands,
-      myBet: myHand?.bet ?? 0,
+      seats,
+      mySeat: this.seatOf(userId),
+      spectatorCount: Math.max(0, this.participantCount - this.playerCount),
+      behindBets: myBehindBets,
+      myBet: myHands.reduce((sum, hand) => sum + hand.bet, 0),
       myHand,
+      myHands,
+      activeHandId,
+      insuranceOffered: this.phase === "INSURANCE" && this.dealerCards[0]?.rank === "A",
+      myInsurance: this.insuranceBets.get(userId) ?? null,
       walletBalance: await walletService.getUserBalance(userId),
       shoeRemaining: this.shoe.remaining,
     };
@@ -213,6 +421,32 @@ class BlackjackRoomActor {
   private draw(): Card {
     if (this.shoe.remaining < 15) this.shoe = new Shoe(6);
     return this.shoe.draw();
+  }
+
+  private userHands(userId: string): LiveHand[] {
+    return [...this.hands.values()].filter((hand) => hand.userId === userId).sort((a, b) => a.handIndex - b.handIndex);
+  }
+
+  private activeHandFor(userId: string): LiveHand | null {
+    return this.userHands(userId).find((hand) => hand.status === "playing") ?? null;
+  }
+
+  private seatOf(userId: string): number | null {
+    const index = this.seats.indexOf(userId);
+    return index === -1 ? null : index + 1;
+  }
+
+  private releaseSeatFor(userId: string): void {
+    const index = this.seats.indexOf(userId);
+    if (index !== -1) this.seats[index] = null;
+  }
+
+  private releaseDisconnectedSeats(): void {
+    this.seats = this.seats.map((userId) => (userId && this.participants.has(userId) ? userId : null));
+  }
+
+  private behindKey(userId: string, targetSeat: number): string {
+    return `${userId}:${targetSeat}`;
   }
 
   private get channel(): string {
@@ -232,8 +466,8 @@ class BlackjackRoomActor {
           roomId: this.room.id,
           game: "blackjack",
           username: this.usernames.get(win.userId) ?? "player",
-          choiceLabel: BLACKJACK_OUTCOME_LABEL[win.outcome],
-          amount: Math.floor(win.payoutMinor / COIN_SCALE),
+          choiceLabel: win.outcome === "insurance" ? "보험" : BLACKJACK_OUTCOME_LABEL[win.outcome],
+          amount: win.profitMinor / COIN_SCALE,
         }),
       );
       this.recentWinners = pushWinnerEntries(this.recentWinners, entries);
@@ -289,6 +523,10 @@ class BlackjackRoomActor {
     this.dealerCards = [];
     this.dealerHoleHidden = true;
     this.hands.clear();
+    this.behindBets.clear();
+    this.insuranceBets.clear();
+    this.actionRequests.clear();
+    this.releaseDisconnectedSeats();
   }
 
   /** Cuts the shared PLAYER_TURN timer short once every seated hand has already stood, bust, or blackjack'd. */
@@ -341,43 +579,86 @@ class BlackjackRoomActor {
     }
     await delay(700);
 
-    // Deal: two cards to every seated hand, two to the dealer (second stays hidden).
-    for (const hand of this.hands.values()) hand.cards.push(this.draw(), this.draw());
-    this.dealerCards = [this.draw(), this.draw()];
+    // Deal in the same visible order as a live seven-seat table. Every step emits a
+    // snapshot so all clients see the same alternating card timeline.
+    const orderedHands = [...this.hands.values()].sort((a, b) => a.seatNumber - b.seatNumber);
+    const dealDuration = Math.max(1_800, (orderedHands.length + 1) * 2 * DEAL_STEP_MS + 500);
+    await this.setPhase("DEALING", dealDuration);
+    this.dealerCards = [];
     this.dealerHoleHidden = true;
-    for (const hand of this.hands.values()) {
-      if (isBlackjack(hand.cards)) hand.status = "blackjack";
-      void blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+    for (let pass = 0; pass < 2; pass += 1) {
+      for (const hand of orderedHands) {
+        hand.cards.push(this.draw());
+        this.sequence += 1;
+        await this.emitSnapshots();
+        await delay(DEAL_STEP_MS);
+      }
+      this.dealerCards.push(this.draw());
+      this.sequence += 1;
+      await this.emitSnapshots();
+      await delay(DEAL_STEP_MS);
     }
-    void blackjackHandService.recordDealer(this.roundId, this.dealerCards, null);
+    for (const hand of orderedHands) {
+      if (isBlackjack(hand.cards)) hand.status = "blackjack";
+      await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+    }
+    await blackjackHandService.recordDealer(this.roundId, this.dealerCards, null);
 
-    const anyoneCanAct = [...this.hands.values()].some((hand) => hand.status === "playing");
-    const turnMs = anyoneCanAct ? PLAYER_TURN_MS : 1_500;
-    await this.setPhase("PLAYER_TURN", turnMs);
-    await this.waitForPlayerTurnEnd(turnMs);
-    for (const hand of this.hands.values()) if (hand.status === "playing") hand.status = "stand";
+    const dealerUpcard = this.dealerCards[0]!;
+    if (dealerUpcard.rank === "A") {
+      await this.setPhase("INSURANCE", INSURANCE_MS);
+      await delay(INSURANCE_MS);
+    }
+    const dealerBlackjack = isBlackjack(this.dealerCards);
+    for (const insurance of this.insuranceBets.values()) insurance.outcome = dealerBlackjack ? "win" : "lose";
 
-    await this.setPhase("DEALER_TURN", 1_500);
+    if (!dealerBlackjack) {
+      const anyoneCanAct = [...this.hands.values()].some((hand) => hand.status === "playing");
+      const turnMs = anyoneCanAct ? PLAYER_TURN_MS : 1_500;
+      await this.setPhase("PLAYER_TURN", turnMs);
+      await this.waitForPlayerTurnEnd(turnMs);
+      for (const hand of this.hands.values()) {
+        if (hand.status !== "playing") continue;
+        hand.status = "stand";
+        await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+      }
+    }
+
+    await this.setPhase("DEALER_TURN", dealerBlackjack ? 1_500 : 5_000);
     this.dealerHoleHidden = false;
     this.sequence += 1;
     await this.emitSnapshots();
     await delay(900);
-    while (dealerShouldHit(this.dealerCards)) {
+    const dealerNeedsPlay = [...this.hands.values()].some((hand) => !["bust", "surrendered", "blackjack"].includes(hand.status));
+    while (!dealerBlackjack && dealerNeedsPlay && dealerShouldHit(this.dealerCards)) {
       this.dealerCards.push(this.draw());
       this.sequence += 1;
       await this.emitSnapshots();
       await delay(DEALER_STEP_MS);
     }
-    void blackjackHandService.recordDealer(this.roundId, this.dealerCards, handValue(this.dealerCards).total);
+    await blackjackHandService.recordDealer(this.roundId, this.dealerCards, handValue(this.dealerCards).total);
 
     await this.setPhase("SETTLING", 1_000);
     const { balances, wins } = await blackjackHandService.settle(this.room.id, this.roundId, this.dealerCards);
     const finalHands = await blackjackHandService.handsForRound(this.roundId);
+    const userWon = new Map<string, boolean>();
     for (const row of finalHands) {
-      const hand = this.hands.get(row.userId);
+      const hand = this.hands.get(row.id);
       if (!hand) continue;
       const detailed = await pool.query<{ outcome: BlackjackPlayerHand["outcome"] }>("SELECT outcome FROM blackjack_hands WHERE id=$1", [row.id]);
       hand.outcome = detailed.rows[0]?.outcome ?? null;
+      if (hand.outcome === "win" || hand.outcome === "blackjack") userWon.set(hand.userId, true);
+    }
+    for (const userId of new Set(finalHands.map((hand) => hand.userId))) this.winStreaks.set(userId, userWon.get(userId) ? (this.winStreaks.get(userId) ?? 0) + 1 : 0);
+    const finalBehindBets = await blackjackHandService.behindBetsForRound(this.roundId);
+    for (const row of finalBehindBets) {
+      const live = this.behindBets.get(this.behindKey(row.userId, row.targetSeat));
+      if (live) live.outcome = row.outcome;
+    }
+    const finalInsurance = await blackjackHandService.insuranceForRound(this.roundId);
+    for (const row of finalInsurance) {
+      const live = this.insuranceBets.get(row.userId);
+      if (live) live.outcome = row.outcome;
     }
     for (const [userId, balance] of balances) {
       for (const socketId of this.participants.get(userId) ?? []) this.io.to(socketId).emit("wallet.updated", { balance });
@@ -430,6 +711,30 @@ export class BlackjackRoomManager {
     const actor = this.actors.get(command.roomId);
     if (!actor) throw new Error("ROOM_NOT_FOUND");
     return actor.placeBet(userId, command);
+  }
+
+  async claimSeat(userId: string, command: BlackjackSeatCommand): Promise<BlackjackRoomSnapshot> {
+    const actor = this.actors.get(command.roomId);
+    if (!actor) throw new Error("ROOM_NOT_FOUND");
+    return actor.claimSeat(userId, command);
+  }
+
+  async leaveSeat(userId: string, roomId: string): Promise<BlackjackRoomSnapshot> {
+    const actor = this.actors.get(roomId);
+    if (!actor) throw new Error("ROOM_NOT_FOUND");
+    return actor.leaveSeat(userId);
+  }
+
+  async placeBehind(userId: string, command: BlackjackBehindBetCommand): Promise<BlackjackRoomSnapshot> {
+    const actor = this.actors.get(command.roomId);
+    if (!actor) throw new Error("ROOM_NOT_FOUND");
+    return actor.placeBehind(userId, command);
+  }
+
+  async takeInsurance(userId: string, command: BlackjackInsuranceCommand): Promise<BlackjackRoomSnapshot> {
+    const actor = this.actors.get(command.roomId);
+    if (!actor) throw new Error("ROOM_NOT_FOUND");
+    return actor.takeInsurance(userId, command);
   }
 
   async act(userId: string, command: BlackjackActionCommand): Promise<BlackjackRoomSnapshot> {

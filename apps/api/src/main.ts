@@ -5,7 +5,10 @@ import { Server } from "socket.io";
 import { z } from "zod";
 import {
   blackjackActionCommandSchema,
+  blackjackBehindBetCommandSchema,
   blackjackBetCommandSchema,
+  blackjackInsuranceCommandSchema,
+  blackjackSeatCommandSchema,
   cancelBetCommandSchema,
   cashRequestCreateSchema,
   COIN_SCALE,
@@ -21,6 +24,7 @@ import { pool } from "./database/pool.js";
 import { RoomManager } from "./games/rooms/room-manager.js";
 import { BlackjackRoomManager } from "./games/rooms/blackjack-room-manager.js";
 import { walletService } from "./wallet/wallet-service.js";
+import { wageringService, WageringRequirementError } from "./wallet/wagering-service.js";
 import { createAdminSupportMessage, createRoomMessage, createSupportMessage, listAdminSupportConversations, listConversationMessages, listRoomMessages, listSupportMessages } from "./chat/chat-service.js";
 
 const app = express();
@@ -60,9 +64,8 @@ app.post("/api/v1/admin/rooms/:roomId/resume", requireAuth, requireAdmin, (req, 
   res.json({ status: "resumed" });
 });
 
-app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (req, res) => {
-  const admin = (req as AuthRequest).user;
-  const [roomRows, userRows, houseRows, roundRows, cashRows, supportRows] = await Promise.all([
+app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) => {
+  const [roomRows, userRows, roundRows, cashRows, supportRows] = await Promise.all([
     pool.query<{ id: string; game_type: "baccarat" | "blackjack"; code: string; name: string; min_bet: number; max_bet: number; enabled: boolean }>(
       "SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms ORDER BY min_bet,game_type",
     ),
@@ -77,15 +80,18 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (req, res) =>
       total_wagered: string;
       wins: string;
       losses: string;
+      wagering_remaining_minor: string;
     }>(
       `SELECT u.id,u.username,u.role,u.approved,u.created_at,
               COALESCE(wa.balance_minor,0) AS balance_minor,
               COALESCE(stats.total_bets,0) AS total_bets,
               COALESCE(stats.total_wagered,0) AS total_wagered,
               COALESCE(stats.wins,0) AS wins,
-              COALESCE(stats.losses,0) AS losses
+              COALESCE(stats.losses,0) AS losses,
+              COALESCE(wr.remaining_minor,0) AS wagering_remaining_minor
        FROM users u
        LEFT JOIN wallet_accounts wa ON wa.kind='user' AND wa.user_id=u.id
+       LEFT JOIN wagering_requirements wr ON wr.user_id=u.id
        LEFT JOIN (
          SELECT user_id,COUNT(*) AS total_bets,SUM(amount_minor) AS total_wagered,
                 COUNT(*) FILTER (WHERE outcome='win') AS wins,
@@ -94,7 +100,6 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (req, res) =>
        ) stats ON stats.user_id=u.id
        ORDER BY u.created_at DESC LIMIT 200`,
     ),
-    pool.query<{ balance_minor: string }>("SELECT COALESCE((SELECT balance_minor FROM wallet_accounts WHERE kind='house'),0) AS balance_minor"),
     pool.query<{ total_rounds: string; player_rounds: string; banker_rounds: string; tie_rounds: string }>(
       `SELECT COUNT(*) AS total_rounds,
               COUNT(*) FILTER (WHERE result='player') AS player_rounds,
@@ -135,7 +140,6 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (req, res) =>
   );
   const house = houseMetrics.rows[0]!;
   res.json({
-    walletBalance: await walletService.getUserBalance(admin.id),
     rooms: adminRooms,
     users: userRows.rows.map((user) => ({
       id: user.id,
@@ -148,9 +152,9 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (req, res) =>
       totalWagered: coins(user.total_wagered),
       wins: Number(user.wins),
       losses: Number(user.losses),
+      wageringRemaining: coins(user.wagering_remaining_minor),
     })),
     house: {
-      balance: coins(houseRows.rows[0]?.balance_minor ?? 0),
       totalWagered: coins(house.total_wagered),
       houseProfit: coins(house.house_profit),
       settledWagers: Number(house.settled_wagers),
@@ -186,7 +190,7 @@ app.post("/api/v1/admin/users/:userId/approval", requireAuth, requireAdmin, asyn
 
 app.get("/api/v1/profile", requireAuth, async (req, res) => {
   const user = (req as AuthRequest).user;
-  const [stats, transactions, cashRequests, recipients] = await Promise.all([
+  const [stats, transactions, cashRequests, recipients, wagering] = await Promise.all([
     pool.query<{ total_wagered: string; settled_wagered: string; wins: string; losses: string; pushes: string; net_result: string }>(
       `SELECT COALESCE(SUM(amount_minor),0) AS total_wagered,
               COALESCE(SUM(amount_minor) FILTER (WHERE status='settled'),0) AS settled_wagered,
@@ -203,6 +207,7 @@ app.get("/api/v1/profile", requireAuth, async (req, res) => {
       [user.id],
     ),
     pool.query<{ username: string }>("SELECT username FROM users WHERE id<>$1 AND approved=true AND role='user' ORDER BY username LIMIT 100", [user.id]),
+    wageringService.getProgress(user.id),
   ]);
   const row = stats.rows[0]!;
   res.json({
@@ -216,6 +221,7 @@ app.get("/api/v1/profile", requireAuth, async (req, res) => {
       pushes: Number(row.pushes),
       netResult: coins(row.net_result),
     },
+    wagering,
     cashRequests: cashRequests.rows.map((request) => ({ id: request.id, type: request.request_type, amount: coins(request.amount_minor), status: request.status, createdAt: request.created_at })),
     transactions: transactions.rows,
     recipients: recipients.rows,
@@ -227,12 +233,32 @@ app.post("/api/v1/wallet/cash-requests", requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ message: "신청 금액을 확인해주세요." });
   const user = (req as AuthRequest).user;
   const amountMinor = parsed.data.amount * COIN_SCALE;
-  const result = await pool.query<{ id: string; request_type: "deposit" | "withdraw"; amount_minor: string; status: "pending"; created_at: string }>(
-    `INSERT INTO cash_requests (user_id,request_type,amount_minor)
-     VALUES ($1,$2,$3) RETURNING id,request_type,amount_minor,status,created_at`,
-    [user.id, parsed.data.type, amountMinor],
-  );
-  const request = result.rows[0]!;
+  const client = await pool.connect();
+  let request: { id: string; request_type: "deposit" | "withdraw"; amount_minor: string; status: "pending"; created_at: string };
+  try {
+    await client.query("BEGIN");
+    if (parsed.data.type === "withdraw") await wageringService.assertWithdrawAllowed(client, user.id);
+    const result = await client.query<{ id: string; request_type: "deposit" | "withdraw"; amount_minor: string; status: "pending"; created_at: string }>(
+      `INSERT INTO cash_requests (user_id,request_type,amount_minor)
+       VALUES ($1,$2,$3) RETURNING id,request_type,amount_minor,status,created_at`,
+      [user.id, parsed.data.type, amountMinor],
+    );
+    request = result.rows[0]!;
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (error instanceof WageringRequirementError) return res.status(400).json({ message: `환전하려면 ${coins(error.remainingMinor).toLocaleString()}코인을 더 베팅해야 합니다.` });
+    throw error;
+  } finally {
+    client.release();
+  }
+  io.to("support:admins").emit("cash.request.created", {
+    id: request.id,
+    type: request.request_type,
+    amount: coins(request.amount_minor),
+    username: user.username,
+    createdAt: request.created_at,
+  });
   res.status(201).json({ id: request.id, type: request.request_type, amount: coins(request.amount_minor), status: request.status, createdAt: request.created_at });
 });
 
@@ -248,6 +274,7 @@ app.post("/api/v1/wallet/transfers", requireAuth, async (req, res) => {
     if (code === "RECIPIENT_NOT_FOUND") return res.status(404).json({ message: "송금할 사용자를 찾을 수 없습니다." });
     if (code === "RECIPIENT_SELF") return res.status(400).json({ message: "본인에게는 송금할 수 없습니다." });
     if (code === "INSUFFICIENT_BALANCE") return res.status(400).json({ message: "잔액이 부족합니다." });
+    if (error instanceof WageringRequirementError) return res.status(400).json({ message: `롤링이 ${coins(error.remainingMinor).toLocaleString()}코인 남아 송금할 수 없습니다.` });
     if (code === "IDEMPOTENCY_CONFLICT") return res.status(409).json({ message: "중복 요청 정보가 일치하지 않습니다." });
     throw error;
   }
@@ -255,10 +282,14 @@ app.post("/api/v1/wallet/transfers", requireAuth, async (req, res) => {
 
 app.get("/api/v1/admin/wallet/cash-requests", requireAuth, requireAdmin, async (_req, res) => {
   const result = await pool.query(
-    `SELECT cr.id,cr.request_type,cr.amount_minor,cr.status,cr.created_at,u.username
-     FROM cash_requests cr JOIN users u ON u.id=cr.user_id ORDER BY cr.created_at DESC LIMIT 100`,
+    `SELECT cr.id,cr.request_type,cr.amount_minor,cr.status,cr.created_at,u.username,
+            COALESCE(wr.remaining_minor,0) AS wagering_remaining_minor
+     FROM cash_requests cr
+     JOIN users u ON u.id=cr.user_id
+     LEFT JOIN wagering_requirements wr ON wr.user_id=cr.user_id
+     ORDER BY cr.created_at DESC LIMIT 100`,
   );
-  res.json({ items: result.rows.map((row) => ({ ...row, amount: coins(row.amount_minor) })) });
+  res.json({ items: result.rows.map((row) => ({ ...row, amount: coins(row.amount_minor), wageringRemaining: coins(row.wagering_remaining_minor) })) });
 });
 
 app.post("/api/v1/admin/wallet/cash-requests/:requestId/decision", requireAuth, requireAdmin, async (req, res) => {
@@ -271,6 +302,7 @@ app.post("/api/v1/admin/wallet/cash-requests/:requestId/decision", requireAuth, 
     const code = error instanceof Error ? error.message : "CASH_REQUEST_FAILED";
     if (code === "CASH_REQUEST_NOT_FOUND") return res.status(404).json({ message: "신청을 찾을 수 없습니다." });
     if (code === "INSUFFICIENT_BALANCE") return res.status(400).json({ message: "잔액이 부족합니다." });
+    if (error instanceof WageringRequirementError) return res.status(400).json({ message: `롤링이 ${coins(error.remainingMinor).toLocaleString()}코인 남아 환전을 승인할 수 없습니다.` });
     throw error;
   }
 });
@@ -296,8 +328,8 @@ app.get("/api/v1/admin/support/conversations/:conversationId/messages", requireA
 
 app.post("/api/v1/admin/support/conversations/:conversationId/messages", requireAuth, requireAdmin, async (req, res) => {
   try {
-    const message = await createAdminSupportMessage((req as AuthRequest).user.id, String(req.params.conversationId ?? ""), String(req.body?.message ?? ""));
-    io.to(`support:user:${message.userId}`).emit("support.message", message);
+    const { message, recipientUserId } = await createAdminSupportMessage((req as AuthRequest).user.id, String(req.params.conversationId ?? ""), String(req.body?.message ?? ""));
+    io.to(`support:user:${recipientUserId}`).emit("support.message", message);
     io.to("support:admins").emit("support.message", message);
     res.status(201).json(message);
   } catch (error) {
@@ -326,7 +358,7 @@ async function walletTransactionsForUser(userId: string, limit: number) {
 }
 
 function coins(minor: string | number): number {
-  return Math.floor(Number(minor) / COIN_SCALE);
+  return Math.round(Number(minor) / COIN_SCALE);
 }
 
 io.use((socket, next) => {
@@ -356,7 +388,11 @@ io.on("connection", (socket) => {
     if (!status.rows[0]?.approved) throw new Error("UNAUTHORIZED");
   };
 
-  void socket.join(socket.data.user.role === "admin" ? "support:admins" : `support:user:${socket.data.user.id}`);
+  if (socket.data.user.role === "admin") {
+    void socket.join(["support:admins", "chat:admins"]);
+  } else {
+    void socket.join(`support:user:${socket.data.user.id}`);
+  }
 
   socket.on("room.join", async (payload, ack) => {
     if (typeof ack !== "function") return;
@@ -412,7 +448,9 @@ io.on("connection", (socket) => {
       if (!payload || typeof payload.roomId !== "string" || typeof payload.message !== "string") throw new Error("CHAT_INVALID");
       if (!rooms.isParticipant(socket.data.user.id, payload.roomId) && !blackjackRooms.isParticipant(socket.data.user.id, payload.roomId)) throw new Error("ROOM_JOIN_REQUIRED");
       const message = await createRoomMessage(socket.data.user.id, payload.roomId, payload.message);
-      io.to(`room:${payload.roomId}`).emit("room.chat.message", message);
+      // Baccarat and blackjack actors use different gameplay channels. The
+      // union also mirrors every table message to the admin monitoring feed.
+      io.to(`room:${payload.roomId}`).to(`bj-room:${payload.roomId}`).to("chat:admins").emit("room.chat.message", message);
       ack({ ok: true, data: message });
     } catch (error) {
       const code = error instanceof Error ? error.message : "CHAT_FAILED";
@@ -439,8 +477,8 @@ io.on("connection", (socket) => {
       await authorizeCommand();
       if (socket.data.user.role !== "admin") throw new Error("ADMIN_REQUIRED");
       if (!payload || typeof payload.conversationId !== "string" || typeof payload.message !== "string") throw new Error("CHAT_INVALID");
-      const message = await createAdminSupportMessage(socket.data.user.id, payload.conversationId, payload.message);
-      io.to(`support:user:${message.userId}`).emit("support.message", message);
+      const { message, recipientUserId } = await createAdminSupportMessage(socket.data.user.id, payload.conversationId, payload.message);
+      io.to(`support:user:${recipientUserId}`).emit("support.message", message);
       io.to("support:admins").emit("support.message", message);
       ack({ ok: true, data: message });
     } catch (error) {
@@ -482,6 +520,53 @@ io.on("connection", (socket) => {
       ack({ ok: false, code, error: messageFor(error) });
     }
   });
+  socket.on("blackjack.seat.claim", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = blackjackSeatCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_SEAT", error: "좌석 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await blackjackRooms.claimSeat(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "SEAT_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("blackjack.seat.leave", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND");
+      ack({ ok: true, data: await blackjackRooms.leaveSeat(socket.data.user.id, payload.roomId) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "SEAT_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("blackjack.betBehind", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = blackjackBehindBetCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_BET", error: "따라 베팅 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await blackjackRooms.placeBehind(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "BET_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("blackjack.insurance", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = blackjackInsuranceCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_INSURANCE", error: "보험 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await blackjackRooms.takeInsurance(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "INSURANCE_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
   socket.on("blackjack.action", async (payload, ack) => {
     if (typeof ack !== "function") return;
     try {
@@ -510,9 +595,21 @@ function messageFor(error: unknown): string {
   if (code === "ROOM_JOIN_REQUIRED") return "테이블에 먼저 입장해주세요.";
   if (code === "BET_NOT_FOUND") return "취소할 베팅이 없습니다.";
   if (code === "BET_ALREADY_PLACED") return "이번 라운드에는 이미 베팅했습니다.";
+  if (code === "SEAT_REQUIRED") return "먼저 빈 좌석을 선택해주세요.";
+  if (code === "SEAT_TAKEN") return "이미 사용 중인 좌석입니다.";
+  if (code === "SEAT_ALREADY_CLAIMED") return "이미 다른 좌석에 앉아 있습니다.";
+  if (code === "SEAT_LOCKED") return "현재 라운드가 끝난 뒤 좌석에서 나갈 수 있습니다.";
+  if (code === "FOLLOW_TARGET_UNAVAILABLE") return "본 베팅을 마친 좌석만 따라 베팅할 수 있습니다.";
+  if (code === "FOLLOW_BET_ALREADY_PLACED") return "이 좌석에는 이미 따라 베팅했습니다.";
+  if (code === "CANNOT_FOLLOW_SELF") return "내 좌석에는 따라 베팅할 수 없습니다.";
   if (code === "NOT_YOUR_TURN") return "지금은 액션을 할 수 있는 시간이 아닙니다.";
   if (code === "NO_ACTIVE_HAND") return "진행 중인 핸드가 없습니다.";
   if (code === "DOUBLE_NOT_ALLOWED") return "카드가 2장일 때만 더블다운할 수 있습니다.";
+  if (code === "SPLIT_NOT_ALLOWED") return "같은 가치의 첫 두 장만 최대 4핸드까지 스플릿할 수 있습니다.";
+  if (code === "SPLIT_LIMIT") return "스플릿은 최대 4핸드까지 가능합니다.";
+  if (code === "SURRENDER_NOT_ALLOWED") return "첫 두 장을 받은 짝수 코인 최초 핸드에서만 서렌더할 수 있습니다.";
+  if (code === "INSURANCE_CLOSED" || code === "INSURANCE_NOT_ALLOWED") return "지금은 보험에 가입할 수 없습니다.";
+  if (code === "INSURANCE_ALREADY_TAKEN") return "이미 보험에 가입했습니다.";
   if (code === "IDEMPOTENCY_CONFLICT") return "중복 요청 정보가 일치하지 않습니다.";
   if (code === "RATE_LIMITED") return "요청이 너무 빠릅니다. 잠시 후 다시 시도해주세요.";
   if (code === "UNAUTHORIZED") return "로그인이 만료되었거나 이용 승인이 취소되었습니다.";

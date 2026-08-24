@@ -3,18 +3,9 @@ import { Link } from "react-router-dom";
 import type { CashRequest, ProfileResponse } from "@golden/contracts";
 import { AppShell } from "../components/AppShell";
 import { createCashRequest, createTransfer, getProfile } from "../api";
+import { TRANSACTION_LABEL } from "../lib/transactionLabels";
 
 type Action = "deposit" | "withdraw" | "transfer" | null;
-
-const TRANSACTION_LABEL: Record<string, string> = {
-  OPENING_BALANCE: "초기 지급",
-  BET_RESERVED: "베팅 접수",
-  BET_SETTLED: "라운드 정산",
-  BET_REFUNDED: "라운드 환불",
-  USER_TRANSFER: "개인 송금",
-  DEPOSIT_APPROVED: "충전 승인",
-  WITHDRAW_APPROVED: "환전 승인",
-};
 
 export function ProfilePage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -59,6 +50,7 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
 
   if (!profile) return <div className="loading-screen"><p>{error || "프로필을 불러오는 중…"}</p></div>;
   const { stats } = profile;
+  const outgoingLocked = !profile.wagering.canWithdraw;
   return (
     <AppShell balance={profile.walletBalance} onLogout={onLogout}>
       <section className="profile-heading">
@@ -79,16 +71,21 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
 
       <section className="profile-panel profile-actions-panel">
         <div className="profile-panel-heading"><h2>코인 관리</h2></div>
+        <div className={`wagering-progress-card ${outgoingLocked ? "is-active" : "is-complete"}`}>
+          <div><strong>환전 롤링</strong><span>{outgoingLocked ? `${profile.wagering.remaining.toLocaleString()}코인 남음` : "환전 가능"}</span></div>
+          <div className="wagering-progress-track" aria-label={`롤링 진행률 ${profile.wagering.progressPercent}%`}><i style={{ width: `${profile.wagering.progressPercent}%` }} /></div>
+          <small>{profile.wagering.required === 0 ? "승인된 충전부터 100% 베팅 조건이 적용됩니다." : `${profile.wagering.completed.toLocaleString()} / ${profile.wagering.required.toLocaleString()}코인 · ${profile.wagering.progressPercent}%`}</small>
+        </div>
         <div className="profile-actions">
           <ActionButton active={action === "deposit"} onClick={() => setAction(action === "deposit" ? null : "deposit")} title="충전 신청" description="관리자 확인 후 잔액에 반영" />
-          <ActionButton active={action === "withdraw"} onClick={() => setAction(action === "withdraw" ? null : "withdraw")} title="환전 신청" description="보유 코인을 환전 요청" />
-          <ActionButton active={action === "transfer"} onClick={() => setAction(action === "transfer" ? null : "transfer")} title="개인 송금" description="다른 사용자에게 코인 전송" />
+          <ActionButton active={action === "withdraw"} onClick={() => setAction(action === "withdraw" ? null : "withdraw")} title="환전 신청" description={outgoingLocked ? `롤링 ${profile.wagering.remaining.toLocaleString()}코인 남음` : "보유 코인을 환전 요청"} />
+          <ActionButton active={action === "transfer"} onClick={() => setAction(action === "transfer" ? null : "transfer")} title="개인 송금" description={outgoingLocked ? "롤링 완료 후 이용 가능" : "다른 사용자에게 코인 전송"} />
         </div>
         {action && (
           <form className={`profile-form ${action}`} onSubmit={submit}>
             {action === "transfer" && <label>받는 사람 아이디<input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="아이디 입력" autoComplete="off" list="recipient-list" /><datalist id="recipient-list">{profile.recipients.map((entry) => <option key={entry.username} value={entry.username} />)}</datalist></label>}
             <label>{action === "deposit" ? "충전 신청 금액" : action === "withdraw" ? "환전 신청 금액" : "송금 금액"}<input type="number" min="1" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="코인 수량" /></label>
-            <button className="gold-button" disabled={busy}>{busy ? "처리 중…" : action === "deposit" ? "충전 신청" : action === "withdraw" ? "환전 신청" : "송금하기"}</button>
+            <button className="gold-button" disabled={busy || (action !== "deposit" && outgoingLocked)}>{busy ? "처리 중…" : action === "deposit" ? "충전 신청" : outgoingLocked ? `롤링 ${profile.wagering.remaining.toLocaleString()}코인 남음` : action === "withdraw" ? "환전 신청" : "송금하기"}</button>
           </form>
         )}
         {message && <p className="success-message">{message}</p>}
@@ -101,8 +98,8 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
           {profile.cashRequests.length === 0 ? <p className="muted">아직 신청 내역이 없습니다.</p> : <div className="request-list">{profile.cashRequests.map((request) => <CashRequestRow key={request.id} request={request} />)}</div>}
         </section>
         <section className="profile-panel">
-          <div className="profile-panel-heading"><h2>최근 거래</h2></div>
-          {profile.transactions.length === 0 ? <p className="muted">아직 거래 내역이 없습니다.</p> : <div className="request-list">{profile.transactions.slice(0, 8).map((item) => <div className="ledger-row" key={`${item.id}-${item.amount_minor}`}><span>{TRANSACTION_LABEL[item.transaction_type] ?? item.transaction_type}</span><strong className={item.amount_minor >= 0 ? "amount-positive" : "amount-negative"}>{item.amount_minor >= 0 ? "+" : ""}{Math.floor(item.amount_minor / 100).toLocaleString()}코인</strong></div>)}</div>}
+          <div className="profile-panel-heading"><h2>최근 게임 기록</h2></div>
+          {profile.transactions.length === 0 ? <p className="muted">아직 게임 기록이 없습니다.</p> : <div className="request-list">{profile.transactions.slice(0, 8).map((item) => <div className="ledger-row" key={`${item.id}-${item.amount_minor}`}><span>{TRANSACTION_LABEL[item.transaction_type] ?? item.transaction_type}</span><strong className={item.amount_minor >= 0 ? "amount-positive" : "amount-negative"}>{item.amount_minor >= 0 ? "+" : ""}{Math.round(item.amount_minor / 100).toLocaleString()}코인</strong></div>)}</div>}
         </section>
       </div>
     </AppShell>

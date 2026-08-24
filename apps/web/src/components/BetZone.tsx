@@ -1,16 +1,5 @@
 import type { CSSProperties } from "react";
-
-/** Same five denominations and colors as the chip tray (see BaccaratRoomPage's CHIP_TIERS). */
-const CHIP_TIER_COLORS = ["#9a6b28", "#9a3540", "#275c91", "#267450", "#473f3a"];
-const CHIP_TIER_VALUES = [1, 5, 10, 25, 100];
-
-function chipTierColor(amount: number): string {
-  let color = CHIP_TIER_COLORS[0]!;
-  CHIP_TIER_VALUES.forEach((value, index) => {
-    if (amount >= value) color = CHIP_TIER_COLORS[index]!;
-  });
-  return color;
-}
+import { chipColorForAmount } from "../lib/betting";
 
 /** How many chips to draw in the stack, purely for visual weight (capped so it never overflows the zone). */
 function chipLayerCount(amount: number): number {
@@ -41,7 +30,7 @@ export function BetZone({
   buttonRef?: (el: HTMLButtonElement | null) => void;
 }) {
   const layers = chipLayerCount(amount);
-  const stackStyle = { "--chip-tier": chipTierColor(amount) } as CSSProperties;
+  const stackStyle = { "--chip-tier": chipColorForAmount(amount) } as CSSProperties;
   return (
     <div className={`bet-zone ${className} ${amount > 0 ? "has-bet" : ""}`}>
       <button ref={buttonRef} type="button" className="bet-zone-surface" disabled={disabled} onClick={onPlace}>

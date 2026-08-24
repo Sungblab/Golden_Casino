@@ -1,18 +1,19 @@
 import { COIN_SCALE, type BaccaratBetChoice, type PlaceBetCommand, type RoundHistoryEntry } from "@golden/contracts";
-import { payoutMultiplierHundredths, type BaccaratResult } from "@golden/game-core";
+import { payoutForBaccaratBet, payoutMultiplierHundredths, type BaccaratResult } from "@golden/game-core";
 import { pool } from "../../database/pool.js";
 import { walletService } from "../../wallet/wallet-service.js";
+import { wageringService } from "../../wallet/wagering-service.js";
 import type { PoolClient } from "pg";
 
 export interface BaccaratWin {
   userId: string;
   choice: BaccaratBetChoice;
-  payoutMinor: number;
+  profitMinor: number;
 }
 
 export class BaccaratBetService {
   async place(userId: string, command: PlaceBetCommand, minBet: number, maxBet: number): Promise<{ duplicate: boolean; balance: number }> {
-    if (command.amount < minBet || command.amount > maxBet) throw new Error("BET_LIMIT");
+    if (!Number.isInteger(command.amount) || command.amount <= 0 || command.amount > maxBet) throw new Error("BET_LIMIT");
     const amountMinor = command.amount * COIN_SCALE;
     const client = await pool.connect();
     try {
@@ -38,7 +39,9 @@ export class BaccaratBetService {
         "SELECT COALESCE(SUM(amount_minor),0) AS total FROM wagers WHERE round_id=$1 AND user_id=$2 AND status='accepted'",
         [command.roundId, userId],
       );
-      if (Number(accumulated.rows[0]!.total) + amountMinor > maxBet * COIN_SCALE) throw new Error("BET_LIMIT");
+      const accumulatedMinor = Number(accumulated.rows[0]!.total);
+      if (accumulatedMinor === 0 && command.amount < minBet) throw new Error("BET_LIMIT");
+      if (accumulatedMinor + amountMinor > maxBet * COIN_SCALE) throw new Error("BET_LIMIT");
       const accounts = await walletService.accountIds(client, userId, command.roomId);
       await walletService.postTransaction(client, {
         type: "BET_RESERVED",
@@ -134,7 +137,7 @@ export class BaccaratBetService {
       for (const bet of bets) {
         const accounts = await walletService.accountIds(client, bet.userId, roomId);
         const multiplier = payoutMultiplierHundredths(bet.choice, result);
-        const payoutMinor = Math.floor((bet.amountMinor * multiplier) / 100);
+        const payoutMinor = payoutForBaccaratBet(bet.choice, result, bet.amountMinor, COIN_SCALE);
         const outcome = multiplier === 0 ? "lose" : multiplier === 100 ? "push" : "win";
         const entries = multiplier === 0
           ? [{ accountId: accounts.room, amountMinor: -bet.amountMinor }, { accountId: accounts.house, amountMinor: bet.amountMinor }]
@@ -151,11 +154,12 @@ export class BaccaratBetService {
           entries,
           metadata: { outcome, multiplier },
         });
+        if (outcome !== "push") await wageringService.applyEligibleWager(client, bet.userId, "baccarat_wager", bet.id, bet.amountMinor);
         await client.query(
           "UPDATE wagers SET payout_minor=$2,outcome=$3,status='settled',settled_at=now() WHERE id=$1",
           [bet.id, payoutMinor, outcome],
         );
-        if (payoutMinor > bet.amountMinor) wins.push({ userId: bet.userId, choice: bet.choice, payoutMinor });
+        if (payoutMinor > bet.amountMinor) wins.push({ userId: bet.userId, choice: bet.choice, profitMinor: payoutMinor - bet.amountMinor });
       }
       await client.query("COMMIT");
       for (const userId of new Set(bets.map((bet) => bet.userId))) balances.set(userId, await walletService.getUserBalance(userId));

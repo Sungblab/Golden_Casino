@@ -11,6 +11,9 @@ coverage/
 # Local tooling and visual QA artifacts
 /.claude/
 /.playwright-mcp/
+/.playwright-cli/
+/output/
+/design-qa.md
 /*.png
 /*.jpg
 /*.jpeg

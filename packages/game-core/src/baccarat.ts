@@ -33,8 +33,11 @@ export function shouldBankerDraw(score: number, playerThirdCard?: Card): boolean
 }
 
 export function playBaccaratRound(shoe: Shoe): BaccaratResult {
-  const playerCards = [shoe.draw(), shoe.draw()];
-  const bankerCards = [shoe.draw(), shoe.draw()];
+  // Punto Banco is dealt in table order: Player, Banker, Player, Banker.
+  const playerCards = [shoe.draw()];
+  const bankerCards = [shoe.draw()];
+  playerCards.push(shoe.draw());
+  bankerCards.push(shoe.draw());
   const playerPair = playerCards[0]!.rank === playerCards[1]!.rank;
   const bankerPair = bankerCards[0]!.rank === bankerCards[1]!.rank;
   const initialPlayerScore = handScore(playerCards);
@@ -71,5 +74,27 @@ export function payoutMultiplierHundredths(choice: BaccaratBetChoice, result: Ba
   if (choice === "player_pair" && result.playerPair) return 1200;
   if (choice === "banker_pair" && result.bankerPair) return 1200;
   return 0;
+}
+
+/**
+ * Total returned to the player, stake included. `unit` is the smallest public
+ * chip unit (100 for the API's minor-unit ledger). Commission is rounded to
+ * the nearest whole chip so a baccarat round can never create fractional coins.
+ */
+export function payoutForBaccaratBet(
+  choice: BaccaratBetChoice,
+  result: BaccaratResult,
+  stake: number,
+  unit = 1,
+): number {
+  if (!Number.isInteger(stake) || !Number.isInteger(unit) || unit <= 0 || stake < 0 || stake % unit !== 0) {
+    throw new Error("Baccarat stake must be a whole number of settlement units");
+  }
+  const multiplier = payoutMultiplierHundredths(choice, result);
+  if (multiplier === 0) return 0;
+  if (multiplier === 100) return stake;
+  const stakeUnits = stake / unit;
+  const profitUnits = Math.round((stakeUnits * (multiplier - 100)) / 100);
+  return (stakeUnits + profitUnits) * unit;
 }
 

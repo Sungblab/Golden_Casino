@@ -30,11 +30,18 @@ describe("buildBigRoad", () => {
     expect(columns[0]![0]!.ties).toBe(1);
   });
 
-  it("counts ties before any result as leadingTies", () => {
+  it("attaches leading ties to the first decisive result", () => {
     const history = [entry("tie"), entry("tie"), entry("banker")];
     const { columns, leadingTies } = buildBigRoad(history);
-    expect(leadingTies).toBe(2);
+    expect(leadingTies).toBe(0);
     expect(columns).toHaveLength(1);
+    expect(columns[0]![0]!.ties).toBe(2);
+  });
+
+  it("keeps leading ties separately while there is no decisive result", () => {
+    const { columns, leadingTies } = buildBigRoad([entry("tie"), entry("tie")]);
+    expect(columns).toEqual([]);
+    expect(leadingTies).toBe(2);
   });
 
   it("continues the streak as a new column once maxRows is exceeded", () => {
@@ -43,6 +50,13 @@ describe("buildBigRoad", () => {
     expect(columns).toHaveLength(2);
     expect(columns[0]).toHaveLength(2);
     expect(columns[1]).toHaveLength(1);
+    expect(columns[1]![0]!.row).toBe(1);
+  });
+
+  it("keeps a dragon tail on its bottom row instead of jumping to the top", () => {
+    const history = Array.from({ length: 8 }, () => entry("banker"));
+    const { columns } = buildBigRoad(history, 6);
+    expect(columns.map((column) => column.map((cell) => cell.row))).toEqual([[0, 1, 2, 3, 4, 5], [5], [5]]);
   });
 
   it("records the pair flags on the cell created by that round", () => {
@@ -50,6 +64,15 @@ describe("buildBigRoad", () => {
     const { columns } = buildBigRoad(history);
     expect(columns[0]![0]).toMatchObject({ playerPair: true, bankerPair: false });
     expect(columns[1]![0]).toMatchObject({ playerPair: false, bankerPair: true });
+  });
+
+  it("merges pair markers from tie rounds into the current road cell", () => {
+    const { columns } = buildBigRoad([
+      entry("tie", true, false),
+      entry("player"),
+      entry("tie", false, true),
+    ]);
+    expect(columns[0]![0]).toMatchObject({ ties: 2, playerPair: true, bankerPair: true });
   });
 });
 

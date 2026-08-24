@@ -114,6 +114,61 @@ AFTER INSERT OR UPDATE OF balance_minor ON wallet_accounts
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION enforce_wallet_balance_cache();
 
+-- One-time conversion from the former fractional-coin policy. Every non-house
+-- account is moved to a whole coin; user balances round up so this migration
+-- never removes value from a player. The house receives the exact balancing
+-- entry, preserving the double-entry ledger invariant.
+DO $whole_coin_normalization$
+DECLARE
+  normalization_id uuid;
+  house_account_id uuid;
+  account_record record;
+  adjustment_minor bigint;
+  total_adjustment_minor bigint := 0;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM ledger_transactions WHERE idempotency_key = 'normalize-whole-coins:v1') THEN
+    SELECT id INTO house_account_id FROM wallet_accounts WHERE kind = 'house' LIMIT 1;
+    IF house_account_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM wallet_accounts WHERE kind <> 'house' AND MOD(balance_minor, 100) <> 0
+    ) THEN
+      normalization_id := gen_random_uuid();
+      INSERT INTO ledger_transactions (id, transaction_type, idempotency_key, reference_type, metadata)
+      VALUES (normalization_id, 'WHOLE_COIN_NORMALIZATION', 'normalize-whole-coins:v1', 'wallet_migration', '{"policy":"round-users-up"}'::jsonb);
+
+      FOR account_record IN
+        SELECT id, kind, balance_minor
+        FROM wallet_accounts
+        WHERE kind <> 'house' AND MOD(balance_minor, 100) <> 0
+        ORDER BY id
+        FOR UPDATE
+      LOOP
+        adjustment_minor := CASE
+          WHEN account_record.kind = 'user'
+            THEN (CEIL(account_record.balance_minor::numeric / 100) * 100)::bigint - account_record.balance_minor
+          ELSE (ROUND(account_record.balance_minor::numeric / 100) * 100)::bigint - account_record.balance_minor
+        END;
+        IF adjustment_minor <> 0 THEN
+          INSERT INTO ledger_entries (transaction_id, account_id, amount_minor)
+          VALUES (normalization_id, account_record.id, adjustment_minor);
+          UPDATE wallet_accounts
+          SET balance_minor = balance_minor + adjustment_minor, version = version + 1
+          WHERE id = account_record.id;
+          total_adjustment_minor := total_adjustment_minor + adjustment_minor;
+        END IF;
+      END LOOP;
+
+      IF total_adjustment_minor <> 0 THEN
+        INSERT INTO ledger_entries (transaction_id, account_id, amount_minor)
+        VALUES (normalization_id, house_account_id, -total_adjustment_minor);
+        UPDATE wallet_accounts
+        SET balance_minor = balance_minor - total_adjustment_minor, version = version + 1
+        WHERE id = house_account_id;
+      END IF;
+    END IF;
+  END IF;
+END
+$whole_coin_normalization$;
+
 CREATE TABLE IF NOT EXISTS game_rounds (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id uuid NOT NULL REFERENCES game_rooms(id) ON DELETE RESTRICT,
@@ -170,17 +225,90 @@ CREATE TABLE IF NOT EXISTS blackjack_hands (
   room_id uuid NOT NULL REFERENCES game_rooms(id) ON DELETE RESTRICT,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   request_id uuid NOT NULL UNIQUE,
+  seat_number smallint CHECK (seat_number BETWEEN 1 AND 7),
+  hand_index smallint NOT NULL DEFAULT 0 CHECK (hand_index BETWEEN 0 AND 3),
+  parent_hand_id uuid,
+  from_split boolean NOT NULL DEFAULT false,
+  split_aces boolean NOT NULL DEFAULT false,
   bet_minor bigint NOT NULL CHECK (bet_minor > 0),
   cards jsonb NOT NULL DEFAULT '[]'::jsonb,
-  status varchar(20) NOT NULL DEFAULT 'playing' CHECK (status IN ('playing','stand','bust','blackjack','doubled')),
-  outcome varchar(20) CHECK (outcome IN ('win','lose','push','blackjack')),
+  status varchar(20) NOT NULL DEFAULT 'playing' CHECK (status IN ('playing','stand','bust','blackjack','doubled','surrendered')),
+  outcome varchar(20) CHECK (outcome IN ('win','lose','push','blackjack','surrender')),
   payout_minor bigint,
   placed_at timestamptz NOT NULL DEFAULT now(),
   settled_at timestamptz,
-  UNIQUE(round_id, user_id)
+  UNIQUE(round_id, user_id, hand_index)
 );
 CREATE INDEX IF NOT EXISTS blackjack_hands_round_idx ON blackjack_hands(round_id);
 CREATE INDEX IF NOT EXISTS blackjack_hands_user_idx ON blackjack_hands(user_id, placed_at DESC);
+ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS seat_number smallint CHECK (seat_number BETWEEN 1 AND 7);
+ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS hand_index smallint NOT NULL DEFAULT 0 CHECK (hand_index BETWEEN 0 AND 3);
+ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS parent_hand_id uuid;
+ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS from_split boolean NOT NULL DEFAULT false;
+ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS split_aces boolean NOT NULL DEFAULT false;
+ALTER TABLE blackjack_hands DROP CONSTRAINT IF EXISTS blackjack_hands_round_id_user_id_key;
+ALTER TABLE blackjack_hands DROP CONSTRAINT IF EXISTS blackjack_hands_status_check;
+ALTER TABLE blackjack_hands ADD CONSTRAINT blackjack_hands_status_check CHECK (status IN ('playing','stand','bust','blackjack','doubled','surrendered'));
+ALTER TABLE blackjack_hands DROP CONSTRAINT IF EXISTS blackjack_hands_outcome_check;
+ALTER TABLE blackjack_hands ADD CONSTRAINT blackjack_hands_outcome_check CHECK (outcome IN ('win','lose','push','blackjack','surrender'));
+DROP INDEX IF EXISTS blackjack_hands_round_seat_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS blackjack_hands_round_user_index_idx ON blackjack_hands(round_id,user_id,hand_index);
+CREATE UNIQUE INDEX IF NOT EXISTS blackjack_hands_round_seat_hand_idx ON blackjack_hands(round_id,seat_number,hand_index) WHERE seat_number IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS blackjack_bet_increments (
+  request_id uuid PRIMARY KEY,
+  hand_id uuid NOT NULL REFERENCES blackjack_hands(id) ON DELETE RESTRICT,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  placed_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS blackjack_bet_increments_hand_idx ON blackjack_bet_increments(hand_id, placed_at);
+
+CREATE TABLE IF NOT EXISTS blackjack_behind_bets (
+  id uuid PRIMARY KEY,
+  round_id uuid NOT NULL REFERENCES blackjack_rounds(id) ON DELETE RESTRICT,
+  room_id uuid NOT NULL REFERENCES game_rooms(id) ON DELETE RESTRICT,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  target_hand_id uuid NOT NULL REFERENCES blackjack_hands(id) ON DELETE RESTRICT,
+  target_seat smallint NOT NULL CHECK (target_seat BETWEEN 1 AND 7),
+  request_id uuid NOT NULL UNIQUE,
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  payout_minor bigint,
+  outcome varchar(20) CHECK (outcome IN ('win','lose','push','blackjack','surrender')),
+  placed_at timestamptz NOT NULL DEFAULT now(),
+  settled_at timestamptz,
+  UNIQUE(round_id, user_id, target_seat)
+);
+CREATE INDEX IF NOT EXISTS blackjack_behind_round_idx ON blackjack_behind_bets(round_id);
+CREATE INDEX IF NOT EXISTS blackjack_behind_user_idx ON blackjack_behind_bets(user_id, placed_at DESC);
+CREATE INDEX IF NOT EXISTS blackjack_behind_target_idx ON blackjack_behind_bets(target_hand_id);
+ALTER TABLE blackjack_behind_bets DROP CONSTRAINT IF EXISTS blackjack_behind_bets_outcome_check;
+ALTER TABLE blackjack_behind_bets ADD CONSTRAINT blackjack_behind_bets_outcome_check CHECK (outcome IN ('win','lose','push','blackjack','surrender'));
+
+CREATE TABLE IF NOT EXISTS blackjack_behind_bet_increments (
+  request_id uuid PRIMARY KEY,
+  bet_id uuid NOT NULL REFERENCES blackjack_behind_bets(id) ON DELETE RESTRICT,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  placed_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS blackjack_behind_bet_increments_bet_idx ON blackjack_behind_bet_increments(bet_id, placed_at);
+
+CREATE TABLE IF NOT EXISTS blackjack_insurance_bets (
+  id uuid PRIMARY KEY,
+  round_id uuid NOT NULL REFERENCES blackjack_rounds(id) ON DELETE RESTRICT,
+  room_id uuid NOT NULL REFERENCES game_rooms(id) ON DELETE RESTRICT,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  hand_id uuid NOT NULL REFERENCES blackjack_hands(id) ON DELETE RESTRICT,
+  request_id uuid NOT NULL UNIQUE,
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  payout_minor bigint,
+  outcome varchar(20) CHECK (outcome IN ('win','lose')),
+  placed_at timestamptz NOT NULL DEFAULT now(),
+  settled_at timestamptz,
+  UNIQUE(round_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS blackjack_insurance_round_idx ON blackjack_insurance_bets(round_id);
 
 CREATE TABLE IF NOT EXISTS cash_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -194,6 +322,29 @@ CREATE TABLE IF NOT EXISTS cash_requests (
 );
 CREATE INDEX IF NOT EXISTS cash_requests_user_idx ON cash_requests(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS cash_requests_pending_idx ON cash_requests(status, created_at DESC);
+
+-- A deposit creates a 1x wagering requirement. Progress only comes from
+-- qualifying, settled wagers recorded after that requirement exists.
+CREATE TABLE IF NOT EXISTS wagering_requirements (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+  cycle_required_minor bigint NOT NULL DEFAULT 0 CHECK (cycle_required_minor >= 0),
+  cycle_completed_minor bigint NOT NULL DEFAULT 0 CHECK (cycle_completed_minor >= 0),
+  remaining_minor bigint NOT NULL DEFAULT 0 CHECK (remaining_minor >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT wagering_progress_balanced CHECK (cycle_required_minor = cycle_completed_minor + remaining_minor)
+);
+
+CREATE TABLE IF NOT EXISTS wagering_progress_events (
+  id bigserial PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  source_type varchar(40) NOT NULL CHECK (source_type IN ('cash_deposit','baccarat_wager','blackjack_hand','blackjack_behind','blackjack_insurance')),
+  source_id uuid NOT NULL,
+  qualifying_amount_minor bigint NOT NULL CHECK (qualifying_amount_minor > 0),
+  credited_amount_minor bigint NOT NULL DEFAULT 0 CHECK (credited_amount_minor >= 0 AND credited_amount_minor <= qualifying_amount_minor),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(source_type, source_id)
+);
+CREATE INDEX IF NOT EXISTS wagering_progress_user_idx ON wagering_progress_events(user_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS wallet_transfers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

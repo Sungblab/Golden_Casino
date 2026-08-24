@@ -7,7 +7,7 @@ export interface HandValue {
   soft: boolean;
 }
 
-function cardPoints(card: Card): number {
+export function cardPoints(card: Card): number {
   if (card.rank === "A") return 11;
   if (["10", "J", "Q", "K"].includes(card.rank)) return 10;
   return Number(card.rank);
@@ -40,19 +40,34 @@ export function dealerShouldHit(cards: Card[]): boolean {
   return handValue(cards).total < 17;
 }
 
-export type BlackjackHandStatus = "playing" | "stand" | "bust" | "blackjack" | "doubled";
-export type BlackjackOutcome = "win" | "lose" | "push" | "blackjack";
+export function canSplitPair(cards: Card[]): boolean {
+  return cards.length === 2 && cardPoints(cards[0]!) === cardPoints(cards[1]!);
+}
+
+export type BlackjackHandStatus = "playing" | "stand" | "bust" | "blackjack" | "doubled" | "surrendered";
+export type BlackjackOutcome = "win" | "lose" | "push" | "blackjack" | "surrender";
+
+export interface BlackjackSettlementOptions {
+  /** A 21 made after a split is a normal 21, never a 3:2 natural blackjack. */
+  fromSplit?: boolean;
+}
 
 /**
  * Settles one player hand against the finished dealer hand.
  * A natural blackjack pays 3:2 unless the dealer also has one (push). A dealer bust pays
  * every hand that didn't itself bust. Otherwise it's the higher total, ties push.
  */
-export function settleHand(playerCards: Card[], playerStatus: BlackjackHandStatus, dealerCards: Card[]): BlackjackOutcome {
+export function settleHand(
+  playerCards: Card[],
+  playerStatus: BlackjackHandStatus,
+  dealerCards: Card[],
+  options: BlackjackSettlementOptions = {},
+): BlackjackOutcome {
+  if (playerStatus === "surrendered") return "surrender";
   if (playerStatus === "bust") return "lose";
   const playerTotal = handValue(playerCards).total;
   const dealerTotal = handValue(dealerCards).total;
-  const playerBlackjack = playerStatus !== "doubled" && isBlackjack(playerCards);
+  const playerBlackjack = !options.fromSplit && playerStatus !== "doubled" && isBlackjack(playerCards);
   const dealerBlackjack = isBlackjack(dealerCards);
 
   if (playerBlackjack && dealerBlackjack) return "push";
@@ -64,10 +79,23 @@ export function settleHand(playerCards: Card[], playerStatus: BlackjackHandStatu
   return "push";
 }
 
-/** Total returned to the player (stake included) for a settled hand, in the bet's own unit. */
-export function payoutForOutcome(outcome: BlackjackOutcome, bet: number): number {
-  if (outcome === "blackjack") return Math.floor(bet * 2.5);
+/**
+ * Total returned to the player (stake included). `unit` is the smallest public
+ * chip unit. Fractional 3:2 and surrender returns are quantized to that unit.
+ */
+export function payoutForOutcome(outcome: BlackjackOutcome, bet: number, unit = 1): number {
+  if (!Number.isInteger(bet) || !Number.isInteger(unit) || unit <= 0 || bet < 0 || bet % unit !== 0) {
+    throw new Error("Blackjack bet must be a whole number of settlement units");
+  }
+  if (outcome === "blackjack") return bet + Math.round((bet * 1.5) / unit) * unit;
   if (outcome === "win") return bet * 2;
   if (outcome === "push") return bet;
+  if (outcome === "surrender") return Math.floor(bet / (2 * unit)) * unit;
   return 0;
+}
+
+
+/** Insurance is an independent wager of at most half the main bet and returns stake + 2:1 profit. */
+export function insurancePayout(insuranceBet: number, dealerCards: Card[]): number {
+  return isBlackjack(dealerCards) ? insuranceBet * 3 : 0;
 }

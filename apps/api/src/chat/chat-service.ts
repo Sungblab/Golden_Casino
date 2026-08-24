@@ -132,14 +132,17 @@ export async function listAdminSupportConversations(limit = 100): Promise<Suppor
   return items;
 }
 
-export async function createAdminSupportMessage(adminId: string, conversationId: string, message: string): Promise<ChatMessage> {
+export async function createAdminSupportMessage(adminId: string, conversationId: string, message: string): Promise<{ message: ChatMessage; recipientUserId: string }> {
   const value = normalizedMessage(message);
-  const conversation = await pool.query("SELECT id FROM support_conversations WHERE id=$1", [conversationId]);
-  if (!conversation.rows[0]) throw new Error("CONVERSATION_NOT_FOUND");
+  const conversation = await pool.query<{ user_id: string }>("SELECT user_id FROM support_conversations WHERE id=$1", [conversationId]);
+  const recipientUserId = conversation.rows[0]?.user_id;
+  if (!recipientUserId) throw new Error("CONVERSATION_NOT_FOUND");
   const result = await pool.query<{ id: string }>(
     `INSERT INTO chat_messages (conversation_id,user_id,message,highlighted) VALUES ($1,$2,$3,true) RETURNING id`,
     [conversationId, adminId, value],
   );
-  await pool.query("UPDATE support_conversations SET status='open',updated_at=now() WHERE id=$1", [conversationId]);
-  return getMessage(result.rows[0]!.id);
+  // `open` means the user is waiting for an administrator response. A reply
+  // resolves the queue item; the next user message re-opens it automatically.
+  await pool.query("UPDATE support_conversations SET status='closed',updated_at=now() WHERE id=$1", [conversationId]);
+  return { message: await getMessage(result.rows[0]!.id), recipientUserId };
 }

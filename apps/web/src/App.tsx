@@ -7,7 +7,14 @@ import { BaccaratRoomPage } from "./pages/BaccaratRoomPage";
 import { BlackjackRoomPage } from "./pages/BlackjackRoomPage";
 import { WalletPage } from "./pages/WalletPage";
 import { ProfilePage } from "./pages/ProfilePage";
-import { AdminPage } from "./pages/AdminPage";
+import { AdminApp } from "./admin/AdminShell";
+import { AdminDashboardPage } from "./pages/AdminDashboardPage";
+import { AdminCashPage } from "./pages/AdminCashPage";
+import { AdminSupportPage } from "./pages/AdminSupportPage";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
+import { AdminGamesPage } from "./pages/AdminGamesPage";
+import { AdminStatsPage } from "./pages/AdminStatsPage";
+import { SupportPage } from "./pages/SupportPage";
 import { logoutServer, refreshAccessToken } from "./api";
 
 /** Access tokens expire after 30 minutes; rotate the httpOnly refresh cookie well before that. */
@@ -65,7 +72,15 @@ export function App() {
       <Route path="/lobby" element={token ? <LobbyPage token={token} user={user} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/wallet" element={token ? <WalletPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/profile" element={token ? <ProfilePage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
-      <Route path="/admin" element={token && user?.role === "admin" ? <AdminPage token={token} onLogout={logout} /> : token ? <Navigate to="/lobby" replace /> : <Navigate to="/login" replace />} />
+      <Route path="/support" element={token && user?.role !== "admin" ? <SupportPage token={token} onLogout={logout} /> : token ? <Navigate to="/admin" replace /> : <Navigate to="/login" replace />} />
+      <Route path="/admin" element={token && user?.role === "admin" ? <AdminApp token={token} onLogout={logout} /> : token ? <Navigate to="/lobby" replace /> : <Navigate to="/login" replace />}>
+        <Route index element={<AdminDashboardPage />} />
+        <Route path="cash" element={<AdminCashPage />} />
+        <Route path="support" element={<AdminSupportPage />} />
+        <Route path="users" element={<AdminUsersPage />} />
+        <Route path="games" element={<AdminGamesPage />} />
+        <Route path="stats" element={<AdminStatsPage />} />
+      </Route>
       <Route path="/rooms/blackjack/:roomId" element={token ? <BlackjackRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/:roomId" element={token ? <BaccaratRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to={token ? "/lobby" : "/login"} replace />} />

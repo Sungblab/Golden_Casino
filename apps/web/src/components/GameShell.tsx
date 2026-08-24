@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode, type RefObject } from "react";
 import { Link } from "react-router-dom";
 import { Expand, Minimize2 } from "lucide-react";
 import { ProfileMenu } from "./ProfileMenu";
@@ -20,21 +20,30 @@ export function GameShell({
   onLogout,
   isFullscreen,
   onToggleFullscreen,
+  shellRef,
   children,
 }: {
   title: string;
   subtitle: string;
   phaseLabel: string;
-  phaseSeconds: number | string;
+  /** Seconds left in the current phase, or null when the phase has no deadline (WAITING). */
+  phaseSeconds: number | string | null;
   balance: number;
   onLogout: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  shellRef?: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
   const displayBalance = useCountUp(balance);
+
+  useEffect(() => {
+    document.body.classList.add("game-screen-active");
+    return () => document.body.classList.remove("game-screen-active");
+  }, []);
+
   return (
-    <>
+    <div className="game-shell" ref={shellRef}>
       <header className="game-bar">
         <Link className="game-back" to="/lobby" aria-label="게임 로비로 돌아가기">
           ←
@@ -45,7 +54,9 @@ export function GameShell({
         </div>
         <div className="game-bar-phase">
           <span>{phaseLabel}</span>
-          <strong>{phaseSeconds || "–"}</strong>
+          {/* A countdown that has genuinely reached 0 must read "0", not "–". Only a phase
+              with no deadline at all (WAITING) has nothing to show. */}
+          <strong>{phaseSeconds === "" || phaseSeconds === null || phaseSeconds === undefined ? "–" : phaseSeconds}</strong>
         </div>
         <div className="game-bar-actions">
           <SoundToggle />
@@ -65,6 +76,6 @@ export function GameShell({
         </div>
       </header>
       <main className="game-body">{children}</main>
-    </>
+    </div>
   );
 }

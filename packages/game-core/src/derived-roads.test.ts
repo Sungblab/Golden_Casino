@@ -21,9 +21,21 @@ describe("buildDerivedRoads", () => {
     const history = [entry("player"), entry("player"), entry("banker"), entry("banker"), entry("player")];
     const roads = buildDerivedRoads(history);
     // Big Road columns for this sequence: [P,P] [B,B] [P] — see inline derivation in the test file history above.
-    expect(roads.bigEye).toEqual(["player", "banker"]);
+    // Both comparisons are regular: B reaches P's depth, then the two completed columns have equal depth.
+    expect(roads.bigEye).toEqual(["banker", "banker"]);
     expect(roads.small).toEqual([]);
     expect(roads.cockroach).toEqual([]);
+  });
+
+  it("marks a continuation blue when the reference column has no matching row", () => {
+    const roads = buildDerivedRoads([entry("player"), entry("banker"), entry("banker")]);
+    expect(roads.bigEye).toEqual(["player"]);
+  });
+
+  it("compares the previous column with the offset reference on a new Small Road column", () => {
+    const history = [entry("player"), entry("player"), entry("banker"), entry("banker"), entry("player"), entry("banker")];
+    const roads = buildDerivedRoads(history);
+    expect(roads.small).toEqual(["player"]);
   });
 });
 
@@ -40,5 +52,11 @@ describe("layoutDerivedRoad", () => {
     expect(columns).toHaveLength(2);
     expect(columns[0]).toHaveLength(2);
     expect(columns[1]).toHaveLength(1);
+    expect(columns.map((column) => column.map((cell) => cell.row))).toEqual([[0, 1], [1]]);
+  });
+
+  it("keeps a changed mark out of an occupied dragon-tail cell", () => {
+    const columns = layoutDerivedRoad(["banker", "banker", "banker", "player", "player"], 2);
+    expect(columns.map((column) => column.map((cell) => cell.row))).toEqual([[0, 1], [1, 0], [0]]);
   });
 });

@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { COIN_SCALE } from "@golden/contracts";
 import { pool } from "../database/pool.js";
+import { wageringService } from "./wagering-service.js";
 
 export interface LedgerEntryInput {
   accountId: string;
@@ -16,7 +17,7 @@ export function assertBalancedEntries(entries: LedgerEntryInput[]): void {
 export class WalletService {
   async getUserBalance(userId: string): Promise<number> {
     const result = await pool.query<{ balance_minor: string }>("SELECT balance_minor FROM wallet_accounts WHERE kind='user' AND user_id=$1", [userId]);
-    return Math.floor(Number(result.rows[0]?.balance_minor ?? 0) / COIN_SCALE);
+    return Math.round(Number(result.rows[0]?.balance_minor ?? 0) / COIN_SCALE);
   }
 
   async accountIds(client: PoolClient, userId: string, roomId: string): Promise<{ user: string; room: string; house: string }> {
@@ -74,6 +75,7 @@ export class WalletService {
         ],
         metadata: { senderId, recipientId },
       });
+      await wageringService.assertWithdrawAllowed(client, senderId);
       await client.query(
         "INSERT INTO wallet_transfers (id,request_id,sender_id,recipient_id,amount_minor) VALUES ($1,$1,$2,$3,$4)",
         [requestId, senderId, recipientId, amountMinor],
@@ -121,6 +123,8 @@ export class WalletService {
             : [{ accountId: user, amountMinor: -amountMinor }, { accountId: issuance, amountMinor }],
           metadata: { approvedBy: adminId, requestType: row.request_type },
         });
+        if (row.request_type === "deposit") await wageringService.addDeposit(client, row.user_id, requestId, amountMinor);
+        else await wageringService.assertWithdrawAllowed(client, row.user_id);
       }
       await client.query("UPDATE cash_requests SET status=$2,reviewed_by=$3,reviewed_at=now() WHERE id=$1", [requestId, decision, adminId]);
       await client.query("COMMIT");

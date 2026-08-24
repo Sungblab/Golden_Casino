@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import { AnimatePresence, motion } from "motion/react";
+import { Repeat2, Undo2 } from "lucide-react";
 import type { BaccaratBetChoice, Card, ClientToServerEvents, RoomSnapshot, ServerToClientEvents } from "@golden/contracts";
-import { handScore } from "@golden/game-core/baccarat";
+import { handScore, payoutForBaccaratBet, type BaccaratResult } from "@golden/game-core/baccarat";
 import { API_URL } from "../api";
 import { GameShell } from "../components/GameShell";
 import { Brand } from "../components/Brand";
@@ -13,19 +14,32 @@ import { BigRoad } from "../components/BigRoad";
 import { DerivedRoads } from "../components/DerivedRoads";
 import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
+import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { playSound } from "../lib/sound";
-import { useCountUp } from "../lib/useCountUp";
+import { CHIP_TIER_COLORS, chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
 
-/** Casino-standard chip tiers; each room only offers the ones within its own bet limit. */
-const CHIP_TIERS = [1, 5, 10, 25, 100];
-const CHIP_TIER_COLORS = ["#9a6b28", "#9a3540", "#275c91", "#267450", "#473f3a"];
-/** Milliseconds between each card landing during the deal sequence. */
-const DEAL_STEP_MS = 420;
-/** Total cards in a fresh 6-deck shoe — the shoe is reshuffled once it drops below 60 (see room-manager.ts). */
-const TOTAL_SHOE_CARDS = 312;
+/**
+ * Reveal pacing. The whole sequence has to finish inside the server's DEALING window
+ * (DEALING_MS in room-manager.ts) or the result banner is still animating in when the
+ * table has already settled and moved on. Worst case is six cards — two third-card
+ * draws — so budget against that:
+ *
+ *   5 × DEAL_STEP_MS + DEAL_LEAD_MS + THIRD_CARD_PAUSE_MS  ≤  DEALING_MS
+ *   5 × 430          + 140          + 520                  =  2_810ms  ≤ 3_400ms
+ */
+const DEAL_STEP_MS = 430;
+/** Beat before the first card lands, so the deal reads as deliberate rather than instant. */
+const DEAL_LEAD_MS = 140;
+/** A natural-table pause before either side receives a third card. */
+const THIRD_CARD_PAUSE_MS = 520;
 const BET_CHOICES: BaccaratBetChoice[] = ["player_pair", "player", "tie", "banker", "banker_pair"];
-/** Must match room-manager.ts's BETTING phase duration (12_000ms) — drives the countdown ring. */
+/** Must match room-manager.ts's BETTING_MS (12_000ms) — drives the countdown ring. */
 const BETTING_SECONDS = 12;
+/**
+ * How long the settlement notice stays up. Must be shorter than the server's RESULT phase
+ * (RESULT_MS, 4_000ms) or a win notice is still on screen during the next round's betting.
+ */
+const RESULT_NOTICE_MS = 2_600;
 /** Circumference of the countdown ring's r=26 circle (2πr), used for its stroke-dashoffset animation. */
 const TIMER_RING = 163.4;
 
@@ -33,6 +47,10 @@ const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const prefersLightweightChipEffects = (): boolean =>
+  prefersReducedMotion() ||
+  (typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 900px)").matches);
 
 interface FlyingChip {
   id: string;
@@ -80,12 +98,15 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const { roomId = "" } = useParams();
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [chip, setChip] = useState(1);
+  const [chipMenuOpen, setChipMenuOpen] = useState(false);
+  const [roadPrediction, setRoadPrediction] = useState<BaccaratResult["result"] | null>(null);
   const [message, setMessage] = useState("");
   const [seconds, setSeconds] = useState(0);
   const [visiblePlayerCards, setVisiblePlayerCards] = useState<Card[]>([]);
   const [visibleBankerCards, setVisibleBankerCards] = useState<Card[]>([]);
   const previousPhase = useRef<RoomSnapshot["room"]["phase"] | null>(null);
   const lastBets = useRef<Partial<RoomSnapshot["myBets"]>>({});
+  const roundBetsRef = useRef<Partial<RoomSnapshot["myBets"]>>({});
   const dealtRoundRef = useRef<string | null>(null);
   const dealTimers = useRef<number[]>([]);
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(() => io(API_URL, { auth: { token }, autoConnect: false }), [token]);
@@ -97,10 +118,12 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const handRefs = useRef<Record<"player" | "banker", HTMLElement | null>>({ player: null, banker: null });
   const effectIdRef = useRef(0);
   const burstRoundRef = useRef<string | null>(null);
+  const noticeRoundRef = useRef<string | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
   const [flyingChips, setFlyingChips] = useState<FlyingChip[]>([]);
   const [bursts, setBursts] = useState<BurstItem[]>([]);
+  const [resultNotice, setResultNotice] = useState<RoundResultNoticeData | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const displaySidebarBalance = useCountUp(snapshot?.walletBalance ?? 0);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === shellRef.current);
@@ -114,7 +137,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   };
 
   const spawnFlyingChip = (choiceKey: BaccaratBetChoice, amount: number, chipValue: number): void => {
-    if (prefersReducedMotion()) return;
+    if (prefersLightweightChipEffects()) return;
     const overlay = overlayRef.current;
     const from = chipRefs.current[chipValue];
     const to = zoneRefs.current[choiceKey];
@@ -130,7 +153,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
         fromY: fromRect.top + fromRect.height / 2 - overlayRect.top,
         toX: toRect.left + toRect.width / 2 - overlayRect.left,
         toY: toRect.top + toRect.height / 2 - overlayRect.top,
-        color: CHIP_TIER_COLORS[CHIP_TIERS.indexOf(chipValue)] ?? CHIP_TIER_COLORS[0]!,
+        color: CHIP_TIER_COLORS[chipTier(chipValue)]!,
         value: amount,
       },
     ]);
@@ -191,11 +214,10 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
 
   // Keep the selected chip inside this table's limit (rooms can have different maxBet values).
   useEffect(() => {
-    const maxBet = snapshot?.room.maxBet;
-    if (!maxBet) return;
-    const allowed = CHIP_TIERS.filter((value) => value <= maxBet);
-    setChip((current) => (allowed.includes(current) ? current : (allowed.at(-1) ?? 1)));
-  }, [snapshot?.room.maxBet]);
+    if (!snapshot) return;
+    const allowed = chipValuesForRoom(snapshot.room.minBet, snapshot.room.maxBet);
+    setChip((current) => (allowed.includes(current) ? current : allowed[0]!));
+  }, [snapshot?.room.minBet, snapshot?.room.maxBet]);
 
   // Snapshot this round's bets so "repeat bet" has something to replay next round.
   useEffect(() => {
@@ -205,9 +227,51 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     previousPhase.current = phase;
     if (phase === "LOCKED") {
       const placed = Object.fromEntries(Object.entries(snapshot.myBets).filter(([, amount]) => amount > 0));
+      roundBetsRef.current = placed;
       if (Object.keys(placed).length > 0) lastBets.current = placed;
     }
   }, [snapshot]);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!snapshot?.roundId || !snapshot.result || noticeRoundRef.current === snapshot.roundId) return;
+    const fullyRevealed = visiblePlayerCards.length === snapshot.playerCards.length && visibleBankerCards.length === snapshot.bankerCards.length;
+    if (!fullyRevealed) return;
+    noticeRoundRef.current = snapshot.roundId;
+    const settledBets = roundBetsRef.current;
+    const totalBet = Object.values(settledBets).reduce((sum, amount) => sum + (amount ?? 0), 0);
+    if (totalBet <= 0) return;
+
+    const roundResult: BaccaratResult = {
+      playerCards: snapshot.playerCards,
+      bankerCards: snapshot.bankerCards,
+      playerScore: snapshot.playerScore ?? handScore(snapshot.playerCards),
+      bankerScore: snapshot.bankerScore ?? handScore(snapshot.bankerCards),
+      result: snapshot.result,
+      playerPair: snapshot.playerPair,
+      bankerPair: snapshot.bankerPair,
+    };
+    const payout = Object.entries(settledBets).reduce(
+      (sum, [choice, amount]) => sum + payoutForBaccaratBet(choice as BaccaratBetChoice, roundResult, amount),
+      0,
+    );
+    const net = payout - totalBet;
+    setResultNotice({ net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "베팅금이 반환됐습니다" });
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), RESULT_NOTICE_MS);
+  }, [snapshot, visiblePlayerCards.length, visibleBankerCards.length]);
+
+  // Belt-and-braces for the timeout above: a settlement notice must never survive into the
+  // next round, however long the reveal took or how the round ended (abort, refund, pause).
+  useEffect(() => {
+    if (!snapshot) return;
+    if (snapshot.roundId !== null && snapshot.roundId === noticeRoundRef.current) return;
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    setResultNotice(null);
+  }, [snapshot?.roundId]);
 
   // Deal the round's cards one at a time (Player, Banker, Player, Banker, then any third cards)
   // instead of dropping the whole final hand on screen at once.
@@ -262,7 +326,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             });
           }
         }
-      }, index * DEAL_STEP_MS + 150),
+      }, index * DEAL_STEP_MS + DEAL_LEAD_MS + (index >= 4 ? THIRD_CARD_PAUSE_MS : 0)),
     );
   }, [snapshot]);
 
@@ -271,7 +335,8 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     socket.emit("bet.place", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, choice, amount }, (ack) => {
       if (ack.ok) {
         setSnapshot((current) => (!current || ack.data.sequence >= current.sequence ? ack.data : current));
-        setMessage(`${choiceLabel(choice)} ${amount}코인 베팅 완료`);
+        const total = ack.data.myBets[choice] ?? amount;
+        setMessage(`${choiceLabel(choice)} ${total}코인 베팅 완료`);
         playSound("chip");
         spawnFlyingChip(choice, amount, chip);
       } else {
@@ -316,13 +381,13 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   }
 
   const betting = snapshot.room.phase === "BETTING";
-  const chipValues = CHIP_TIERS.filter((value) => value <= snapshot.room.maxBet);
+  const chipValues = chipValuesForRoom(snapshot.room.minBet, snapshot.room.maxBet);
   const playerScore = visiblePlayerCards.length >= 2 ? handScore(visiblePlayerCards) : null;
   const bankerScore = visibleBankerCards.length >= 2 ? handScore(visibleBankerCards) : null;
   const dealFullyRevealed = visiblePlayerCards.length === snapshot.playerCards.length && visibleBankerCards.length === snapshot.bankerCards.length;
   const showResult = Boolean(snapshot.result) && dealFullyRevealed;
-  const shoePercent = Math.min(100, Math.max(0, Math.round((snapshot.shoeRemaining / TOTAL_SHOE_CARDS) * 100)));
   const currentBet = Object.values(snapshot.myBets).reduce((sum, amount) => sum + amount, 0);
+  const maxAdditional = maximumAdditionalBet(snapshot.walletBalance, currentBet, snapshot.room.maxBet);
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / BETTING_SECONDS));
 
   return (
@@ -330,24 +395,16 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
       title={snapshot.room.name}
       subtitle={`MIN ${snapshot.room.minBet} · MAX ${snapshot.room.maxBet} · 남은 카드 ${snapshot.shoeRemaining}`}
       phaseLabel={snapshot.room.paused ? "일시정지" : phaseLabel(snapshot.room.phase)}
-      phaseSeconds={seconds}
+      phaseSeconds={snapshot.phaseEndsAt ? seconds : null}
       balance={snapshot.walletBalance}
       onLogout={onLogout}
       isFullscreen={isFullscreen}
       onToggleFullscreen={() => void toggleFullscreen()}
+      shellRef={shellRef}
     >
-      <div ref={shellRef} className={`room-shell ${isFullscreen ? "is-fullscreen" : ""}`}>
-        <div className="shoe-meter">
-          <span>남은 슈 {snapshot.shoeRemaining} / {TOTAL_SHOE_CARDS}</span>
-          <div className="shoe-meter-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={shoePercent}>
-            <div className="shoe-meter-fill" style={{ width: `${shoePercent}%` }} />
-          </div>
-        </div>
-
+      <div className="room-shell">
         <section className="ot-stage">
-          <div className="ot-felt">
-            <p className="ot-status">{snapshot.room.paused ? "테이블이 일시정지되었습니다" : phaseLabel(snapshot.room.phase)}</p>
-
+          <div className="ot-felt baccarat">
             <div className="ot-feed">
               <WinnerFeed socket={socket} />
             </div>
@@ -389,6 +446,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
 
             {snapshot.room.phase === "LOCKED" && <div className="ot-banner lock">베팅 마감</div>}
             {showResult && <div className={`ot-banner ${snapshot.result}`}>{snapshot.result!.toUpperCase()} WIN</div>}
+            <RoundResultNotice notice={resultNotice} />
 
             <div className="ot-print">
               <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds="11:1" amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} onCancel={() => cancel("player_pair")} />
@@ -399,10 +457,10 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             </div>
 
             <aside className="ot-road left">
-              <BigRoad history={snapshot.recentResults} />
+              <BigRoad history={snapshot.recentResults} prediction={roadPrediction} onPredict={(result) => setRoadPrediction((current) => current === result ? null : result)} />
             </aside>
             <aside className="ot-road right">
-              <DerivedRoads history={snapshot.recentResults} />
+              <DerivedRoads history={snapshot.recentResults} prediction={roadPrediction} />
             </aside>
 
             {message && <p className="ot-message">{message}</p>}
@@ -412,7 +470,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
                 <motion.div
                   key={flyingChip.id}
                   className="flying-chip"
-                  style={{ background: flyingChip.color }}
+                  style={{ "--chip-face": flyingChip.color } as CSSProperties}
                   initial={{ x: flyingChip.fromX - 14, y: flyingChip.fromY - 14, opacity: 1, scale: 1 }}
                   animate={{ x: flyingChip.toX - 14, y: flyingChip.toY - 14, opacity: 0, scale: 0.5 }}
                   transition={{ duration: 0.42, ease: "easeIn" }}
@@ -430,30 +488,34 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
           </div>
 
           <footer className="ot-rail">
-            <div className="ot-money">
-              <small>잔고</small>
-              <strong>{displaySidebarBalance.toLocaleString()}</strong>
-            </div>
-
             <div className="ot-tray">
               {chipValues.map((value) => (
                 <button
                   key={value}
                   ref={(el) => { chipRefs.current[value] = el; }}
-                  className={`chip chip-tier-${CHIP_TIERS.indexOf(value)} ${chip === value ? "active" : ""}`}
+                  className={`chip chip-option chip-tier-${chipTier(value)} ${chip === value ? "active" : ""}`}
                   onClick={() => setChip(value)}
                 >
                   {value}
                 </button>
               ))}
+              {!chipValues.includes(maxAdditional) && <button
+                type="button"
+                className={`chip chip-option chip-max ${chip === maxAdditional ? "active" : ""}`}
+                disabled={!betting || maxAdditional <= 0 || (currentBet === 0 && maxAdditional < snapshot.room.minBet)}
+                onClick={() => setChip(maxAdditional)}
+                title={`가능한 최대 금액 ${maxAdditional}코인`}
+              >{maxAdditional}</button>}
+              <button type="button" className={`chip-picker-trigger chip-tier-${chipTier(chip)}`} aria-label="칩 단위 선택" aria-expanded={chipMenuOpen} onClick={() => setChipMenuOpen((open) => !open)}>{chip}</button>
+              {chipMenuOpen && <div className="chip-picker-menu" role="menu">{[...chipValues, ...(!chipValues.includes(maxAdditional) && maxAdditional > 0 ? [maxAdditional] : [])].map((value) => <button type="button" role="menuitem" key={value} className={`chip-tier-${chipTier(value)} ${chip === value ? "selected" : ""}`} onClick={() => { setChip(value); setChipMenuOpen(false); }}>{value}</button>)}</div>}
             </div>
 
             <div className="ot-acts">
-              <button type="button" className="outline-button" disabled={!betting || currentBet === 0} onClick={clearAllBets}>
-                전체 취소
+              <button type="button" className="outline-button icon-action" aria-label="전체 베팅 되돌리기" title="전체 베팅 되돌리기" disabled={!betting || currentBet === 0} onClick={clearAllBets}>
+                <Undo2 size={17} />
               </button>
-              <button type="button" className="outline-button" disabled={!betting || hasCurrentBets || !canRepeat} onClick={repeatBet}>
-                리핏 벳
+              <button type="button" className="outline-button icon-action" aria-label="이전 베팅 반복" title="이전 베팅 반복" disabled={!betting || hasCurrentBets || !canRepeat} onClick={repeatBet}>
+                <Repeat2 size={17} />
               </button>
             </div>
 
@@ -461,10 +523,9 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
               <small>총 베팅</small>
               <strong>{currentBet.toLocaleString()}</strong>
             </div>
+            <RoomChat socket={socket} roomId={roomId} token={token} />
           </footer>
         </section>
-
-        <RoomChat socket={socket} roomId={roomId} token={token} />
       </div>
     </GameShell>
   );
@@ -476,6 +537,7 @@ function phaseLabel(phase: RoomSnapshot["room"]["phase"]) {
     BETTING: "베팅 중",
     LOCKED: "베팅 마감",
     DEALING: "카드 오픈",
+    INSURANCE: "보험 선택",
     PLAYER_TURN: "플레이어 턴",
     DEALER_TURN: "딜러 턴",
     SETTLING: "정산 중",

@@ -3,14 +3,7 @@ import { Link } from "react-router-dom";
 import { COIN_SCALE, type WalletTransactionItem } from "@golden/contracts";
 import { AppShell } from "../components/AppShell";
 import { getLobby, getWalletTransactions } from "../api";
-
-const TYPE_LABEL: Record<string, string> = {
-  OPENING_BALANCE: "지급된 초기 코인",
-  BET_RESERVED: "베팅 접수",
-  BET_SETTLED: "라운드 정산",
-  BET_REFUNDED: "라운드 중단 환불",
-  BET_CANCELLED: "베팅 취소",
-};
+import { TRANSACTION_LABEL as TYPE_LABEL } from "../lib/transactionLabels";
 
 export function WalletPage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const [items, setItems] = useState<WalletTransactionItem[]>([]);
@@ -29,7 +22,7 @@ export function WalletPage({ token, onLogout }: { token: string; onLogout: () =>
   }, [token]);
 
   const summary = useMemo(() => {
-    const amounts = items.map((item) => item.amount_minor / COIN_SCALE);
+    const amounts = items.map((item) => Math.round(item.amount_minor / COIN_SCALE));
     const incoming = amounts.filter((amount) => amount > 0).reduce((total, amount) => total + amount, 0);
     const outgoing = amounts.filter((amount) => amount < 0).reduce((total, amount) => total + Math.abs(amount), 0);
     return { incoming, outgoing, net: incoming - outgoing };
@@ -40,7 +33,7 @@ export function WalletPage({ token, onLogout }: { token: string; onLogout: () =>
       <div className="wallet-heading">
         <div className="wallet-title-group">
           <Link className="lobby-return-button" to="/lobby"><span aria-hidden="true">←</span> 게임 로비</Link>
-          <h1>거래 내역</h1>
+          <h1>게임 기록</h1>
         </div>
       </div>
       <section className="wallet-summary" aria-label="거래 요약">
@@ -65,7 +58,7 @@ export function WalletPage({ token, onLogout }: { token: string; onLogout: () =>
             </thead>
             <tbody>
               {items.map((item) => {
-                const amount = item.amount_minor / COIN_SCALE;
+                const amount = Math.round(item.amount_minor / COIN_SCALE);
                 return (
                   <tr key={item.id + item.created_at + amount}>
                     <td>{formatTransactionDate(item.created_at)}</td>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "@golden/contracts";
-import { dealerShouldHit, handValue, isBlackjack, isBust, payoutForOutcome, settleHand } from "./blackjack.js";
+import { canSplitPair, dealerShouldHit, handValue, insurancePayout, isBlackjack, isBust, payoutForOutcome, settleHand } from "./blackjack.js";
 
 const card = (rank: Card["rank"], suit: Card["suit"] = "S"): Card => ({ rank, suit });
 
@@ -35,6 +35,15 @@ describe("isBust / isBlackjack", () => {
   });
 });
 
+describe("split rules", () => {
+  it("allows equal-value opening cards, including different ten-value ranks", () => {
+    expect(canSplitPair([card("8"), card("8")])).toBe(true);
+    expect(canSplitPair([card("10"), card("K")])).toBe(true);
+    expect(canSplitPair([card("8"), card("9")])).toBe(false);
+    expect(canSplitPair([card("8"), card("8"), card("2")])).toBe(false);
+  });
+});
+
 describe("dealerShouldHit", () => {
   it("hits below 17 and stands on 17+, including soft 17", () => {
     expect(dealerShouldHit([card("9"), card("6")])).toBe(true);
@@ -62,6 +71,11 @@ describe("settleHand", () => {
     expect(settleHand([card("10"), card("7")], "stand", [card("10"), card("9")])).toBe("lose");
     expect(settleHand([card("10"), card("8")], "stand", [card("10"), card("8")])).toBe("push");
   });
+
+  it("treats 21 after a split as an ordinary win and returns half on surrender", () => {
+    expect(settleHand([card("A"), card("K")], "stand", [card("9"), card("8")], { fromSplit: true })).toBe("win");
+    expect(settleHand([card("10"), card("6")], "surrendered", [card("10"), card("9")])).toBe("surrender");
+  });
 });
 
 describe("payoutForOutcome", () => {
@@ -69,6 +83,20 @@ describe("payoutForOutcome", () => {
     expect(payoutForOutcome("blackjack", 10)).toBe(25);
     expect(payoutForOutcome("win", 10)).toBe(20);
     expect(payoutForOutcome("push", 10)).toBe(10);
+    expect(payoutForOutcome("surrender", 1_000)).toBe(500);
     expect(payoutForOutcome("lose", 10)).toBe(0);
+  });
+
+  it("quantizes fractional payouts to whole public coins", () => {
+    expect(payoutForOutcome("blackjack", 100, 100)).toBe(300);
+    expect(payoutForOutcome("blackjack", 200, 100)).toBe(500);
+    expect(payoutForOutcome("surrender", 300, 100)).toBe(100);
+  });
+});
+
+describe("insurance", () => {
+  it("returns stake plus 2:1 profit only when the dealer has blackjack", () => {
+    expect(insurancePayout(500, [card("A"), card("K")])).toBe(1_500);
+    expect(insurancePayout(500, [card("A"), card("9")])).toBe(0);
   });
 });
