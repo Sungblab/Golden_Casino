@@ -267,26 +267,11 @@ class BaccaratRoomActor {
     await delay(12_000);
     if (token !== this.cycleToken) return;
 
-    // Persist LOCKED before reading wagers. A bet that passed the in-memory check
-    // must then wait on the same round row and will observe the closed DB phase.
+    // Persist LOCKED before dealing so late bets observe the closed DB phase.
     await this.setPhase("LOCKED", 700);
-    const bets = await baccaratBetService.betsForRound(this.roundId);
-    if (bets.length === 0) {
-      await pool.query("UPDATE game_rounds SET phase='RESULT',settled_at=now() WHERE id=$1", [this.roundId]);
-      this.phase = "RESULT";
-      this.phaseEndsAt = new Date(Date.now() + 2_000).toISOString();
-      this.sequence += 1;
-      await this.emitSnapshots();
-      await delay(2_000);
-      this.phase = "WAITING";
-      this.phaseEndsAt = null;
-      this.roundId = null;
-      this.sequence += 1;
-      await this.emitSnapshots();
-      if (this.playerCount > 0) this.launchCycle();
-      return;
-    }
-
+    // A participant keeps the table alive even when they skip this round.
+    // We still deal and publish a result; settlement simply has no ledger work
+    // when the round contains no wagers.
     await delay(700);
     await this.setPhase("DEALING", 2_000);
     if (this.shoe.remaining < 60) this.shoe = new Shoe(6);
