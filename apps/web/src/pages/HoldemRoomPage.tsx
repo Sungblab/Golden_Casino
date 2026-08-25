@@ -8,13 +8,17 @@ import type {
   HoldemSeatSnapshot,
   ServerToClientEvents,
 } from "@golden/contracts";
+import { evaluateBestHoldemHand } from "@golden/game-core/holdem";
 import { API_URL } from "../api";
 import { Brand } from "../components/Brand";
 import { GameShell } from "../components/GameShell";
+import { OrientationGate } from "../components/OrientationGate";
 import { PlayingCard } from "../components/PlayingCard";
 import { PokerHandGuide } from "../components/PokerHandGuide";
 import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
+import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
+import { playSound } from "../lib/sound";
 
 const ACTION_SECONDS = 20;
 const TIMER_RING = 163.4;
@@ -28,6 +32,10 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const [seconds, setSeconds] = useState(0);
   const [raiseTo, setRaiseTo] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [resultNotice, setResultNotice] = useState<RoundResultNoticeData | null>(null);
+  const noticeRoundRef = useRef<string | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
+  const prevActingSeatRef = useRef<number | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
     () => io(API_URL, { auth: { token }, autoConnect: false }),
@@ -76,10 +84,46 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot?.actingSeat, snapshot?.roundId, snapshot?.street]);
 
+  // My own win banner — only fires for a hand I actually won, using the winner's credited
+  // amount (reliable) rather than trying to net it against my contribution (not reliable to
+  // reconstruct from the snapshot once the hand has settled).
+  useEffect(() => {
+    if (!snapshot?.roundId || snapshot.lastWinners.length === 0 || noticeRoundRef.current === snapshot.roundId) return;
+    noticeRoundRef.current = snapshot.roundId;
+    const mine = snapshot.lastWinners.find((winner) => winner.seatNumber === snapshot.mySeatNumber);
+    if (!mine) return;
+    setResultNotice({ net: mine.amount, amount: mine.amount, title: "승리했습니다" });
+    playSound("win");
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), 3600);
+  }, [snapshot]);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+  }, []);
+
+  // Hold'em waits between turns can run long with five other players acting — a cue the
+  // instant it becomes my turn again matters more here than in the single-actor games.
+  useEffect(() => {
+    if (!snapshot) return;
+    const isMyTurnNow = snapshot.mySeatNumber !== null && snapshot.actingSeat === snapshot.mySeatNumber;
+    if (isMyTurnNow && prevActingSeatRef.current !== snapshot.actingSeat) playSound("turn");
+    prevActingSeatRef.current = snapshot.actingSeat;
+  }, [snapshot?.actingSeat, snapshot?.mySeatNumber]);
+
   if (!snapshot) return <div className="loading-screen"><Brand /><p>{message || "테이블에 연결하고 있습니다…"}</p></div>;
 
   const mySeat = snapshot.seats.find((seat) => seat.seatNumber === snapshot.mySeatNumber) ?? null;
   const myTurn = snapshot.mySeatNumber !== null && snapshot.actingSeat === snapshot.mySeatNumber;
+  // Live, client-only read of my own hand — safe because it only ever combines my own hole
+  // cards (already visible to me) with the public board, never another player's cards. Lets
+  // a beginner see "지금 뭐 만들었는지" without waiting for the server's showdown reveal.
+  const myHandLabel = (() => {
+    if (!mySeat?.holeCards || mySeat.folded) return null;
+    const known = [...mySeat.holeCards, ...snapshot.board];
+    if (known.length >= 5) return HAND_LABEL[evaluateBestHoldemHand(known).category];
+    return mySeat.holeCards[0]!.rank === mySeat.holeCards[1]!.rank ? "포켓페어" : null;
+  })();
   const potTotal = snapshot.pots.reduce((sum, pot) => sum + pot.amount, 0);
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / ACTION_SECONDS));
 
@@ -98,13 +142,27 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const act = (action: HoldemAction, amount?: number) => {
     if (!snapshot.roundId) return;
     socket.emit("holdem.act", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, action, amount }, (ack) => {
-      if (ack.ok) setSnapshot(ack.data);
-      else setMessage(ack.error);
+      if (ack.ok) {
+        setSnapshot(ack.data);
+        playSound(action === "fold" ? "fold" : action === "allin" ? "allin" : "chip");
+      } else {
+        setMessage(ack.error);
+      }
     });
   };
 
   const bigBlind = snapshot.room.minBet * 2;
   const maxRaiseTo = (mySeat?.stack ?? 0) + (mySeat?.streetContributed ?? 0);
+  const minRaiseClamped = Math.min(snapshot.minRaiseTo, maxRaiseTo);
+  const clampRaise = (value: number): number => Math.max(minRaiseClamped, Math.min(maxRaiseTo, value));
+  // Pot-relative presets instead of a bare drag slider — one tap gets a legal sizing, the
+  // stepper below is only for fine adjustment from there.
+  const raisePresets = [
+    { key: "min", label: "MIN", value: minRaiseClamped },
+    { key: "half", label: "1/2 팟", value: clampRaise(Math.round(potTotal / 2)) },
+    { key: "pot", label: "팟", value: clampRaise(potTotal) },
+    { key: "allin", label: "올인", value: maxRaiseTo },
+  ];
 
   return (
     <GameShell
@@ -118,10 +176,12 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
       onToggleFullscreen={() => void (document.fullscreenElement ? document.exitFullscreen() : shellRef.current?.requestFullscreen())}
       shellRef={shellRef}
     >
+      <OrientationGate targetRef={shellRef} />
       <div className="room-shell">
         <section className="ot-stage">
           <div className="ot-felt holdem-felt">
             <div className="ot-feed"><WinnerFeed socket={socket} /></div>
+            <RoundResultNotice notice={resultNotice} />
             <div className="holdem-table">
               <div className="holdem-board">
                 <div className="holdem-pot">{potTotal > 0 && <span>POT {potTotal.toLocaleString()}</span>}</div>
@@ -140,7 +200,14 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                 )}
               </div>
               {orderedSeats(snapshot.seats, snapshot.mySeatNumber).map(({ seat, angle }) => (
-                <SeatView key={seat.seatNumber} seat={seat} angle={angle} onSit={() => sit(seat.seatNumber)} canSit={!mySeat && !seat.userId} />
+                <SeatView
+                  key={seat.seatNumber}
+                  seat={seat}
+                  angle={angle}
+                  onSit={() => sit(seat.seatNumber)}
+                  canSit={!mySeat && !seat.userId}
+                  liveHandLabel={seat.seatNumber === snapshot.mySeatNumber ? myHandLabel : null}
+                />
               ))}
               {myTurn && (
                 <div className="ot-timer holdem-timer">
@@ -154,25 +221,41 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
           <footer className="ot-rail holdem-rail">
             {mySeat && myTurn && (
               <div className="holdem-actions">
-                <button className="outline-button" onClick={() => act("fold")}>폴드</button>
-                {snapshot.toCall === 0
-                  ? <button className="outline-button" onClick={() => act("check")}>체크</button>
-                  : <button className="outline-button" onClick={() => act("call")}>콜 {Math.min(snapshot.toCall, mySeat.stack)}</button>}
                 {maxRaiseTo > snapshot.toCall + mySeat.streetContributed && (
                   <div className="holdem-raise">
-                    <input
-                      type="range"
-                      min={Math.min(snapshot.minRaiseTo, maxRaiseTo)}
-                      max={maxRaiseTo}
-                      value={Math.min(raiseTo, maxRaiseTo)}
-                      onChange={(event) => setRaiseTo(Number(event.target.value))}
-                    />
-                    <button className="outline-button" onClick={() => act(snapshot.toCall === 0 ? "bet" : "raise", Math.min(raiseTo, maxRaiseTo))}>
-                      {snapshot.toCall === 0 ? "베팅" : "레이즈"} {Math.min(raiseTo, maxRaiseTo)}
-                    </button>
+                    <div className="holdem-presets">
+                      {raisePresets.map((preset) => (
+                        <button
+                          type="button"
+                          key={preset.key}
+                          className="holdem-preset"
+                          aria-pressed={raiseTo === preset.value}
+                          onClick={() => setRaiseTo(preset.value)}
+                        >
+                          <span>{preset.label}</span>
+                          <b>{preset.value.toLocaleString()}</b>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="holdem-stepper">
+                      <button type="button" className="holdem-step-btn" disabled={raiseTo <= minRaiseClamped} onClick={() => setRaiseTo((value) => clampRaise(value - bigBlind))}>−</button>
+                      <div className="holdem-step-value"><small>RAISE TO</small><strong>{Math.min(raiseTo, maxRaiseTo).toLocaleString()}</strong></div>
+                      <button type="button" className="holdem-step-btn" disabled={raiseTo >= maxRaiseTo} onClick={() => setRaiseTo((value) => clampRaise(value + bigBlind))}>＋</button>
+                    </div>
                   </div>
                 )}
-                {maxRaiseTo > 0 && <button className="outline-button" onClick={() => act("allin")}>올인 {maxRaiseTo}</button>}
+                <div className="holdem-act-row">
+                  <button className="outline-button bj-act-surrender" onClick={() => act("fold")}>폴드</button>
+                  {snapshot.toCall === 0
+                    ? <button className="outline-button bj-act-stand" onClick={() => act("check")}>체크</button>
+                    : <button className="outline-button bj-act-double" onClick={() => act("call")}>콜 {Math.min(snapshot.toCall, mySeat.stack)}</button>}
+                  {maxRaiseTo > snapshot.toCall + mySeat.streetContributed && (
+                    <button className="outline-button bj-act-hit" onClick={() => act(snapshot.toCall === 0 ? "bet" : "raise", Math.min(raiseTo, maxRaiseTo))}>
+                      {snapshot.toCall === 0 ? "베팅" : "레이즈"} {Math.min(raiseTo, maxRaiseTo).toLocaleString()}
+                    </button>
+                  )}
+                  {maxRaiseTo > 0 && <button className="outline-button bj-act-split" onClick={() => act("allin")}>올인 {maxRaiseTo.toLocaleString()}</button>}
+                </div>
               </div>
             )}
             {mySeat && !myTurn && <div className="ot-money right"><small>내 좌석</small><strong>{mySeat.stack.toLocaleString()}</strong></div>}
@@ -191,7 +274,7 @@ function orderedSeats(seats: HoldemSeatSnapshot[], mySeatNumber: number | null):
   return seats.map((seat, index) => ({ seat, angle: SEAT_ANGLES[(index - rotation + seats.length) % seats.length]! }));
 }
 
-function SeatView({ seat, angle, onSit, canSit }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean }) {
+function SeatView({ seat, angle, onSit, canSit, liveHandLabel }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; liveHandLabel?: string | null }) {
   const radius = 42;
   const x = 50 + radius * Math.cos((angle * Math.PI) / 180);
   const y = 50 + radius * Math.sin((angle * Math.PI) / 180) * 0.72;
@@ -216,9 +299,11 @@ function SeatView({ seat, angle, onSit, canSit }: { seat: HoldemSeatSnapshot; an
       </div>
       <div className="holdem-seat-stack">{seat.stack.toLocaleString()}</div>
       {seat.streetContributed > 0 && <div className="holdem-seat-bet">{seat.streetContributed.toLocaleString()}</div>}
-      {seat.folded && <div className="holdem-seat-status">폴드</div>}
-      {seat.allIn && !seat.folded && <div className="holdem-seat-status">올인</div>}
-      {seat.handCategory && !seat.folded && <div className="holdem-seat-status">{HAND_LABEL[seat.handCategory]}</div>}
+      {seat.folded && <div className="holdem-seat-status fold">폴드</div>}
+      {seat.allIn && !seat.folded && <div className="holdem-seat-status allin">올인</div>}
+      {!seat.folded && (liveHandLabel ?? (seat.handCategory ? HAND_LABEL[seat.handCategory] : null)) && (
+        <div className={`holdem-seat-status ${liveHandLabel ? "live" : ""}`}>{liveHandLabel ?? HAND_LABEL[seat.handCategory!]}</div>
+      )}
     </div>
   );
 }

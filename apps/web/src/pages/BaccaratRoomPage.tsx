@@ -112,6 +112,11 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   // Lags behind snapshot.recentResults during a deal so the road/derived-road stats never update
   // before the cards finish revealing — see the deal-sequence effect below for when it catches up.
   const [visibleRecentResults, setVisibleRecentResults] = useState<RoomSnapshot["recentResults"]>([]);
+  // Same lag, for the WIN/LOSE banner and "MY RESULT" notice: the last card lands in the DOM the
+  // instant its reveal timer fires, but its own flip animation (PlayingCard's CSS transition)
+  // is still playing for another beat — showing the outcome at that exact instant reads as the
+  // result being announced before the card has visibly finished turning over, i.e. "rigged".
+  const [resultRevealed, setResultRevealed] = useState(false);
   const roadRevealTimer = useRef<number | null>(null);
   const previousPhase = useRef<RoomSnapshot["room"]["phase"] | null>(null);
   const lastBets = useRef<Partial<RoomSnapshot["myBets"]>>({});
@@ -235,7 +240,9 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     const phase = snapshot.room.phase;
     if (phase === previousPhase.current) return;
     previousPhase.current = phase;
-    if (phase === "BETTING") playSound("chip");
+    // `message` is otherwise never cleared — a rejected-bet error (e.g. hitting the room's
+    // limit) would sit on screen through settlement and into the next round's betting window.
+    if (phase === "BETTING") { playSound("chip"); setMessage(""); }
     if (phase === "LOCKED") {
       const placed = Object.fromEntries(Object.entries(snapshot.myBets).filter(([, amount]) => amount > 0));
       roundBetsRef.current = placed;
@@ -249,8 +256,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
 
   useEffect(() => {
     if (!snapshot?.roundId || !snapshot.result || noticeRoundRef.current === snapshot.roundId) return;
-    const fullyRevealed = visiblePlayerCards.length === snapshot.playerCards.length && visibleBankerCards.length === snapshot.bankerCards.length;
-    if (!fullyRevealed) return;
+    if (!resultRevealed) return;
     noticeRoundRef.current = snapshot.roundId;
     const settledBets = roundBetsRef.current;
     const totalBet = Object.values(settledBets).reduce((sum, amount) => sum + (amount ?? 0), 0);
@@ -279,7 +285,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     setResultNotice({ net, amount: net > 0 ? payout : net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "베팅금이 반환됐습니다" });
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), RESULT_NOTICE_MS);
-  }, [snapshot, visiblePlayerCards.length, visibleBankerCards.length]);
+  }, [snapshot, resultRevealed]);
 
   // Belt-and-braces for the timeout above: a settlement notice must never survive into the
   // next round, however long the reveal took or how the round ended (abort, refund, pause).
@@ -304,6 +310,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
         dealtRoundRef.current = null;
         setVisiblePlayerCards([]);
         setVisibleBankerCards([]);
+        setResultRevealed(false);
       }
       return;
     }
@@ -325,30 +332,36 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     if (snapshot.bankerCards[2]) sequence.push({ target: "banker", card: snapshot.bankerCards[2] });
 
     playSound("deal");
+    setResultRevealed(false);
     dealTimers.current = sequence.map((item, index) =>
       window.setTimeout(() => {
         if (item.target === "player") setVisiblePlayerCards((current) => [...current, item.card]);
         else setVisibleBankerCards((current) => [...current, item.card]);
         if (index === sequence.length - 1 && snapshot.result) {
-          playSound(snapshot.result);
-          // A beat after the last card lands, not the instant it does — so the scoreboard
-          // reads as reacting to the finished hand rather than announcing it in advance.
-          roadRevealTimer.current = window.setTimeout(() => setVisibleRecentResults(snapshot.recentResults), ROAD_REVEAL_DELAY_MS);
-          if (burstRoundRef.current !== roundId) {
-            burstRoundRef.current = roundId;
-            if (snapshot.result === "player") spawnBurst(handRefs.current.player);
-            if (snapshot.result === "banker") spawnBurst(handRefs.current.banker);
-            BET_CHOICES.forEach((key) => {
-              if ((snapshot.myBets[key] ?? 0) <= 0) return;
-              const won =
-                (key === "player" && snapshot.result === "player") ||
-                (key === "banker" && snapshot.result === "banker") ||
-                (key === "tie" && snapshot.result === "tie") ||
-                (key === "player_pair" && snapshot.playerPair) ||
-                (key === "banker_pair" && snapshot.bankerPair);
-              if (won) spawnBurst(zoneRefs.current[key]);
-            });
-          }
+          // A beat after the last card lands, not the instant it does — its own flip animation
+          // is still playing at this point, so announcing the outcome (banner, "MY RESULT",
+          // win sound, chip burst, road update) right now would visibly precede the card
+          // finishing its turn, reading as a result decided in advance rather than reacted to.
+          roadRevealTimer.current = window.setTimeout(() => {
+            setVisibleRecentResults(snapshot.recentResults);
+            setResultRevealed(true);
+            playSound(snapshot.result!);
+            if (burstRoundRef.current !== roundId) {
+              burstRoundRef.current = roundId;
+              if (snapshot.result === "player") spawnBurst(handRefs.current.player);
+              if (snapshot.result === "banker") spawnBurst(handRefs.current.banker);
+              BET_CHOICES.forEach((key) => {
+                if ((snapshot.myBets[key] ?? 0) <= 0) return;
+                const won =
+                  (key === "player" && snapshot.result === "player") ||
+                  (key === "banker" && snapshot.result === "banker") ||
+                  (key === "tie" && snapshot.result === "tie") ||
+                  (key === "player_pair" && snapshot.playerPair) ||
+                  (key === "banker_pair" && snapshot.bankerPair);
+                if (won) spawnBurst(zoneRefs.current[key]);
+              });
+            }
+          }, ROAD_REVEAL_DELAY_MS);
         }
       }, index * DEAL_STEP_MS + DEAL_LEAD_MS + (index >= 4 ? THIRD_CARD_PAUSE_MS : 0)),
     );
@@ -407,8 +420,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const chipValues = chipValuesForRoom(snapshot.room.minBet, snapshot.room.maxBet);
   const playerScore = visiblePlayerCards.length >= 2 ? handScore(visiblePlayerCards) : null;
   const bankerScore = visibleBankerCards.length >= 2 ? handScore(visibleBankerCards) : null;
-  const dealFullyRevealed = visiblePlayerCards.length === snapshot.playerCards.length && visibleBankerCards.length === snapshot.bankerCards.length;
-  const showResult = Boolean(snapshot.result) && dealFullyRevealed;
+  const showResult = Boolean(snapshot.result) && resultRevealed;
   const currentBet = Object.values(snapshot.myBets).reduce((sum, amount) => sum + amount, 0);
   const affordableWallet = snapshot.lightningFeePercent === 20 ? Math.floor(snapshot.walletBalance / 1.2) : snapshot.walletBalance;
   const maxAdditional = maximumAdditionalBet(affordableWallet, currentBet, snapshot.room.maxBet);

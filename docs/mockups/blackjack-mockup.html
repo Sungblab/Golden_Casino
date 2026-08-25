@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>블랙잭 UI 프로토타입</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;800&family=Noto+Serif+KR:wght@700;900&display=swap" rel="stylesheet">
+<style>
+/* =============================================================================
+   Tokens copied verbatim from apps/web/src/styles.css so anything validated here
+   transplants without a palette translation step.
+   ============================================================================= */
+:root{
+  color-scheme: dark;
+  --bg:#0a0603; --panel:#1d1408; --panel-2:#281b0b;
+  --gold:#f0b41c; --gold-deep:#c98708; --gold-mid:#e8a913; --gold-light:#ffd24a; --gold-pale:#ffe598;
+  --gold-line:rgba(240,180,28,.55); --gold-line-soft:rgba(240,180,28,.3); --gold-wash:rgba(240,180,28,.16);
+  --on-gold:#23150a;
+  --felt:#0a6a44; --felt-mid:#085a37; --felt-dark:#04381f;
+  --text:#fff4d9; --muted:#c9a462; --muted-dim:#a8873f;
+  --ui-font:"Noto Sans KR","Noto Sans","Malgun Gothic",sans-serif;
+  --display-font:"Noto Serif KR",serif;
+  --player:#0f4fd8; --player-light:#4a92ff; --banker:#cc0a1c; --banker-light:#ff4d5c;
+  --tie:#06914a; --tie-light:#2fd97e;
+  --positive:#2fd97e; --negative:#ff4d5c; --warning:#f5c451;
+  --chip-0:#b8761c; --chip-0-rim:#e0a341;
+  --chip-1:#c2202f; --chip-1-rim:#ee5464;
+  --chip-2:#1a5fb4; --chip-2-rim:#4a93e0;
+  --chip-3:#0f8a50; --chip-3-rim:#34ba79;
+  --chip-4:#2f2620; --chip-4-rim:#6b5a48;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;padding:18px;
+  font-family:var(--ui-font);color:var(--text);
+  background:radial-gradient(circle at 50% -20%,rgba(240,180,28,.248),transparent 40%),
+             linear-gradient(150deg,#000 0%,#1d1408 60%,#0a0603 100%);
+}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--gold-light);outline-offset:2px}
+
+/* ---------- prototype chrome (not part of the game UI) ---------- */
+.proto-bar{
+  display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+  width:min(1240px,100%);margin:0 auto 14px;padding:11px 14px;
+  border:1px solid var(--gold-line-soft);border-radius:12px;background:rgba(29,20,8,.7);
+}
+.proto-bar h1{margin:0;font-family:var(--display-font);font-size:15px;color:var(--gold-light);letter-spacing:.04em}
+.proto-group{display:flex;gap:5px;align-items:center;margin-left:auto}
+.proto-group>label{font-size:9px;letter-spacing:.14em;color:var(--muted-dim);margin-right:2px}
+.proto-btn{
+  padding:6px 11px;border:1px solid var(--gold-line-soft);border-radius:7px;
+  background:rgba(0,0,0,.3);color:var(--muted);font-size:11px;font-weight:600;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.proto-btn:hover{border-color:var(--gold-line);color:var(--gold-light)}
+.proto-btn[aria-pressed="true"]{background:var(--gold-wash);border-color:var(--gold-line);color:var(--gold-light)}
+
+/* ---------- device frame: a size container so the game responds to the
+     frame, not the browser window. Lets one page preview all three form
+     factors without resizing the window. ---------- */
+.frame-wrap{display:grid;place-items:start center;width:100%}
+.frame{
+  container-type:size;container-name:table;
+  position:relative;overflow:hidden;
+  width:min(1240px,100%);height:min(760px,calc(100vh - 130px));
+  border:1px solid var(--gold-deep);border-radius:16px;
+  background:linear-gradient(180deg,#120c05,#080502);
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.75);
+}
+.frame[data-device="portrait"]{width:390px;height:800px;max-height:calc(100vh - 130px);border-radius:26px}
+.frame[data-device="landscape"]{width:800px;height:390px;border-radius:20px}
+
+/* ---------- game shell ---------- */
+.shell{display:grid;grid-template-rows:46px minmax(0,1fr);height:100%}
+.game-bar{
+  display:flex;align-items:center;gap:10px;padding:0 12px;
+  border-bottom:1px solid var(--gold-deep);
+  background:linear-gradient(to bottom,rgba(42,41,33,.96),rgba(10,9,7,.97));
+}
+.game-back{
+  display:grid;place-items:center;width:30px;height:30px;flex:none;
+  border:1px solid var(--gold-line-soft);border-radius:50%;background:rgba(0,0,0,.35);
+  color:var(--muted);font-size:14px;
+}
+.game-title{min-width:0}
+.game-title strong{display:block;font-family:var(--display-font);font-size:13px;color:var(--gold-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-title small{display:block;font-size:8.5px;color:var(--muted-dim);letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-bar-phase{
+  margin-left:auto;display:flex;align-items:center;gap:6px;flex:none;
+  padding:5px 11px;border:1px solid var(--gold-line-soft);border-radius:999px;
+  background:var(--gold-wash);font-size:10px;font-weight:700;color:var(--gold-light);
+}
+.game-bar-phase b{font-variant-numeric:tabular-nums}
+.balance-display{flex:none;display:grid;padding:3px 10px;border-left:1px solid rgba(240,180,28,.558)}
+.balance-display small{font-size:7.5px;letter-spacing:.14em;color:var(--muted)}
+.balance-display strong{font-size:12px;color:var(--gold-light);font-variant-numeric:tabular-nums}
+
+.stage{display:grid;grid-template-rows:minmax(0,1fr) auto;gap:6px;min-height:0;padding:6px}
+/* ---------- felt ---------- */
+.felt{
+  position:relative;min-height:0;overflow:hidden;
+  border:1px solid rgba(240,180,28,.28);border-radius:14px;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -10%,rgba(255,255,255,.09),transparent 60%),
+    radial-gradient(ellipse 90% 70% at 50% 40%,var(--felt) 0%,var(--felt-mid) 55%,var(--felt-dark) 100%);
+  box-shadow:inset 0 0 90px rgba(0,0,0,.55);
+}
+.table-meta{
+  position:absolute;top:8px;left:10px;z-index:4;display:flex;gap:9px;
+  font-size:9px;color:rgba(255,244,217,.62);letter-spacing:.03em;
+}
+.table-meta span{display:flex;align-items:center;gap:3px}
+
+/* dealer */
+.dealer-row{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3;display:grid;justify-items:center;gap:4px}
+.hand-head{display:flex;align-items:center;gap:6px;font-size:9px;letter-spacing:.18em;color:rgba(255,244,217,.66)}
+.score{
+  display:grid;place-items:center;min-width:22px;height:19px;padding:0 5px;
+  border:1px solid rgba(255,255,255,.34);border-radius:999px;background:rgba(0,0,0,.45);
+  font-size:11px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;
+}
+.cards{display:flex;gap:3px;min-height:70px;align-items:flex-start}
+
+/* playing cards */
+.card{
+  position:relative;width:50px;height:70px;flex:none;
+  border-radius:5px;background:linear-gradient(160deg,#fffdf6,#e9e0cb);
+  box-shadow:0 4px 10px rgba(0,0,0,.45),inset 0 0 0 1px rgba(0,0,0,.16);
+  display:grid;place-items:center;font-family:var(--ui-font);
+  animation:deal .34s cubic-bezier(.2,.9,.3,1.2) both;
+}
+@keyframes deal{from{opacity:0;transform:translateY(-18px) rotate(-7deg) scale(.86)}to{opacity:1;transform:none}}
+.card-rank{font-size:20px;font-weight:800;line-height:1;color:#1a1208}
+.card-suit{font-size:15px;line-height:1}
+.card.red .card-rank,.card.red .card-suit{color:var(--banker)}
+.card.black .card-rank,.card.black .card-suit{color:#12100c}
+.card-corner{position:absolute;top:3px;left:4px;font-size:9px;font-weight:800;line-height:1}
+.card.back{
+  background:
+    repeating-linear-gradient(45deg,rgba(255,210,74,.16) 0 4px,transparent 4px 8px),
+    linear-gradient(160deg,#8a1220,#4a0810);
+  box-shadow:0 4px 10px rgba(0,0,0,.45),inset 0 0 0 2px rgba(255,210,74,.32);
+}
+.card-slot{
+  width:50px;height:70px;flex:none;display:grid;place-items:center;
+  border:1px dashed rgba(255,255,255,.22);border-radius:5px;
+  font-size:10px;color:rgba(255,255,255,.3);letter-spacing:.1em;
+}
+
+/* table rules arc */
+.table-rules{
+  position:absolute;top:96px;left:50%;transform:translateX(-50%);z-index:1;
+  display:grid;justify-items:center;gap:2px;width:min(78%,470px);text-align:center;
+  color:rgba(255,244,217,.34);pointer-events:none;
+}
+.table-rules strong{font-family:var(--display-font);font-size:16px;letter-spacing:.1em;color:rgba(255,244,217,.5)}
+.table-rules span{font-size:9px;letter-spacing:.08em}
+.table-rules small{font-size:7.5px;letter-spacing:.05em;opacity:.72}
+
+/* countdown ring */
+.timer{position:absolute;top:12px;right:12px;z-index:5;display:grid;place-items:center;width:52px;height:52px}
+.timer svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.timer circle{fill:none;stroke-width:4;stroke-linecap:round}
+.timer-track{stroke:rgba(0,0,0,.4)}
+.timer-ring{stroke:var(--gold-light);stroke-dasharray:163.4;transition:stroke-dashoffset .25s linear}
+.timer-num{font-size:17px;font-weight:800;color:var(--gold-light);font-variant-numeric:tabular-nums}
+.timer.closing .timer-ring{stroke:var(--negative)}
+.timer.closing .timer-num{color:var(--negative);animation:pulse .7s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+
+/* banners */
+.banner{
+  position:absolute;top:152px;left:50%;transform:translate(-50%,-50%);z-index:8;
+  padding:9px 26px;border:1px solid;border-radius:999px;
+  background:rgba(2,10,6,.82);backdrop-filter:blur(4px);
+  font-family:var(--display-font);font-size:15px;font-weight:700;letter-spacing:.1em;white-space:nowrap;
+  animation:bannerIn .4s cubic-bezier(.2,.9,.3,1.3) both;
+}
+@keyframes bannerIn{from{opacity:0;transform:translate(-50%,-50%) scale(.82)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.banner.lock{color:var(--gold-light);border-color:var(--gold-line);font-size:13px}
+.banner.blackjack{color:var(--gold-light);border-color:var(--gold-light);box-shadow:0 0 40px rgba(255,210,74,.72)}
+
+/* result notice */
+.result-notice{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9;
+  display:flex;align-items:center;gap:11px;padding:11px 18px;
+  border:1px solid;border-radius:13px;background:rgba(3,12,8,.9);backdrop-filter:blur(6px);
+  animation:bannerIn .4s cubic-bezier(.2,.9,.3,1.3) both;
+}
+.result-notice .icon{font-size:24px;line-height:1}
+.result-notice small{display:block;font-size:7.5px;letter-spacing:.16em;color:var(--muted-dim)}
+.result-notice strong{display:block;font-size:13px}
+.result-notice .net{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.result-notice .net small{display:inline;font-size:9px;letter-spacing:0;margin-left:2px}
+.result-notice.win{border-color:var(--tie);box-shadow:0 0 44px rgba(16,152,80,.5)}
+.result-notice.win .net,.result-notice.win .icon{color:var(--positive)}
+.result-notice.lose{border-color:var(--banker);box-shadow:0 0 44px rgba(204,10,28,.45)}
+.result-notice.lose .net,.result-notice.lose .icon{color:var(--banker-light)}
+
+/* ---------- seats ----------
+   Desktop: a 7-seat arc. Narrow: the six other seats compress into a scroll
+   strip and MY seat gets a dedicated full-width panel, because on a phone the
+   only hand you actually make decisions about is your own. */
+.seat-grid{
+  position:absolute;left:0;right:0;bottom:6px;top:150px;z-index:3;
+  display:flex;align-items:flex-end;justify-content:center;gap:5px;padding:0 8px;
+}
+.seat{
+  position:relative;display:grid;justify-items:center;gap:3px;
+  width:106px;padding:6px 4px 5px;
+  border:1px solid transparent;border-radius:10px;background:transparent;
+  text-align:center;transition:border-color .18s,background .18s,transform .18s;
+}
+.seat.empty{
+  align-content:center;gap:5px;height:74px;
+  border:1px dashed rgba(255,244,217,.24);color:rgba(255,244,217,.42);
+}
+.seat.empty:hover{border-color:var(--gold-line);color:var(--gold-light);background:rgba(240,180,28,.1)}
+.seat.occupied{border-color:rgba(255,255,255,.1);background:rgba(0,0,0,.2)}
+.seat.selected{border-color:var(--gold-line);background:rgba(240,180,28,.12)}
+.seat.mine{
+  border-color:var(--gold-light);background:rgba(240,180,28,.16);
+  box-shadow:0 0 24px rgba(255,210,74,.28),inset 0 1px 0 rgba(255,229,152,.14);
+}
+.seat.acting{animation:actingGlow 1.3s ease-in-out infinite}
+@keyframes actingGlow{50%{box-shadow:0 0 34px rgba(255,210,74,.6)}}
+.seat-number{
+  position:absolute;top:-7px;left:50%;transform:translateX(-50%);
+  display:grid;place-items:center;width:17px;height:17px;
+  border:1px solid var(--gold-line-soft);border-radius:50%;background:#0d2419;
+  font-size:8.5px;font-weight:800;color:var(--muted);
+}
+.seat-name{
+  display:flex;align-items:center;gap:4px;max-width:100%;overflow:hidden;
+  font-size:10px;font-weight:700;white-space:nowrap;text-overflow:ellipsis;
+}
+.seat.mine .seat-name{color:var(--gold-light)}
+.hot{display:inline-flex;align-items:center;gap:2px;padding:0 4px;border-radius:999px;background:rgba(204,10,28,.4);font-size:8px;color:#ffb3b3}
+.seat-cards{display:flex;justify-content:center;min-height:48px;align-items:flex-start}
+.seat-cards .card{width:34px;height:48px;margin-left:-9px;box-shadow:0 3px 7px rgba(0,0,0,.5),inset 0 0 0 1px rgba(0,0,0,.16)}
+.seat-cards .card:first-child{margin-left:0}
+.seat-cards .card .card-rank{font-size:13px}
+.seat-cards .card .card-suit{font-size:10px}
+.seat-cards .card-corner{display:none}
+.seat-total{
+  align-self:flex-start;margin-left:4px;display:grid;place-items:center;
+  min-width:21px;height:19px;padding:0 5px;border-radius:5px;
+  background:#12100c;border:1px solid rgba(255,255,255,.3);
+  font-size:11px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;
+}
+.seat.bust .seat-total{background:var(--banker);border-color:var(--banker-light)}
+.seat.blackjack .seat-total{background:var(--gold);border-color:var(--gold-pale);color:var(--on-gold)}
+.waiting-hand{font-size:9px;color:rgba(255,244,217,.36);align-self:center}
+.seat-footer{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px;min-height:17px}
+.chip-stack{
+  display:inline-flex;align-items:center;gap:4px;padding:2px 7px 2px 3px;
+  border-radius:999px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.14);
+  font-size:9.5px;font-weight:700;font-variant-numeric:tabular-nums;
+}
+.chip-stack i{width:11px;height:11px;border-radius:50%;background:var(--stack,var(--chip-1));box-shadow:0 0 0 1.5px rgba(255,255,255,.4)}
+.outcome{padding:1px 7px;border-radius:999px;font-size:8.5px;font-weight:800;letter-spacing:.04em}
+.outcome.win{background:rgba(16,152,80,.34);color:var(--positive);border:1px solid var(--tie)}
+.outcome.lose{background:rgba(204,10,28,.3);color:var(--banker-light);border:1px solid var(--banker)}
+.outcome.push{background:rgba(255,255,255,.13);color:var(--text);border:1px solid rgba(255,255,255,.3)}
+.outcome.blackjack{background:var(--gold-wash);color:var(--gold-light);border:1px solid var(--gold-line)}
+.followers{font-size:8px;color:rgba(255,244,217,.5)}
+
+/* ---------- rail ---------- */
+.rail{
+  display:flex;align-items:center;gap:9px;min-height:70px;padding:7px 10px;
+  border:1px solid rgba(240,180,28,.3);border-radius:13px;
+  background:linear-gradient(to bottom,rgba(58,40,16,.9),rgba(16,11,5,.95));
+}
+.seat-control{display:flex;align-items:center;gap:6px;flex:none;font-size:10px;color:var(--muted)}
+.seat-control strong{color:var(--gold-light);font-size:13px}
+.icon-action{
+  display:grid;place-items:center;width:32px;height:32px;flex:none;
+  border:1px solid var(--gold-line-soft);border-radius:8px;background:rgba(0,0,0,.3);
+  color:var(--muted);font-size:14px;transition:border-color .15s,color .15s,background .15s;
+}
+.icon-action:hover:not(:disabled){border-color:var(--gold-line);color:var(--gold-light);background:var(--gold-wash)}
+.icon-action:disabled{opacity:.35;cursor:not-allowed}
+
+/* THE BET DOCK — the piece this prototype is really testing.
+   UNDO and REPEAT flank the tray symmetrically with visible labels (live-table
+   convention), and the running total sits directly above the tray where the
+   thumb already is, instead of far off in a corner. */
+.bet-dock{display:flex;align-items:center;justify-content:center;gap:10px;flex:1 1 auto;min-width:0}
+.dock-side{display:grid;justify-items:center;gap:2px;flex:none}
+.dock-side span{font-size:7.5px;letter-spacing:.1em;color:var(--muted-dim)}
+.tray-wrap{display:grid;justify-items:center;gap:4px;min-width:0}
+.total-badge{
+  display:inline-flex;align-items:center;gap:5px;padding:2px 12px;
+  border:1px solid var(--tie);border-radius:999px;background:rgba(6,145,74,.2);
+  font-size:11px;font-weight:800;color:var(--positive);font-variant-numeric:tabular-nums;
+}
+.total-badge small{font-size:7.5px;letter-spacing:.12em;color:rgba(47,217,126,.75);font-weight:600}
+.total-badge.zero{border-color:rgba(255,255,255,.2);background:rgba(0,0,0,.3);color:var(--muted-dim)}
+.total-badge.zero small{color:var(--muted-dim)}
+.tray{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:2px 1px;scrollbar-width:none}
+.tray::-webkit-scrollbar{display:none}
+/* Round chips with the classic edge-spot rim, replacing the current flat squares. */
+.chip{
+  position:relative;flex:none;width:42px;height:42px;border-radius:50%;border:0;
+  display:grid;place-items:center;
+  font-size:11px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 2px rgba(0,0,0,.65);
+  background:
+    radial-gradient(circle at 50% 50%,var(--face) 0 56%,transparent 57%),
+    repeating-conic-gradient(var(--rim) 0deg 20deg,#fff 20deg 40deg);
+  box-shadow:0 3px 8px rgba(0,0,0,.5),inset 0 0 0 1px rgba(0,0,0,.28);
+  transition:transform .15s cubic-bezier(.2,.9,.3,1.4),box-shadow .15s;
+}
+.chip:hover{transform:translateY(-3px)}
+.chip[aria-pressed="true"]{
+  transform:translateY(-6px) scale(1.09);
+  box-shadow:0 8px 18px rgba(0,0,0,.55),0 0 0 2.5px var(--gold-light),inset 0 0 0 1px rgba(0,0,0,.28);
+}
+.chip.t0{--face:var(--chip-0);--rim:var(--chip-0-rim)}
+.chip.t1{--face:var(--chip-1);--rim:var(--chip-1-rim)}
+.chip.t2{--face:var(--chip-2);--rim:var(--chip-2-rim)}
+.chip.t3{--face:var(--chip-3);--rim:var(--chip-3-rim)}
+.chip.t4{--face:var(--chip-4);--rim:var(--chip-4-rim)}
+
+.confirm-button{
+  flex:none;min-width:118px;min-height:42px;padding:0 16px;
+  border:1px solid var(--gold-light);border-radius:10px;
+  background:linear-gradient(to bottom,var(--gold),var(--gold-deep));
+  color:var(--on-gold);font-size:12px;font-weight:800;
+  box-shadow:0 4px 12px rgba(240,180,28,.3);
+  transition:filter .15s,transform .12s;
+}
+.confirm-button:hover:not(:disabled){filter:brightness(1.1)}
+.confirm-button:active:not(:disabled){transform:translateY(1px)}
+.confirm-button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+.confirm-button.follow{background:linear-gradient(to bottom,#2970a8,#123b63);border-color:#4a93e0;color:#eef8ff}
+
+/* ---------- action bar ----------
+   Colour now carries the meaning: destructive actions read red, the safe
+   default reads gold, and the money-doubling actions read blue. Previously
+   every button was the same outline treatment. */
+.actions{display:flex;align-items:center;justify-content:center;gap:7px;flex:1 1 auto;flex-wrap:wrap}
+.live-total{
+  display:flex;align-items:center;gap:6px;flex:none;padding:5px 11px;
+  border:1px solid var(--gold-line-soft);border-radius:9px;background:rgba(0,0,0,.3);
+  font-size:9.5px;color:var(--muted);
+}
+.live-total strong{font-size:16px;color:var(--gold-light);font-variant-numeric:tabular-nums}
+.act{
+  min-width:74px;min-height:42px;padding:0 14px;
+  border:1px solid;border-radius:10px;font-size:12px;font-weight:700;
+  transition:filter .15s,transform .12s;
+}
+.act:hover:not(:disabled){filter:brightness(1.16)}
+.act:active:not(:disabled){transform:translateY(1px)}
+.act:disabled{opacity:.32;cursor:not-allowed}
+.act.hit{background:linear-gradient(to bottom,#12a35d,#0a6234);border-color:var(--tie-light);color:#eafff3}
+.act.stand{background:linear-gradient(to bottom,var(--gold),var(--gold-deep));border-color:var(--gold-light);color:var(--on-gold)}
+.act.double{background:linear-gradient(to bottom,#2970a8,#123b63);border-color:#4a93e0;color:#eef8ff}
+.act.split{background:linear-gradient(to bottom,#6b4bab,#3b2765);border-color:#a184e0;color:#f2ecff}
+.act.surrender{background:linear-gradient(to bottom,#8a2028,#4d1015);border-color:var(--banker-light);color:#ffe9ea}
+
+/* insurance dock — now with an explicit decline, so "do nothing" is a
+   deliberate choice rather than a silent timeout. */
+.insurance-dock{display:flex;align-items:center;justify-content:center;gap:10px;flex:1 1 auto;flex-wrap:wrap}
+.insurance-dock .note{font-size:9.5px;color:var(--muted)}
+.act.insurance{background:linear-gradient(to bottom,#2970a8,#123b63);border-color:#4a93e0;color:#eef8ff;min-width:110px}
+.act.decline{background:rgba(0,0,0,.3);border-color:rgba(255,244,217,.3);color:var(--muted);min-width:92px}
+.dock-status{font-size:10px;color:var(--muted);display:flex;align-items:center;gap:7px}
+.phase-guide{flex:1 1 auto;text-align:center;font-size:10.5px;color:var(--muted)}
+.money{flex:none;display:grid;justify-items:end;padding-left:9px;border-left:1px solid rgba(240,180,28,.35)}
+.money small{font-size:7.5px;letter-spacing:.12em;color:var(--muted-dim)}
+.money strong{font-size:15px;color:var(--gold-light);font-variant-numeric:tabular-nums}
+
+/* =============================================================================
+   Container queries — the layout answers to the frame, so the desktop arc and
+   the phone strip can be compared side by side without touching the window.
+   ============================================================================= */
+@container table (max-width: 620px){
+  .stage{padding:4px;gap:4px}
+  .table-rules{display:none}
+  .timer{width:42px;height:42px;top:8px;right:8px}
+  .timer-num{font-size:14px}
+  .dealer-row{top:6px}
+  .cards{min-height:58px}
+  .card{width:41px;height:58px}
+  .card-rank{font-size:16px}.card-suit{font-size:12px}
+  .banner{top:118px;font-size:12px;padding:7px 16px}
+  .banner.lock{font-size:11px}
+
+  /* Other players collapse to a scrollable strip; my own hand gets the room. */
+  .seat-grid{
+    top:74px;flex-direction:column;align-items:stretch;justify-content:flex-start;
+    gap:5px;padding:0 5px;
+  }
+  .seat-row{display:flex;gap:4px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  .seat-row::-webkit-scrollbar{display:none}
+  .seat-row .seat{width:78px;flex:none;padding:5px 3px 4px}
+  .seat-row .seat.empty{height:60px}
+  .seat-row .seat-cards{min-height:36px}
+  .seat-row .seat-cards .card{width:25px;height:36px;margin-left:-7px}
+  .seat-row .seat-cards .card .card-rank{font-size:10px}
+  .seat-row .seat-cards .card .card-suit{font-size:8px}
+  .seat-row .seat-total{min-width:17px;height:16px;font-size:9px}
+  .seat-row .seat-name{font-size:8.5px}
+  .seat-row .seat-number{width:14px;height:14px;font-size:7px}
+  .seat-row .chip-stack{font-size:8px;padding:1px 5px 1px 2px}
+  .seat-row .followers{display:none}
+
+  .my-seat-panel{margin-top:auto;width:100%}
+  .my-seat-panel .seat{width:100%;padding:8px 8px 6px}
+  .my-seat-panel .seat-cards{min-height:66px}
+  .my-seat-panel .seat-cards .card{width:47px;height:66px;margin-left:-13px}
+  .my-seat-panel .seat-cards .card .card-rank{font-size:18px}
+  .my-seat-panel .seat-cards .card .card-suit{font-size:13px}
+  .my-seat-panel .seat-total{min-width:26px;height:24px;font-size:14px}
+
+  /* Rail stacks so the tray keeps full-width thumb reach. */
+  .rail{flex-wrap:wrap;min-height:0;padding:6px 7px;gap:6px}
+  .seat-control{order:1}
+  .money{order:2;margin-left:auto}
+  .bet-dock,.actions,.insurance-dock,.phase-guide{order:3;width:100%;flex:1 0 100%}
+  .chip{width:38px;height:38px;font-size:10px}
+  .confirm-button{min-width:0;flex:1 1 auto;min-height:40px}
+  .act{min-width:0;flex:1 1 auto;padding:0 8px;font-size:11px}
+  .live-total{width:100%;justify-content:center;margin-bottom:2px}
+  .dock-side span{display:none}
+}
+/* Landscape phone: vertical space is the scarce resource. */
+@container table (max-height: 430px){
+  .shell{grid-template-rows:38px minmax(0,1fr)}
+  .game-bar{min-height:38px}
+  .table-rules{display:none}
+  .rail{min-height:56px;padding:5px 8px}
+  .cards{min-height:56px}
+  .card{width:40px;height:56px}
+  .card-rank{font-size:15px}.card-suit{font-size:11px}
+  .seat-grid{top:70px}
+  .seat{width:92px}
+  .seat-cards{min-height:40px}
+  .seat-cards .card{width:28px;height:40px;margin-left:-8px}
+  .seat-cards .card .card-rank{font-size:11px}
+  .seat-cards .card .card-suit{font-size:9px}
+  .chip{width:36px;height:36px;font-size:10px}
+  .act,.confirm-button{min-height:36px}
+  .banner{top:112px}
+}
+@media (prefers-reduced-motion:reduce){
+  .card,.banner,.result-notice{animation:none}
+  .seat.acting{animation:none}
+  .timer.closing .timer-num{animation:none}
+}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <h1>블랙잭 UI 프로토타입</h1>
+  <div class="proto-group">
+    <label>PHASE</label>
+    <button class="proto-btn" data-phase="BETTING" aria-pressed="true">베팅</button>
+    <button class="proto-btn" data-phase="INSURANCE" aria-pressed="false">보험</button>
+    <button class="proto-btn" data-phase="PLAYER_TURN" aria-pressed="false">내 턴</button>
+    <button class="proto-btn" data-phase="DEALER_BJ" aria-pressed="false">딜러BJ</button>
+    <button class="proto-btn" data-phase="RESULT" aria-pressed="false">결과</button>
+  </div>
+  <div class="proto-group" style="margin-left:0">
+    <label>VIEW</label>
+    <button class="proto-btn" data-device="desktop" aria-pressed="true">데스크톱</button>
+    <button class="proto-btn" data-device="portrait" aria-pressed="false">모바일 세로</button>
+    <button class="proto-btn" data-device="landscape" aria-pressed="false">모바일 가로</button>
+  </div>
+</div>
+
+<div class="frame-wrap">
+<div class="frame" id="frame" data-device="desktop">
+  <div class="shell">
+    <div class="game-bar">
+      <button class="game-back" aria-label="로비로">←</button>
+      <div class="game-title">
+        <strong>골든 블랙잭 A</strong>
+        <small>MIN 5 · MAX 500 · 남은 카드 214</small>
+      </div>
+      <div class="game-bar-phase"><span id="phaseLabel">베팅 중</span> <b id="phaseSecs">08</b></div>
+      <div class="balance-display"><small>BALANCE</small><strong>12,480</strong></div>
+    </div>
+
+    <div class="stage">
+      <div class="felt">
+        <div class="table-meta"><span>👥 좌석 5/7</span><span>관전 12</span></div>
+
+        <div class="dealer-row">
+          <div class="hand-head">DEALER <span class="score" id="dealerScore">?</span></div>
+          <div class="cards" id="dealerCards"></div>
+        </div>
+
+        <div class="table-rules">
+          <strong>BLACKJACK PAYS 3 TO 2</strong>
+          <span>DEALER STANDS ON ALL 17 · INSURANCE PAYS 2 TO 1</span>
+          <small>SPLIT TO 4 HANDS · SPLIT ACES ONE CARD · LATE SURRENDER</small>
+        </div>
+
+        <div class="timer" id="timer">
+          <svg viewBox="0 0 60 60" aria-hidden="true">
+            <circle class="timer-track" cx="30" cy="30" r="26"></circle>
+            <circle class="timer-ring" id="timerRing" cx="30" cy="30" r="26"></circle>
+          </svg>
+          <span class="timer-num" id="timerNum">8</span>
+        </div>
+
+        <div id="bannerHost"></div>
+
+        <div class="seat-grid" id="seatGrid"></div>
+      </div>
+
+      <footer class="rail">
+        <div class="seat-control">
+          <span><strong>4</strong>번 좌석</span>
+          <button class="icon-action" title="좌석 나가기" aria-label="좌석 나가기">⎋</button>
+        </div>
+        <div id="railBody" style="display:contents"></div>
+        <div class="money"><small>총 베팅</small><strong id="totalRisk">50</strong></div>
+      </footer>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   Prototype state. Deliberately hand-rolled and phase-driven so every screen
+   the real client can show is reachable from the toolbar.
+   --------------------------------------------------------------------------- */
+const SUITS={s:{ch:'♠',c:'black'},h:{ch:'♥',c:'red'},d:{ch:'♦',c:'red'},c:{ch:'♣',c:'black'}};
+const state={phase:'BETTING',chip:25,bet:50,insuranceDeclined:false,seconds:8};
+
+function cardEl(rank,suit,small){
+  const s=SUITS[suit];
+  const el=document.createElement('span');
+  el.className='card '+s.c;
+  el.innerHTML=`<span class="card-corner">${rank}</span><span class="card-rank">${rank}</span><span class="card-suit">${s.ch}</span>`;
+  if(small){el.querySelector('.card-corner').remove();}
+  return el;
+}
+function backEl(){const el=document.createElement('span');el.className='card back';return el;}
+function slotEl(t){const el=document.createElement('span');el.className='card-slot';el.textContent=t;return el;}
+
+/* Seat fixtures — one of each interesting state so the layout is stress-tested
+   rather than shown with an idealised uniform row. */
+const SEATS=[
+  {n:1,user:'Kain666',   cards:[['10','s'],['7','h']],       total:17,bet:25, tier:2,streak:0,followers:1,status:''},
+  {n:2,user:null},
+  {n:3,user:'keyf54',    cards:[['K','d'],['Q','c']],        total:20,bet:100,tier:4,streak:3,followers:2,status:''},
+  {n:4,user:'MY HAND',   cards:[['A','s'],['8','h']],        total:19,bet:50, tier:3,streak:0,followers:0,status:'',mine:true},
+  {n:5,user:'pandix3434',cards:[['9','c'],['5','d'],['K','s']],total:24,bet:10,tier:2,streak:0,followers:0,status:'bust'},
+  {n:6,user:'ThirstyBob',cards:[['A','h'],['J','s']],        total:21,bet:250,tier:4,streak:1,followers:4,status:'blackjack'},
+  {n:7,user:null},
+];
+const OUTCOMES={1:'lose',3:'win',4:'win',5:'lose',6:'blackjack'};
+
+function seatEl(seat,compact){
+  const wrap=document.createElement('div');
+  if(!seat.user){
+    wrap.className='seat empty';
+    wrap.innerHTML=`<span class="seat-number">${seat.n}</span><span style="font-size:15px">🪑</span><span style="font-size:8.5px">착석</span>`;
+    return wrap;
+  }
+  const showOutcome=state.phase==='RESULT'||state.phase==='DEALER_BJ';
+  const oc=showOutcome?(state.phase==='DEALER_BJ'?(seat.status==='blackjack'?'push':'lose'):OUTCOMES[seat.n]):null;
+  wrap.className='seat occupied'+(seat.mine?' mine':'')
+    +(seat.status?' '+seat.status:'')
+    +(state.phase==='PLAYER_TURN'&&seat.mine?' acting':'');
+  const cards=seat.cards.map(([r,s])=>cardEl(r,s,true).outerHTML).join('');
+  wrap.innerHTML=`
+    <span class="seat-number">${seat.n}</span>
+    <span class="seat-name"><strong>${seat.user}</strong>${seat.streak>=2?`<span class="hot">🔥${seat.streak}</span>`:''}</span>
+    <span class="seat-cards">${cards}<span class="seat-total">${seat.total}</span></span>
+    <span class="seat-footer">
+      <span class="chip-stack" style="--stack:var(--chip-${seat.tier})"><i></i><strong>${seat.bet}</strong></span>
+      ${oc?`<span class="outcome ${oc}">${({win:'승리',lose:'패배',push:'푸시',blackjack:'블랙잭'})[oc]}</span>`:''}
+      ${seat.followers&&!compact?`<span class="followers">👥 ${seat.followers}</span>`:''}
+    </span>`;
+  return wrap;
+}
+
+function renderSeats(){
+  const host=document.getElementById('seatGrid');
+  host.innerHTML='';
+  const narrow=document.getElementById('frame').clientWidth<620;
+  if(narrow){
+    const row=document.createElement('div');row.className='seat-row';
+    SEATS.filter(s=>!s.mine).forEach(s=>row.appendChild(seatEl(s,true)));
+    const panel=document.createElement('div');panel.className='my-seat-panel';
+    panel.appendChild(seatEl(SEATS.find(s=>s.mine),false));
+    host.append(row,panel);
+  }else{
+    SEATS.forEach(s=>host.appendChild(seatEl(s,false)));
+  }
+}
+
+function renderDealer(){
+  const host=document.getElementById('dealerCards');
+  const score=document.getElementById('dealerScore');
+  host.innerHTML='';
+  if(state.phase==='BETTING'){host.appendChild(slotEl('D'));score.textContent='–';return;}
+  if(state.phase==='INSURANCE'){
+    host.append(cardEl('A','s'),backEl());score.textContent='?';return;
+  }
+  if(state.phase==='PLAYER_TURN'){
+    host.append(cardEl('6','d'),backEl());score.textContent='?';return;
+  }
+  if(state.phase==='DEALER_BJ'){
+    host.append(cardEl('A','s'),cardEl('K','h'));score.textContent='21';return;
+  }
+  host.append(cardEl('6','d'),cardEl('10','c'),cardEl('2','h'));score.textContent='18';
+}
+
+function renderBanner(){
+  const host=document.getElementById('bannerHost');
+  host.innerHTML='';
+  if(state.phase==='DEALER_BJ'){
+    host.innerHTML=`<div class="banner blackjack">딜러 블랙잭 · 라운드 즉시 종료</div>`;
+  }
+  if(state.phase==='RESULT'){
+    host.innerHTML=`<div class="result-notice win">
+      <span class="icon">✓</span>
+      <span><small>MY RESULT</small><strong>승리했습니다</strong></span>
+      <span class="net">+100<small>코인</small></span>
+    </div>`;
+  }
+}
+
+const CHIPS=[[5,1],[10,2],[25,2],[50,3],[100,4],[250,4],[500,4]];
+function renderRail(){
+  const host=document.getElementById('railBody');
+  const p=state.phase;
+  if(p==='BETTING'){
+    host.innerHTML=`
+      <div class="bet-dock">
+        <div class="dock-side">
+          <button class="icon-action" id="undoBtn" title="되돌리기">↩</button><span>UNDO</span>
+        </div>
+        <div class="tray-wrap">
+          <div class="total-badge ${state.bet?'':'zero'}"><small>TOTAL BET</small>${state.bet}</div>
+          <div class="tray" id="tray"></div>
+        </div>
+        <div class="dock-side">
+          <button class="icon-action" id="repeatBtn" title="반복 베팅">⟳</button><span>REPEAT</span>
+        </div>
+        <button class="confirm-button" id="confirmBtn">${state.chip}코인 베팅</button>
+      </div>`;
+    const tray=host.querySelector('#tray');
+    CHIPS.forEach(([v,t])=>{
+      const b=document.createElement('button');
+      b.className=`chip t${t}`;b.textContent=v;
+      b.setAttribute('aria-pressed',state.chip===v);
+      b.onclick=()=>{state.chip=v;renderRail();};
+      tray.appendChild(b);
+    });
+    host.querySelector('#confirmBtn').onclick=()=>{state.bet+=state.chip;renderRail();renderMoney();};
+    host.querySelector('#undoBtn').onclick=()=>{state.bet=0;renderRail();renderMoney();};
+    host.querySelector('#repeatBtn').onclick=()=>{state.bet=50;renderRail();renderMoney();};
+  }else if(p==='INSURANCE'){
+    host.innerHTML=`<div class="insurance-dock">
+      <span class="note">딜러 A · 보험은 본 베팅의 절반(정수 코인)</span>
+      ${state.insuranceDeclined
+        ? `<span class="dock-status">✓ 보험 거부함 · 결과 대기 중</span>`
+        : `<button class="act insurance" id="insBtn">보험 25코인</button>
+           <button class="act decline" id="declineBtn">보험 안 함</button>`}
+    </div>`;
+    if(!state.insuranceDeclined){
+      host.querySelector('#declineBtn').onclick=()=>{state.insuranceDeclined=true;renderRail();};
+      host.querySelector('#insBtn').onclick=()=>{state.insuranceDeclined=false;alert('보험 가입 (프로토타입)');};
+    }
+  }else if(p==='PLAYER_TURN'){
+    host.innerHTML=`<div class="actions">
+      <span class="live-total">합계 <strong>19</strong></span>
+      <button class="act hit">히트</button>
+      <button class="act stand">스탠드</button>
+      <button class="act double">더블</button>
+      <button class="act split" disabled>스플릿</button>
+      <button class="act surrender">서렌더</button>
+    </div>`;
+  }else if(p==='DEALER_BJ'){
+    host.innerHTML=`<div class="phase-guide">딜러가 블랙잭입니다 · 플레이어 액션 없이 정산됩니다</div>`;
+  }else{
+    host.innerHTML=`<div class="phase-guide">최종 패와 손익을 확인하세요</div>`;
+  }
+}
+function renderMoney(){document.getElementById('totalRisk').textContent=state.bet.toLocaleString();}
+
+const PHASE_LABEL={BETTING:'베팅 중',INSURANCE:'보험 선택',PLAYER_TURN:'플레이어 턴',DEALER_BJ:'딜러 턴',RESULT:'라운드 결과'};
+function renderTimer(){
+  const show=state.phase==='BETTING'||state.phase==='INSURANCE';
+  const t=document.getElementById('timer');
+  t.style.display=show?'grid':'none';
+  const max=state.phase==='INSURANCE'?7:12;
+  t.classList.toggle('closing',state.seconds<=4);
+  document.getElementById('timerNum').textContent=state.seconds;
+  document.getElementById('timerRing').style.strokeDashoffset=163.4*(1-Math.min(1,state.seconds/max));
+  document.getElementById('phaseSecs').textContent=show?String(state.seconds).padStart(2,'0'):'';
+}
+function renderAll(){
+  document.getElementById('phaseLabel').textContent=PHASE_LABEL[state.phase];
+  renderDealer();renderSeats();renderBanner();renderRail();renderMoney();renderTimer();
+}
+
+document.querySelectorAll('[data-phase]').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('[data-phase]').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    state.phase=b.dataset.phase;
+    state.insuranceDeclined=false;
+    state.seconds=state.phase==='INSURANCE'?7:8;
+    renderAll();
+  };
+});
+document.querySelectorAll('[data-device]').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('[data-device]').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    document.getElementById('frame').dataset.device=b.dataset.device;
+    setTimeout(renderSeats,60);
+  };
+});
+setInterval(()=>{
+  if(state.phase!=='BETTING'&&state.phase!=='INSURANCE')return;
+  state.seconds=state.seconds<=0?(state.phase==='INSURANCE'?7:12):state.seconds-1;
+  renderTimer();
+},1000);
+window.addEventListener('resize',renderSeats);
+renderAll();
+</script>
+</body>
+</html>

@@ -44,6 +44,11 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   const noticeRoundRef = useRef<string | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const [visibleRoadHistory, setVisibleRoadHistory] = useState<RoundHistoryEntry[]>([]);
+  // Gates the WIN banner, "MY RESULT" notice, and the road update — all three previously fired
+  // the instant snapshot.result arrived, which is before the Dragon/Tiger PlayingCard's own flip
+  // animation has visibly finished, reading as the result being announced before the cards
+  // finished turning over ("결과가 정해진거같잖아"). Same fix as Baccarat's deal-sequence effect.
+  const [resultRevealed, setResultRevealed] = useState(false);
   const roadRevealTimer = useRef<number | null>(null);
   const roadRevealedRoundRef = useRef<string | null>(null);
   const previousPhase = useRef<DragonTigerRoomSnapshot["room"]["phase"] | null>(null);
@@ -100,7 +105,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
 
   // Personal win/loss feedback, same "+total returned, not just profit" convention as Baccarat/Blackjack.
   useEffect(() => {
-    if (!snapshot?.roundId || !snapshot.result || noticeRoundRef.current === snapshot.roundId) return;
+    if (!snapshot?.roundId || !snapshot.result || !resultRevealed || noticeRoundRef.current === snapshot.roundId) return;
     const settledBets = snapshot.myBets;
     const totalBet = Object.values(settledBets).reduce((sum, amount) => sum + (amount ?? 0), 0);
     if (totalBet <= 0) return;
@@ -114,7 +119,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     setResultNotice({ net, amount: net > 0 ? payout : net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "베팅금이 반환됐습니다" });
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), RESULT_NOTICE_MS);
-  }, [snapshot]);
+  }, [snapshot, resultRevealed]);
 
   useEffect(() => {
     if (!snapshot || snapshot.roundId !== null) return;
@@ -128,6 +133,9 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     const phase = snapshot.room.phase;
     if (phase === previousPhase.current) return;
     previousPhase.current = phase;
+    // `message` is otherwise never cleared — a rejected-bet error would sit on screen through
+    // settlement and into the next round's betting window.
+    if (phase === "BETTING") setMessage("");
     if (phase === "LOCKED") {
       const placed = Object.fromEntries(Object.entries(snapshot.myBets).filter(([, amount]) => (amount ?? 0) > 0));
       if (Object.keys(placed).length > 0) lastBets.current = placed;
@@ -150,13 +158,19 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     if (!snapshot.result) {
       // No result in flight — safe to match the server's history immediately.
       setVisibleRoadHistory(roadHistory);
-      if (roadRevealedRoundRef.current !== snapshot.roundId) roadRevealedRoundRef.current = null;
+      if (roadRevealedRoundRef.current !== snapshot.roundId) {
+        roadRevealedRoundRef.current = null;
+        setResultRevealed(false);
+      }
       return;
     }
     if (roadRevealedRoundRef.current === snapshot.roundId) return;
     roadRevealedRoundRef.current = snapshot.roundId;
     if (roadRevealTimer.current !== null) window.clearTimeout(roadRevealTimer.current);
-    roadRevealTimer.current = window.setTimeout(() => setVisibleRoadHistory(roadHistory), ROAD_REVEAL_DELAY_MS);
+    roadRevealTimer.current = window.setTimeout(() => {
+      setVisibleRoadHistory(roadHistory);
+      setResultRevealed(true);
+    }, ROAD_REVEAL_DELAY_MS);
   }, [snapshot, roadHistory]);
 
   useEffect(() => () => {
@@ -239,7 +253,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
               <span className="ot-timer-num">{seconds}</span>
             </div>}
             {snapshot.room.phase === "LOCKED" && <div className="ot-banner lock">베팅 마감</div>}
-            {snapshot.result && <div className={`ot-banner ${snapshot.result}`}>{snapshot.suitedTie ? "SUITED TIE" : snapshot.result.toUpperCase()} WIN</div>}
+            {snapshot.result && resultRevealed && <div className={`ot-banner ${snapshot.result}`}>{snapshot.suitedTie ? "SUITED TIE" : snapshot.result.toUpperCase()} WIN</div>}
             <RoundResultNotice notice={resultNotice} />
             {/* Dragon left / Tiger right (matching the physical card positions above), with Tie and
                 Suited Tie grouped in the middle two columns — Evolution's own Dragon Tiger layout. */}

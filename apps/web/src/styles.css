@@ -3586,25 +3586,34 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
 /* Poker hand-ranking ("족보") reference, toggled from the Hold'em rail. */
 /* --------------------------------------------------------------------- */
 .poker-guide-trigger { display: inline-flex; align-items: center; gap: 5px; }
+/* A left-docked slide-in drawer, not a centered modal: it sits beside the table
+   instead of covering it, so a player can glance at it mid-hand without losing
+   sight of the board. The scrim is faint (not a full blackout) for the same reason. */
 .poker-guide-overlay {
   position: fixed;
   inset: 0;
   z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgba(2, 6, 4, .72);
-  backdrop-filter: blur(3px);
+  background: rgba(2, 6, 4, .32);
 }
 .poker-guide-panel {
-  width: min(560px, 100%);
-  max-height: min(80vh, 640px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(300px, 86vw);
+  max-height: none;
   overflow-y: auto;
   border: 1px solid rgba(240,180,28, 0.55);
-  border-radius: 16px;
-  padding: 18px 20px 20px;
+  border-left: 0;
+  border-radius: 0 16px 16px 0;
+  padding: 18px 16px 20px;
   background: linear-gradient(160deg, #0f2a1f 0%, #071b14 60%, #04120d 100%);
-  box-shadow: 0 30px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,229,158,.08);
+  box-shadow: 8px 0 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,229,158,.08);
+  animation: poker-guide-slide-in .2s ease;
+}
+@keyframes poker-guide-slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
 }
 .poker-guide-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .poker-guide-panel h2 { margin: 0; color: var(--gold-light); font-family: var(--ui-font); font-size: 15px; letter-spacing: .04em; }
@@ -3622,11 +3631,11 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
 .poker-guide-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .poker-guide-list li {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 20px 1fr;
   align-items: baseline;
-  column-gap: 10px;
+  column-gap: 8px;
   row-gap: 2px;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border: 1px solid rgba(240,180,28, 0.18);
   border-radius: 10px;
   background: rgba(255,255,255,.02);
@@ -3634,25 +3643,20 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
 .poker-guide-rank {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: rgba(240,180,28, 0.16);
   color: var(--gold-light);
   font-family: var(--ui-font);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
 }
-.poker-guide-name { color: var(--text); font-family: var(--ui-font); font-size: 13px; font-weight: 700; }
-.poker-guide-name small { margin-left: 6px; color: rgba(220,194,135,.6); font-weight: 500; }
-.poker-guide-example { grid-column: 3; color: var(--gold-light); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.poker-guide-note { grid-column: 2 / span 2; color: rgba(220,194,135,.72); font-size: 11px; }
-.poker-guide-footnote { margin: 14px 2px 0; color: rgba(220,194,135,.6); font-size: 10.5px; line-height: 1.5; }
-@media (max-width: 480px) {
-  .poker-guide-list li { grid-template-columns: 20px 1fr; }
-  .poker-guide-example { grid-column: 2; }
-  .poker-guide-note { grid-column: 1 / span 2; }
-}
+.poker-guide-name { color: var(--text); font-family: var(--ui-font); font-size: 12.5px; font-weight: 700; }
+.poker-guide-name small { display: block; margin-top: 1px; color: rgba(220,194,135,.6); font-weight: 500; }
+.poker-guide-example { grid-column: 2; color: var(--gold-light); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.poker-guide-note { grid-column: 1 / span 2; color: rgba(220,194,135,.72); font-size: 10.5px; }
+.poker-guide-footnote { margin: 14px 2px 0; color: rgba(220,194,135,.6); font-size: 10px; line-height: 1.5; }
 
 /* Lightning Baccarat/Blackjack status panels were never given a mobile pass — on a narrow
    felt they crowded the header/hand area at full desktop size. Shrink them to a slim strip. */
@@ -3681,4 +3685,160 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   }
   .game-shell .bj-lightning-status span,
   .game-shell .bj-lightning-status em { font-size: 8px; }
+}
+
+/* =============================================================================
+   Orientation gate — Blackjack and Hold'em are landscape-only on mobile (no
+   portrait layout exists for either), so this overlay blocks play until the
+   player rotates. Portalled onto document.body by OrientationGate.tsx, so it
+   sits above game-shell's overflow:hidden regardless of DOM position.
+   ============================================================================= */
+.orientation-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 40px 28px;
+  text-align: center;
+  background: radial-gradient(circle at 50% 30%, rgba(240,180,28,.1), transparent 60%),
+              linear-gradient(160deg, #120c05, #08050299 60%, #050301);
+  backdrop-filter: blur(6px);
+}
+.orientation-gate-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 6px;
+  border: 1px solid var(--gold-line);
+  border-radius: 50%;
+  background: var(--gold-wash);
+  color: var(--gold-light);
+  animation: orientation-gate-spin 1.8s ease-in-out infinite;
+}
+@keyframes orientation-gate-spin {
+  0%, 20% { transform: rotate(0deg); }
+  50%, 70% { transform: rotate(-90deg); }
+  100% { transform: rotate(-90deg); }
+}
+.orientation-gate strong {
+  font-family: var(--display-font);
+  font-size: 19px;
+  color: var(--gold-light);
+  letter-spacing: .02em;
+}
+.orientation-gate p {
+  max-width: 320px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.orientation-gate-button {
+  margin-top: 8px;
+  padding: 11px 22px;
+  border: 1px solid var(--gold-light);
+  border-radius: 10px;
+  background: linear-gradient(to bottom, var(--gold), var(--gold-deep));
+  color: var(--on-gold);
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(240,180,28,.32);
+}
+@media (prefers-reduced-motion: reduce) {
+  .orientation-gate-icon { animation: none; }
+}
+
+/* =============================================================================
+   Blackjack rail v2 — repeat-bet moved beside the chip tray (thumb-adjacent,
+   live-table convention) instead of the seat control corner, chips go round,
+   and each in-hand action now carries its own colour instead of a uniform
+   outline treatment.
+   ============================================================================= */
+.game-shell .bj-dock-side { display: grid; justify-items: center; gap: 2px; flex: none; }
+.game-shell .bj-dock-side span { font-size: 7px; letter-spacing: .1em; color: var(--muted-dim); }
+
+.game-shell .bj-rail .chip {
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, var(--chip-face) 0 56%, transparent 57%),
+              repeating-conic-gradient(var(--chip-rim) 0deg 20deg, #fff 20deg 40deg);
+}
+.game-shell .bj-rail .chip.chip-tier-0 { --chip-face: var(--chip-0); --chip-rim: var(--chip-0-rim); }
+.game-shell .bj-rail .chip.chip-tier-1 { --chip-face: var(--chip-1); --chip-rim: var(--chip-1-rim); }
+.game-shell .bj-rail .chip.chip-tier-2 { --chip-face: var(--chip-2); --chip-rim: var(--chip-2-rim); }
+.game-shell .bj-rail .chip.chip-tier-3 { --chip-face: var(--chip-3); --chip-rim: var(--chip-3-rim); }
+.game-shell .bj-rail .chip.chip-tier-4 { --chip-face: var(--chip-4); --chip-rim: var(--chip-4-rim); }
+.game-shell .bj-rail .chip.active { transform: translateY(-3px) scale(1.08); box-shadow: 0 0 0 2px var(--gold-light), 0 6px 14px rgba(0,0,0,.5); }
+
+.game-shell .bj-actions .bj-act-hit { background: linear-gradient(to bottom, #12a35d, #0a6234); border-color: var(--tie-light); color: #eafff3; }
+.game-shell .bj-actions .bj-act-stand { background: linear-gradient(to bottom, var(--gold), var(--gold-deep)); border-color: var(--gold-light); color: var(--on-gold); }
+.game-shell .bj-actions .bj-act-double { background: linear-gradient(to bottom, #2970a8, #123b63); border-color: #4a93e0; color: #eef8ff; }
+.game-shell .bj-actions .bj-act-split { background: linear-gradient(to bottom, #6b4bab, #3b2765); border-color: #a184e0; color: #f2ecff; }
+.game-shell .bj-actions .bj-act-surrender { background: linear-gradient(to bottom, #8a2028, #4d1015); border-color: var(--banker-light); color: #ffe9ea; }
+.game-shell .bj-actions .outline-button:disabled { background: rgba(0,0,0,.3); border-color: rgba(255,244,217,.2); color: var(--muted-dim); }
+
+/* =============================================================================
+   Hold'em action rail v2 — presets + a stepper replace the bare range slider
+   (imprecise on a touchscreen), and fold/all-in read as coloured pills instead
+   of plain text so the felt scans at a glance. Shares the .bj-act-* palette
+   with Blackjack's in-hand actions rather than inventing a second one.
+   ============================================================================= */
+.game-shell .holdem-actions { display: grid; gap: 8px; width: 100%; }
+.game-shell .holdem-act-row { display: flex; align-items: stretch; gap: 7px; flex-wrap: wrap; }
+.game-shell .holdem-act-row .outline-button { flex: 1 1 0; min-width: 84px; min-height: 42px; }
+
+.game-shell .holdem-raise { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.game-shell .holdem-presets { display: flex; align-items: center; gap: 5px; flex: 1 1 220px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.game-shell .holdem-presets::-webkit-scrollbar { display: none; }
+.game-shell .holdem-preset {
+  flex: 1 1 0; min-width: 58px; min-height: 34px; padding: 3px 8px;
+  border: 1px solid var(--gold-line-soft); border-radius: 8px; background: rgba(0,0,0,.32);
+  display: grid; line-height: 1.15; transition: border-color .15s, background .15s;
+}
+.game-shell .holdem-preset span { display: block; font-size: 8px; letter-spacing: .08em; color: var(--muted-dim); font-weight: 700; }
+.game-shell .holdem-preset b { display: block; font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.game-shell .holdem-preset:hover { border-color: var(--gold-line); background: var(--gold-wash); }
+.game-shell .holdem-preset[aria-pressed="true"] { border-color: var(--gold-light); background: var(--gold-wash); }
+.game-shell .holdem-preset[aria-pressed="true"] span,
+.game-shell .holdem-preset[aria-pressed="true"] b { color: var(--gold-light); }
+
+.game-shell .holdem-stepper { display: flex; align-items: center; gap: 6px; flex: none; }
+.game-shell .holdem-step-btn {
+  display: grid; place-items: center; width: 38px; height: 38px; flex: none;
+  border: 1px solid var(--gold-line-soft); border-radius: 9px; background: rgba(0,0,0,.35);
+  color: var(--gold-light); font-size: 19px; font-weight: 800; line-height: 1;
+}
+.game-shell .holdem-step-btn:hover:not(:disabled) { background: var(--gold-wash); border-color: var(--gold-line); }
+.game-shell .holdem-step-btn:disabled { opacity: .32; cursor: not-allowed; }
+.game-shell .holdem-step-value {
+  display: grid; justify-items: center; min-width: 94px; padding: 2px 10px;
+  border: 1px solid var(--gold-line); border-radius: 9px; background: rgba(1,20,13,.7);
+}
+.game-shell .holdem-step-value small { font-size: 7px; letter-spacing: .12em; color: var(--muted-dim); font-weight: 700; }
+.game-shell .holdem-step-value strong { font-size: 15px; color: var(--gold-light); font-variant-numeric: tabular-nums; }
+
+.game-shell .holdem-seat-status.fold { padding: 1px 7px; border-radius: 999px; background: #4a1015; color: #ffb0b6; border: 1px solid var(--banker); }
+.game-shell .holdem-seat-status.allin { padding: 1px 7px; border-radius: 999px; background: #5c1a6b; color: #f0c8ff; border: 1px solid #c07ad8; }
+/* Only ever shown on my own seat — a live read of my own hand, not a showdown reveal of
+   someone else's — so it gets its own gold "hint" treatment instead of the neutral pill. */
+.game-shell .holdem-seat-status.live { padding: 1px 7px; border-radius: 999px; background: rgba(240,180,28, 0.22); color: var(--gold-light); border: 1px solid rgba(240,180,28, 0.55); font-weight: 700; }
+
+/* Pot gets the same weight it has in the prototype/reference screenshots. */
+.game-shell .holdem-pot span { font-size: 16px; font-weight: 800; }
+
+/* Landscape-mobile tuning — the felt is wide and short here (phone in hand),
+   not narrow and tall, so this scales the table down rather than reflowing it. */
+@media (max-width: 900px) and (max-height: 520px) {
+  .game-shell .holdem-table { height: clamp(300px, calc(100vh - 190px), 460px); }
+  .game-shell .holdem-seat { width: 82px; }
+  .game-shell .holdem-seat-cards .playing-card { transform: scale(.5); }
+  .game-shell .holdem-hole-slot { width: 32px; height: 46px; }
+  .game-shell .holdem-board-slot,
+  .game-shell .holdem-board-cards .playing-card { transform: scale(.62); }
+  .game-shell .holdem-preset { min-width: 48px; min-height: 30px; }
+  .game-shell .holdem-step-btn { width: 32px; height: 32px; font-size: 16px; }
+  .game-shell .holdem-act-row .outline-button { min-height: 36px; font-size: 12px; }
 }

@@ -14,6 +14,7 @@ import type {
 import { handValue } from "@golden/game-core/blackjack";
 import { API_URL } from "../api";
 import { GameShell } from "../components/GameShell";
+import { OrientationGate } from "../components/OrientationGate";
 import { Brand } from "../components/Brand";
 import { CardBackFace } from "../components/CardFace";
 import { PlayingCard } from "../components/PlayingCard";
@@ -175,6 +176,9 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
     // wins even money), rather than just the profit portion ("+50"), which reads as a smaller win.
     const totalStaked = outcomes.reduce((sum, entry) => sum + entry.amount, 0) + (snapshot.myInsurance?.amount ?? 0) + fee;
     setResultNotice({ net, amount: net > 0 ? totalStaked + net : net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "푸시 · 베팅금 반환" });
+    if (net > 0) playSound(outcomes.some((entry) => entry.outcome === "blackjack") ? "blackjack" : "win");
+    else if (net < 0) playSound("lose");
+    else playSound("tie");
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), 3600);
   }, [snapshot]);
@@ -287,6 +291,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
       onToggleFullscreen={() => void toggleFullscreen()}
       shellRef={shellRef}
     >
+      <OrientationGate targetRef={shellRef} />
       <div className="room-shell bj-room-shell">
         <section className="ot-stage bj-stage">
           <div className={`ot-felt bj bj-phase-${snapshot.room.phase.toLowerCase()}`}>
@@ -326,10 +331,10 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
           <footer className="ot-rail bj-rail">
             <div className="bj-seat-control">
               {snapshot.mySeat ? <><span><strong>{snapshot.mySeat}</strong>번 좌석</span><button type="button" className="icon-action" onClick={leaveSeat} aria-label="좌석 나가기" disabled={snapshot.myHands.length > 0}><LogOut size={17} /></button></> : <span className="bj-spectator-label"><Armchair size={17} /> 빈 좌석을 선택하세요</span>}
-              {canRepeat && <button type="button" className="icon-action" onClick={repeatBet} aria-label="이전 베팅 반복" title="이전 베팅 반복"><Repeat2 size={17} /></button>}
             </div>
             {betting ? (
               <div className="bj-bet-dock">
+                {canRepeat && <div className="bj-dock-side"><button type="button" className="icon-action" onClick={repeatBet} aria-label="이전 베팅 반복" title="이전 베팅 반복"><Repeat2 size={17} /></button><span>REPEAT</span></div>}
                 <div className="ot-tray">{chipValues.map((value) => <button key={value} className={`chip chip-option chip-tier-${chipTier(value)} ${chip === value ? "active" : ""}`} onClick={() => setChip(value)}>{value}</button>)}{!chipValues.includes(maxAdditional) && <button type="button" className={`chip chip-option chip-max ${chip === maxAdditional ? "active" : ""}`} disabled={maxAdditional <= 0 || (selectedBet === 0 && maxAdditional < snapshot.room.minBet)} onClick={() => setChip(maxAdditional)} title={`가능한 최대 금액 ${maxAdditional}코인`}>{maxAdditional}</button>}<button type="button" className={`chip-picker-trigger chip-tier-${chipTier(chip)}`} aria-label="칩 단위 선택" aria-expanded={chipMenuOpen} onClick={() => setChipMenuOpen((open) => !open)}>{chip}</button>{chipMenuOpen && <div className="chip-picker-menu" role="menu">{[...chipValues, ...(!chipValues.includes(maxAdditional) && maxAdditional > 0 ? [maxAdditional] : [])].map((value) => <button type="button" role="menuitem" key={value} className={`chip-tier-${chipTier(value)} ${chip === value ? "selected" : ""}`} onClick={() => { setChip(value); setChipMenuOpen(false); }}>{value}</button>)}</div>}</div>
                 {selectedCanFollow ? <button type="button" className="bet-confirm-button follow" disabled={chip > maxAdditional} onClick={() => placeBehind(selected!.seatNumber)}>{selected!.seatNumber}번 +{chip}</button>
                   : canMainBet && (!selected || selectedIsMine) ? <button type="button" className="bet-confirm-button" disabled={chip > maxAdditional} onClick={placeMainBet}>{chip}코인 {snapshot.myHand ? "추가 베팅" : "베팅"}</button>
@@ -352,7 +357,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
                 ) : null}
               </div>
             ) : myTurn ? (
-              <div className="ot-acts bj-actions" aria-label="블랙잭 액션"><span className="bj-live-total">{snapshot.myHands.length > 1 ? `패 ${snapshot.myHand!.handIndex + 1}` : "합계"} <strong>{handValue(snapshot.myHand!.cards).total}</strong></span><button type="button" className="outline-button primary" onClick={() => act("hit")}>히트</button><button type="button" className="outline-button" onClick={() => act("stand")}>스탠드</button><button type="button" className="outline-button" disabled={!canDouble} onClick={() => act("double")}>더블</button><button type="button" className="outline-button" disabled={!canSplit} onClick={() => act("split")}>스플릿</button><button type="button" className="outline-button danger" disabled={!canSurrender} onClick={() => act("surrender")}>서렌더</button></div>
+              <div className="ot-acts bj-actions" aria-label="블랙잭 액션"><span className="bj-live-total">{snapshot.myHands.length > 1 ? `패 ${snapshot.myHand!.handIndex + 1}` : "합계"} <strong>{handValue(snapshot.myHand!.cards).total}</strong></span><button type="button" className="outline-button bj-act-hit" onClick={() => act("hit")}>히트</button><button type="button" className="outline-button bj-act-stand" onClick={() => act("stand")}>스탠드</button><button type="button" className="outline-button bj-act-double" disabled={!canDouble} onClick={() => act("double")}>더블</button><button type="button" className="outline-button bj-act-split" disabled={!canSplit} onClick={() => act("split")}>스플릿</button><button type="button" className="outline-button bj-act-surrender" disabled={!canSurrender} onClick={() => act("surrender")}>서렌더</button></div>
             ) : <div className="bj-phase-guide">{phaseGuide(snapshot, selected)}</div>}
             <div className="ot-money right bj-total-risk"><small>{snapshot.lightningFeePercent === 100 ? "베팅 + 수수료" : "총 베팅"}</small><strong>{totalRisk.toLocaleString()}</strong></div>
             <RoomChat socket={socket} roomId={roomId} token={token} />

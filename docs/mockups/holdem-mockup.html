@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>홀덤 UI 프로토타입</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;800&family=Noto+Serif+KR:wght@700;900&display=swap" rel="stylesheet">
+<style>
+/* =============================================================================
+   Same tokens as apps/web/src/styles.css.
+   ============================================================================= */
+:root{
+  color-scheme: dark;
+  --bg:#0a0603; --panel:#1d1408; --panel-2:#281b0b;
+  --gold:#f0b41c; --gold-deep:#c98708; --gold-mid:#e8a913; --gold-light:#ffd24a; --gold-pale:#ffe598;
+  --gold-line:rgba(240,180,28,.55); --gold-line-soft:rgba(240,180,28,.3); --gold-wash:rgba(240,180,28,.16);
+  --on-gold:#23150a;
+  --felt:#0a6a44; --felt-mid:#085a37; --felt-dark:#04381f;
+  --text:#fff4d9; --muted:#c9a462; --muted-dim:#a8873f;
+  --ui-font:"Noto Sans KR","Noto Sans","Malgun Gothic",sans-serif;
+  --display-font:"Noto Serif KR",serif;
+  --player:#0f4fd8; --player-light:#4a92ff; --banker:#cc0a1c; --banker-light:#ff4d5c;
+  --tie:#06914a; --tie-light:#2fd97e;
+  --positive:#2fd97e; --negative:#ff4d5c; --warning:#f5c451;
+  --chip-0:#b8761c; --chip-1:#c2202f; --chip-2:#1a5fb4; --chip-3:#0f8a50; --chip-4:#2f2620;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;padding:18px;
+  font-family:var(--ui-font);color:var(--text);
+  background:radial-gradient(circle at 50% -20%,rgba(240,180,28,.248),transparent 40%),
+             linear-gradient(150deg,#000 0%,#1d1408 60%,#0a0603 100%);
+}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--gold-light);outline-offset:2px}
+
+/* ---------- prototype chrome ---------- */
+.proto-bar{
+  display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+  width:min(1240px,100%);margin:0 auto 14px;padding:11px 14px;
+  border:1px solid var(--gold-line-soft);border-radius:12px;background:rgba(29,20,8,.7);
+}
+.proto-bar h1{margin:0;font-family:var(--display-font);font-size:15px;color:var(--gold-light);letter-spacing:.04em}
+.proto-group{display:flex;gap:5px;align-items:center}
+.proto-group.right{margin-left:auto}
+.proto-group>label{font-size:9px;letter-spacing:.14em;color:var(--muted-dim);margin-right:2px}
+.proto-btn{
+  padding:6px 11px;border:1px solid var(--gold-line-soft);border-radius:7px;
+  background:rgba(0,0,0,.3);color:var(--muted);font-size:11px;font-weight:600;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.proto-btn:hover{border-color:var(--gold-line);color:var(--gold-light)}
+.proto-btn[aria-pressed="true"]{background:var(--gold-wash);border-color:var(--gold-line);color:var(--gold-light)}
+
+/* ---------- device frame ---------- */
+.frame-wrap{display:grid;place-items:start center;width:100%}
+.frame{
+  container-type:size;container-name:table;
+  position:relative;overflow:hidden;
+  width:min(1240px,100%);height:min(760px,calc(100vh - 130px));
+  border:1px solid var(--gold-deep);border-radius:16px;
+  background:linear-gradient(180deg,#120c05,#080502);
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.75);
+}
+.frame[data-device="portrait"]{width:390px;height:800px;max-height:calc(100vh - 130px);border-radius:26px}
+.frame[data-device="landscape"]{width:800px;height:390px;border-radius:20px}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-rows:46px minmax(0,1fr);height:100%}
+.game-bar{
+  display:flex;align-items:center;gap:10px;padding:0 12px;
+  border-bottom:1px solid var(--gold-deep);
+  background:linear-gradient(to bottom,rgba(42,41,33,.96),rgba(10,9,7,.97));
+}
+.game-back{
+  display:grid;place-items:center;width:30px;height:30px;flex:none;
+  border:1px solid var(--gold-line-soft);border-radius:50%;background:rgba(0,0,0,.35);
+  color:var(--muted);font-size:14px;
+}
+.game-title{min-width:0}
+.game-title strong{display:block;font-family:var(--display-font);font-size:13px;color:var(--gold-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-title small{display:block;font-size:8.5px;color:var(--muted-dim);letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-bar-phase{
+  margin-left:auto;flex:none;padding:5px 11px;
+  border:1px solid var(--gold-line-soft);border-radius:999px;background:var(--gold-wash);
+  font-size:10px;font-weight:700;color:var(--gold-light);white-space:nowrap;
+}
+.balance-display{flex:none;display:grid;padding:3px 10px;border-left:1px solid rgba(240,180,28,.558)}
+.balance-display small{font-size:7.5px;letter-spacing:.14em;color:var(--muted)}
+.balance-display strong{font-size:12px;color:var(--gold-light);font-variant-numeric:tabular-nums}
+
+.stage{display:grid;grid-template-rows:minmax(0,1fr) auto;gap:6px;min-height:0;padding:6px}
+
+/* ---------- felt / oval table ---------- */
+.felt{
+  position:relative;min-height:0;overflow:hidden;
+  border:1px solid rgba(240,180,28,.28);border-radius:14px;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -10%,rgba(255,255,255,.08),transparent 60%),
+    radial-gradient(ellipse 95% 75% at 50% 45%,var(--felt) 0%,var(--felt-mid) 55%,var(--felt-dark) 100%);
+  box-shadow:inset 0 0 90px rgba(0,0,0,.55);
+}
+/* The felt rail: a visible oval so seats read as *around a table*, not floating. */
+.felt::after{
+  content:'';position:absolute;left:8%;right:8%;top:14%;bottom:14%;
+  border:2px solid rgba(255,229,152,.13);border-radius:50%/50%;
+  box-shadow:inset 0 0 60px rgba(0,0,0,.35);pointer-events:none;
+}
+.table-meta{
+  position:absolute;top:8px;left:10px;z-index:4;display:flex;gap:9px;
+  font-size:9px;color:rgba(255,244,217,.6);
+}
+
+/* ---------- board ---------- */
+.board{
+  position:absolute;top:47%;left:50%;transform:translate(-50%,-50%);z-index:4;
+  display:grid;justify-items:center;gap:7px;width:max-content;max-width:92%;
+}
+/* Pot reads as the single most important number on the felt. */
+.pot{
+  display:inline-flex;align-items:baseline;gap:6px;padding:5px 18px;
+  border:1px solid var(--gold-line);border-radius:999px;
+  background:rgba(1,20,13,.82);backdrop-filter:blur(3px);
+  box-shadow:0 4px 18px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,229,152,.14);
+}
+.pot small{font-size:8px;letter-spacing:.18em;color:var(--muted-dim);font-weight:700}
+.pot strong{font-size:21px;font-weight:800;color:var(--gold-light);font-variant-numeric:tabular-nums;line-height:1}
+.board-cards{display:flex;gap:4px}
+.card{
+  position:relative;width:46px;height:64px;flex:none;
+  border-radius:5px;background:linear-gradient(160deg,#fffdf6,#e9e0cb);
+  box-shadow:0 4px 10px rgba(0,0,0,.5),inset 0 0 0 1px rgba(0,0,0,.16);
+  display:grid;place-items:center;
+  animation:deal .34s cubic-bezier(.2,.9,.3,1.2) both;
+}
+@keyframes deal{from{opacity:0;transform:translateY(-16px) rotate(-6deg) scale(.86)}to{opacity:1;transform:none}}
+.card-rank{font-size:19px;font-weight:800;line-height:1;color:#1a1208}
+.card-suit{font-size:14px;line-height:1}
+.card.red .card-rank,.card.red .card-suit{color:var(--banker)}
+.card.black .card-rank,.card.black .card-suit{color:#12100c}
+.card.back{
+  background:
+    repeating-linear-gradient(45deg,rgba(255,210,74,.16) 0 4px,transparent 4px 8px),
+    linear-gradient(160deg,#8a1220,#4a0810);
+  box-shadow:0 4px 10px rgba(0,0,0,.5),inset 0 0 0 2px rgba(255,210,74,.32);
+}
+.card-slot{
+  width:46px;height:64px;flex:none;
+  border:1px dashed rgba(255,255,255,.2);border-radius:5px;
+}
+/* Cards that make the winning hand get lifted out of the board. */
+.card.winning{
+  box-shadow:0 0 0 2px var(--gold-light),0 6px 20px rgba(255,210,74,.5);
+  transform:translateY(-5px);
+}
+
+/* ---------- seats ----------
+   Positioned as percentages so they scale with the felt instead of the current
+   fixed 108px, and every metric derives from --seat-w. */
+.seat{
+  --seat-w:clamp(74px,11cqw,116px);
+  position:absolute;z-index:5;
+  display:grid;justify-items:center;gap:2px;
+  width:var(--seat-w);padding:5px 4px;
+  transform:translate(-50%,-50%);text-align:center;
+}
+.seat[data-pos="0"]{left:50%;top:88%}
+.seat[data-pos="1"]{left:11%;top:72%}
+.seat[data-pos="2"]{left:11%;top:26%}
+.seat[data-pos="3"]{left:50%;top:9%}
+.seat[data-pos="4"]{left:89%;top:26%}
+.seat[data-pos="5"]{left:89%;top:72%}
+
+.seat-empty{
+  display:grid;place-items:center;gap:2px;
+  width:calc(var(--seat-w)*.58);height:calc(var(--seat-w)*.58);padding:0;
+  border:1px dashed rgba(220,194,135,.32);border-radius:50%;background:transparent;
+  color:rgba(220,194,135,.55);font-size:9px;
+  transition:border-color .18s,color .18s,background .18s;
+}
+.seat-empty:hover{border-color:var(--gold-line);color:var(--gold-light);background:rgba(240,180,28,.14)}
+
+.seat-cards{display:flex;justify-content:center;height:calc(var(--seat-w)*.42)}
+.seat-cards .card{
+  width:calc(var(--seat-w)*.31);height:calc(var(--seat-w)*.43);
+  margin-left:calc(var(--seat-w)*-.08);
+}
+.seat-cards .card:first-child{margin-left:0}
+.seat-cards .card .card-rank{font-size:calc(var(--seat-w)*.13)}
+.seat-cards .card .card-suit{font-size:calc(var(--seat-w)*.1)}
+.seat-cards .card-slot{
+  width:calc(var(--seat-w)*.31);height:calc(var(--seat-w)*.43);
+  margin-left:calc(var(--seat-w)*-.08);
+}
+.seat-cards .card-slot:first-child{margin-left:0}
+
+/* The name plate: avatar + name + stack, the way every mobile poker client does it. */
+.plate{
+  position:relative;display:flex;align-items:center;gap:5px;
+  width:100%;padding:3px 7px 3px 3px;
+  border:1px solid rgba(255,229,152,.18);border-radius:999px;
+  background:rgba(1,20,13,.82);
+}
+.avatar{
+  display:grid;place-items:center;flex:none;
+  width:calc(var(--seat-w)*.22);height:calc(var(--seat-w)*.22);
+  border-radius:50%;background:linear-gradient(160deg,#3a2810,#1a1207);
+  border:1px solid rgba(255,229,152,.25);
+  font-size:calc(var(--seat-w)*.12);
+}
+.plate-text{min-width:0;text-align:left;flex:1 1 auto}
+.plate-name{
+  display:block;font-size:calc(var(--seat-w)*.095);font-weight:700;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25;
+}
+.plate-stack{
+  display:block;font-size:calc(var(--seat-w)*.1);font-weight:800;
+  color:var(--gold-light);font-variant-numeric:tabular-nums;line-height:1.2;
+}
+.button-chip{
+  position:absolute;right:-5px;top:-5px;display:grid;place-items:center;
+  width:16px;height:16px;border-radius:50%;
+  background:radial-gradient(circle,#fff,#d8d8d8);color:#1a1208;
+  font-size:9px;font-weight:900;box-shadow:0 2px 5px rgba(0,0,0,.5);
+}
+/* Chip the player pushed forward this street, drawn between seat and pot. */
+.street-bet{
+  display:inline-flex;align-items:center;gap:4px;padding:1px 8px 1px 3px;
+  border-radius:999px;background:rgba(0,0,0,.55);border:1px solid rgba(255,229,152,.28);
+  font-size:calc(var(--seat-w)*.095);font-weight:700;color:var(--gold-light);
+  font-variant-numeric:tabular-nums;
+}
+.street-bet i{width:9px;height:9px;border-radius:50%;background:var(--chip-2);box-shadow:0 0 0 1.5px rgba(255,255,255,.4)}
+
+/* ACTION PILL — the research finding: opponents' last action must be readable
+   at a glance in colour, not parsed as text. */
+.action-pill{
+  position:absolute;top:-9px;left:50%;transform:translateX(-50%);
+  padding:1.5px 9px;border-radius:999px;
+  font-size:9px;font-weight:800;letter-spacing:.03em;white-space:nowrap;
+  box-shadow:0 2px 8px rgba(0,0,0,.5);
+  animation:pillIn .28s cubic-bezier(.2,.9,.3,1.4) both;
+}
+@keyframes pillIn{from{opacity:0;transform:translate(-50%,-6px) scale(.8)}to{opacity:1;transform:translateX(-50%) scale(1)}}
+.action-pill.fold{background:#4a1015;color:#ffb0b6;border:1px solid var(--banker)}
+.action-pill.check{background:#3d3410;color:var(--gold-pale);border:1px solid var(--warning)}
+.action-pill.call{background:#123b63;color:#bfe0ff;border:1px solid var(--player-light)}
+.action-pill.raise{background:#0a6234;color:#b6f5d4;border:1px solid var(--tie-light)}
+.action-pill.allin{background:#5c1a6b;color:#f0c8ff;border:1px solid #c07ad8}
+
+.seat.folded{opacity:.4}
+.seat.folded .seat-cards{filter:grayscale(1)}
+.seat.away{opacity:.5}
+/* Acting seat: a ring that reads from across the room. */
+.seat.acting .plate{
+  border-color:var(--gold-light);
+  box-shadow:0 0 0 2px rgba(255,210,74,.5),0 0 26px rgba(255,210,74,.45);
+}
+.seat.winner .plate{
+  border-color:var(--tie-light);
+  box-shadow:0 0 0 2px rgba(47,217,126,.6),0 0 30px rgba(47,217,126,.5);
+}
+.hand-tag{
+  padding:1px 7px;border-radius:999px;
+  border:1px solid var(--gold-line-soft);background:rgba(1,20,13,.8);
+  font-size:calc(var(--seat-w)*.085);color:var(--gold-light);white-space:nowrap;
+}
+
+/* per-seat turn timer, drawn on the plate rather than floating mid-felt */
+.seat-timer{position:absolute;left:-3px;top:50%;transform:translateY(-50%);width:26px;height:26px}
+.seat-timer svg{width:100%;height:100%;transform:rotate(-90deg)}
+.seat-timer circle{fill:none;stroke-width:3.5;stroke-linecap:round}
+.seat-timer .track{stroke:rgba(0,0,0,.55)}
+.seat-timer .ring{stroke:var(--gold-light);stroke-dasharray:69.1;transition:stroke-dashoffset .25s linear}
+.seat-timer.closing .ring{stroke:var(--negative)}
+.seat-timer b{
+  position:absolute;inset:0;display:grid;place-items:center;
+  font-size:10px;font-weight:800;color:var(--gold-light);font-variant-numeric:tabular-nums;
+}
+.seat-timer.closing b{color:var(--negative)}
+
+/* winner notice, reusing the RoundResultNotice treatment Hold'em currently lacks */
+.result-notice{
+  position:absolute;top:47%;left:50%;transform:translate(-50%,-50%);z-index:9;
+  display:flex;align-items:center;gap:11px;padding:11px 18px;
+  border:1px solid var(--tie);border-radius:13px;background:rgba(3,12,8,.92);
+  backdrop-filter:blur(6px);box-shadow:0 0 44px rgba(16,152,80,.5);
+  animation:pillIn .4s cubic-bezier(.2,.9,.3,1.3) both;
+}
+.result-notice .icon{font-size:24px;color:var(--positive)}
+.result-notice small{display:block;font-size:7.5px;letter-spacing:.16em;color:var(--muted-dim)}
+.result-notice strong{display:block;font-size:13px}
+.result-notice .net{font-size:20px;font-weight:800;color:var(--positive);font-variant-numeric:tabular-nums}
+.result-notice .net small{display:inline;font-size:9px;letter-spacing:0;margin-left:2px;color:var(--positive)}
+
+/* ---------- rail ---------- */
+.rail{
+  display:grid;gap:6px;padding:7px 10px;
+  border:1px solid rgba(240,180,28,.3);border-radius:13px;
+  background:linear-gradient(to bottom,rgba(58,40,16,.9),rgba(16,11,5,.95));
+}
+.rail-top{display:flex;align-items:center;gap:7px;min-width:0}
+.rail-info{display:flex;align-items:center;gap:8px;flex:none;font-size:9.5px;color:var(--muted)}
+.rail-info b{color:var(--gold-light);font-size:12px;font-variant-numeric:tabular-nums}
+
+/* PRESET ROW — the core fix. Pot-relative sizing is one tap instead of a drag. */
+.presets{display:flex;align-items:center;gap:5px;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
+.presets::-webkit-scrollbar{display:none}
+.preset{
+  flex:1 1 0;min-width:62px;min-height:34px;padding:3px 8px;
+  border:1px solid var(--gold-line-soft);border-radius:8px;background:rgba(0,0,0,.32);
+  display:grid;gap:0;line-height:1.15;
+  transition:border-color .15s,background .15s,color .15s;
+}
+.preset span{display:block;font-size:8px;letter-spacing:.08em;color:var(--muted-dim);font-weight:700}
+.preset b{display:block;font-size:12px;color:var(--text);font-variant-numeric:tabular-nums}
+.preset:hover{border-color:var(--gold-line);background:var(--gold-wash)}
+.preset[aria-pressed="true"]{border-color:var(--gold-light);background:var(--gold-wash)}
+.preset[aria-pressed="true"] span{color:var(--gold-light)}
+.preset[aria-pressed="true"] b{color:var(--gold-light)}
+
+/* STEPPER — replaces the range input. Big centred value, generous ± targets. */
+.stepper{display:flex;align-items:center;gap:6px;flex:none}
+.step-btn{
+  display:grid;place-items:center;width:42px;height:42px;flex:none;
+  border:1px solid var(--gold-line-soft);border-radius:10px;background:rgba(0,0,0,.35);
+  color:var(--gold-light);font-size:21px;font-weight:800;line-height:1;
+  transition:background .15s,border-color .15s;
+}
+.step-btn:hover:not(:disabled){background:var(--gold-wash);border-color:var(--gold-line)}
+.step-btn:disabled{opacity:.3;cursor:not-allowed}
+.step-value{
+  display:grid;justify-items:center;min-width:104px;padding:3px 12px;
+  border:1px solid var(--gold-line);border-radius:10px;background:rgba(1,20,13,.7);
+}
+.step-value small{font-size:7.5px;letter-spacing:.14em;color:var(--muted-dim);font-weight:700}
+.step-value strong{font-size:19px;color:var(--gold-light);font-variant-numeric:tabular-nums;line-height:1.15}
+
+/* ACTION ROW — colour carries risk, and positions never move between streets. */
+.actions{display:flex;align-items:stretch;gap:6px}
+.act{
+  flex:1 1 0;min-height:46px;padding:0 10px;
+  border:1px solid;border-radius:10px;font-size:13px;font-weight:800;
+  display:grid;place-items:center;line-height:1.2;
+  transition:filter .15s,transform .12s;
+}
+.act small{display:block;font-size:9px;font-weight:600;opacity:.85;font-variant-numeric:tabular-nums}
+.act:hover:not(:disabled){filter:brightness(1.16)}
+.act:active:not(:disabled){transform:translateY(1px)}
+.act:disabled{opacity:.32;cursor:not-allowed}
+.act.fold{background:linear-gradient(to bottom,#8a2028,#4d1015);border-color:var(--banker-light);color:#ffe9ea}
+.act.check{background:linear-gradient(to bottom,#a8811f,#5e4710);border-color:var(--warning);color:#fff6dc}
+.act.raise{background:linear-gradient(to bottom,#12a35d,#0a6234);border-color:var(--tie-light);color:#eafff3;flex:1.4 1 0}
+.act.allin{background:linear-gradient(to bottom,#6b2b7a,#3a1443);border-color:#c07ad8;color:#f6e6ff}
+.waiting-note{
+  padding:10px;text-align:center;font-size:10.5px;color:var(--muted);
+}
+.ghost-btn{
+  flex:none;min-height:34px;padding:0 11px;
+  border:1px solid var(--gold-line-soft);border-radius:8px;background:rgba(0,0,0,.3);
+  color:var(--muted);font-size:10.5px;font-weight:600;
+}
+.ghost-btn:hover{border-color:var(--gold-line);color:var(--gold-light)}
+
+/* =============================================================================
+   Container queries — Hold'em currently ships with essentially none of this.
+   ============================================================================= */
+@container table (max-width: 620px){
+  .stage{padding:4px;gap:4px}
+  .felt::after{left:5%;right:5%;top:17%;bottom:17%}
+  .seat{--seat-w:clamp(72px,25cqw,104px)}
+  /* Vertical oval: two columns of opponents flanking the board. */
+  .seat[data-pos="0"]{left:50%;top:90%}
+  .seat[data-pos="1"]{left:15%;top:73%}
+  .seat[data-pos="2"]{left:15%;top:39%}
+  .seat[data-pos="3"]{left:50%;top:9%}
+  .seat[data-pos="4"]{left:85%;top:39%}
+  .seat[data-pos="5"]{left:85%;top:73%}
+  .board{top:53%;gap:5px}
+  .pot strong{font-size:18px}
+  .board-cards{gap:3px}
+  .board-cards .card,.board-cards .card-slot{width:36px;height:50px}
+  .board-cards .card-rank{font-size:15px}
+  .board-cards .card-suit{font-size:11px}
+  .presets{order:2;width:100%;flex:1 0 100%}
+  .rail-top{flex-wrap:wrap}
+  .stepper{order:1;flex:1 1 auto;justify-content:center}
+  .step-value{flex:1 1 auto;min-width:0}
+  .act{font-size:12px;min-height:44px;padding:0 6px}
+  .act small{font-size:8.5px}
+}
+@container table (max-height: 430px){
+  .shell{grid-template-rows:38px minmax(0,1fr)}
+  .seat{--seat-w:clamp(70px,10cqw,96px)}
+  .seat[data-pos="0"]{top:84%}
+  .seat[data-pos="1"],.seat[data-pos="5"]{top:66%}
+  .seat[data-pos="2"],.seat[data-pos="4"]{top:22%}
+  .seat[data-pos="3"]{top:8%}
+  .board{top:45%;gap:5px}
+  .board-cards .card,.board-cards .card-slot{width:38px;height:53px}
+  .board-cards .card-rank{font-size:16px}
+  .pot strong{font-size:17px}
+  .rail{padding:5px 8px;gap:4px}
+  .act{min-height:38px;font-size:12px}
+  .step-btn{width:36px;height:36px}
+  .preset{min-height:30px}
+}
+@media (prefers-reduced-motion:reduce){
+  .card,.action-pill,.result-notice{animation:none}
+}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <h1>홀덤 UI 프로토타입</h1>
+  <div class="proto-group">
+    <label>STREET</label>
+    <button class="proto-btn" data-street="preflop" aria-pressed="false">프리플랍</button>
+    <button class="proto-btn" data-street="flop" aria-pressed="true">플랍</button>
+    <button class="proto-btn" data-street="turn" aria-pressed="false">턴</button>
+    <button class="proto-btn" data-street="river" aria-pressed="false">리버</button>
+    <button class="proto-btn" data-street="showdown" aria-pressed="false">쇼다운</button>
+  </div>
+  <div class="proto-group right">
+    <label>VIEW</label>
+    <button class="proto-btn" data-device="desktop" aria-pressed="true">데스크톱</button>
+    <button class="proto-btn" data-device="portrait" aria-pressed="false">모바일 세로</button>
+    <button class="proto-btn" data-device="landscape" aria-pressed="false">모바일 가로</button>
+  </div>
+</div>
+
+<div class="frame-wrap">
+<div class="frame" id="frame" data-device="desktop">
+  <div class="shell">
+    <div class="game-bar">
+      <button class="game-back" aria-label="로비로">←</button>
+      <div class="game-title">
+        <strong>골든 홀덤 하이롤러</strong>
+        <small>BLIND 10/20 · MAX 2,000</small>
+      </div>
+      <div class="game-bar-phase" id="phaseLabel">플랍</div>
+      <div class="balance-display"><small>BALANCE</small><strong>8,240</strong></div>
+    </div>
+
+    <div class="stage">
+      <div class="felt">
+        <div class="table-meta"><span>👥 6/6</span><span>관전 8</span></div>
+        <div class="board">
+          <div class="pot"><small>POT</small><strong id="potValue">1,280</strong></div>
+          <div class="board-cards" id="boardCards"></div>
+        </div>
+        <div id="seatHost"></div>
+        <div id="noticeHost"></div>
+      </div>
+
+      <footer class="rail" id="rail"></footer>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const SUITS={s:{ch:'♠',c:'black'},h:{ch:'♥',c:'red'},d:{ch:'♦',c:'red'},c:{ch:'♣',c:'black'}};
+function cardHTML(rank,suit,cls){
+  const s=SUITS[suit];
+  return `<span class="card ${s.c} ${cls||''}"><span class="card-rank">${rank}</span><span class="card-suit">${s.ch}</span></span>`;
+}
+const BOARD=[['A','h'],['3','d'],['8','h'],['A','c'],['7','s']];
+const STREET_CARDS={preflop:0,flop:3,turn:4,river:5,showdown:5};
+const STREET_LABEL={preflop:'프리플랍',flop:'플랍',turn:'턴',river:'리버',showdown:'쇼다운'};
+const POT={preflop:180,flop:1280,turn:1980,river:3160,showdown:3160};
+
+/* Seats: pos 0 is always the viewer, mirroring the client's re-centring. */
+const SEATS=[
+  {pos:0,name:'나',      stack:2160,cards:[['7','s'],['6','h']],me:true,  act:null,     bet:0,  button:false},
+  {pos:1,name:'Samuel',  stack:4680,cards:'back',                        act:'call',   bet:80, button:false},
+  {pos:2,name:'Maria',   stack:620, cards:'back',                        act:'raise',  bet:240,button:true},
+  {pos:3,name:'David',   stack:1040,cards:'back',                        act:'fold',   bet:0,  folded:true},
+  {pos:4,name:'Gabriel', stack:640, cards:'back',                        act:'check',  bet:0},
+  {pos:5,name:'Isabella',stack:600, cards:'back',                        act:'allin',  bet:600},
+];
+const state={street:'flop',raiseTo:120,preset:null,seconds:14};
+const MIN_RAISE=80,POT_NOW=()=>POT[state.street],MY_MAX=2160,TO_CALL=240;
+
+function seatHTML(s){
+  const showdown=state.street==='showdown';
+  const isWinner=showdown&&s.me;
+  let cards;
+  if(s.cards==='back'){
+    cards=showdown&&!s.folded
+      ? cardHTML('K','d')+cardHTML('Q','d')
+      : `<span class="card back"></span><span class="card back"></span>`;
+  }else{
+    cards=s.cards.map(([r,su])=>cardHTML(r,su,showdown?'winning':'')).join('');
+  }
+  const acting=!showdown&&s.me;
+  const pill=!showdown&&s.act
+    ? `<span class="action-pill ${s.act}">${({fold:'폴드',check:'체크',call:'콜',raise:'레이즈',allin:'올인'})[s.act]}</span>`:'';
+  const timer=acting
+    ? `<span class="seat-timer ${state.seconds<=5?'closing':''}">
+         <svg viewBox="0 0 26 26"><circle class="track" cx="13" cy="13" r="11"/>
+         <circle class="ring" cx="13" cy="13" r="11" style="stroke-dashoffset:${69.1*(1-state.seconds/20)}"/></svg>
+         <b>${state.seconds}</b></span>`:'';
+  return `<div class="seat ${s.folded?'folded':''} ${acting?'acting':''} ${isWinner?'winner':''}" data-pos="${s.pos}">
+    ${pill}
+    <div class="seat-cards">${cards}</div>
+    <div class="plate">
+      ${timer}
+      <span class="avatar">${s.me?'★':'👤'}</span>
+      <span class="plate-text">
+        <span class="plate-name">${s.name}</span>
+        <span class="plate-stack">${s.stack.toLocaleString()}</span>
+      </span>
+      ${s.button?'<span class="button-chip">D</span>':''}
+    </div>
+    ${s.bet&&!showdown?`<span class="street-bet"><i></i>${s.bet}</span>`:''}
+    ${showdown&&!s.folded?`<span class="hand-tag">${s.me?'투페어 A·7':'원페어 K'}</span>`:''}
+  </div>`;
+}
+
+function renderTable(){
+  document.getElementById('seatHost').innerHTML=SEATS.map(seatHTML).join('');
+  const n=STREET_CARDS[state.street];
+  document.getElementById('boardCards').innerHTML=
+    BOARD.slice(0,n).map(([r,s],i)=>cardHTML(r,s,state.street==='showdown'&&(i===0||i===3)?'winning':'')).join('')
+    +Array.from({length:5-n},()=>`<span class="card-slot"></span>`).join('');
+  document.getElementById('potValue').textContent=POT_NOW().toLocaleString();
+  document.getElementById('phaseLabel').textContent=STREET_LABEL[state.street];
+  document.getElementById('noticeHost').innerHTML= state.street==='showdown'
+    ? `<div class="result-notice">
+         <span class="icon">✓</span>
+         <span><small>MY RESULT</small><strong>투페어로 승리했습니다</strong></span>
+         <span class="net">+3,160<small>코인</small></span>
+       </div>`:'';
+}
+
+function clampRaise(v){return Math.max(MIN_RAISE,Math.min(MY_MAX,v));}
+const PRESETS=()=>[
+  {key:'min', label:'MIN',   value:MIN_RAISE},
+  {key:'half',label:'1/2 팟',value:clampRaise(Math.round(POT_NOW()/2))},
+  {key:'pot', label:'팟',    value:clampRaise(POT_NOW())},
+  {key:'max', label:'올인',  value:MY_MAX},
+];
+
+function renderRail(){
+  const rail=document.getElementById('rail');
+  if(state.street==='showdown'){
+    rail.innerHTML=`<div class="waiting-note">핸드 종료 · 다음 핸드를 기다리는 중</div>
+      <div class="rail-top"><span class="rail-info">내 스택 <b>5,320</b></span>
+      <span style="flex:1"></span>
+      <button class="ghost-btn">족보 보기</button><button class="ghost-btn">자리 비우기</button></div>`;
+    return;
+  }
+  const presets=PRESETS();
+  rail.innerHTML=`
+    <div class="rail-top">
+      <span class="rail-info">내 스택 <b>${MY_MAX.toLocaleString()}</b></span>
+      <div class="presets">
+        ${presets.map(p=>`<button class="preset" data-preset="${p.key}" data-value="${p.value}"
+            aria-pressed="${state.preset===p.key}"><span>${p.label}</span><b>${p.value.toLocaleString()}</b></button>`).join('')}
+      </div>
+      <div class="stepper">
+        <button class="step-btn" id="minus" ${state.raiseTo<=MIN_RAISE?'disabled':''}>−</button>
+        <div class="step-value"><small>RAISE TO</small><strong id="raiseVal">${state.raiseTo.toLocaleString()}</strong></div>
+        <button class="step-btn" id="plus" ${state.raiseTo>=MY_MAX?'disabled':''}>＋</button>
+      </div>
+      <button class="ghost-btn">족보</button>
+    </div>
+    <div class="actions">
+      <button class="act fold">폴드</button>
+      <button class="act check">콜<small>${TO_CALL}</small></button>
+      <button class="act raise">레이즈<small>${state.raiseTo.toLocaleString()}</small></button>
+      <button class="act allin">올인<small>${MY_MAX.toLocaleString()}</small></button>
+    </div>`;
+  rail.querySelectorAll('[data-preset]').forEach(b=>{
+    b.onclick=()=>{state.preset=b.dataset.preset;state.raiseTo=Number(b.dataset.value);renderRail();};
+  });
+  const step=Math.max(20,Math.round(MIN_RAISE/2));
+  rail.querySelector('#minus').onclick=()=>{state.raiseTo=clampRaise(state.raiseTo-step);state.preset=null;renderRail();};
+  rail.querySelector('#plus').onclick =()=>{state.raiseTo=clampRaise(state.raiseTo+step);state.preset=null;renderRail();};
+}
+
+function renderAll(){renderTable();renderRail();}
+
+document.querySelectorAll('[data-street]').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('[data-street]').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    state.street=b.dataset.street;
+    state.raiseTo=clampRaise(Math.round(POT_NOW()/2));state.preset=null;
+    renderAll();
+  };
+});
+document.querySelectorAll('[data-device]').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('[data-device]').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    document.getElementById('frame').dataset.device=b.dataset.device;
+  };
+});
+setInterval(()=>{
+  if(state.street==='showdown')return;
+  state.seconds=state.seconds<=0?20:state.seconds-1;
+  renderTable();
+},1000);
+renderAll();
+</script>
+</body>
+</html>

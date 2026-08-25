@@ -84,10 +84,12 @@ class AutomaticBaccaratRoomActor {
   }
 
   async loadHistory(): Promise<void> {
-    // The shoe itself is in memory and is freshly shuffled after a server restart.
-    // Loading results from an older shoe would create a false road, so a new process
-    // deliberately starts with a clean scoreboard as a physical table would after a shuffle.
-    this.recentResults = [];
+    // Restore the road from DB on process start (dev's tsx watch restarts on every save,
+    // and this used to wipe the scoreboard every time). The in-memory shoe still starts
+    // fresh either way — shoeRemaining is tracked separately from this display history —
+    // so restoring old results doesn't misrepresent how many cards are left, only what
+    // recently landed. Dragon Tiger already does this; see loadHistory() there.
+    this.recentResults = await baccaratBetService.recentResults(this.room.id);
   }
 
   setPaused(paused: boolean): void {

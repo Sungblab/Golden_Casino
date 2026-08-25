@@ -1,9 +1,20 @@
+/**
+ * All spoken (Edge neural TTS, Korean voice "ko-KR-SunHiNeural") rather than sound-designed
+ * effects — see scripts/generate-sounds.py for the exact line spoken per key and how to
+ * regenerate these.
+ */
 const SOUND_FILES = {
   player: "/sounds/player.mp3",
   banker: "/sounds/banker.mp3",
   tie: "/sounds/tie.mp3",
   chip: "/sounds/chip.mp3",
   deal: "/sounds/deal.mp3",
+  win: "/sounds/win.mp3",
+  lose: "/sounds/lose.mp3",
+  blackjack: "/sounds/blackjack.mp3",
+  turn: "/sounds/turn.mp3",
+  fold: "/sounds/fold.mp3",
+  allin: "/sounds/allin.mp3",
 } as const;
 
 export type SoundName = keyof typeof SOUND_FILES;
