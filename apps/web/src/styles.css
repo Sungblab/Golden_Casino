@@ -329,7 +329,7 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
   .bet-zone-live { margin-top: 2px; padding: 1px 5px; gap: 3px; font-size: 8px; }
 }
 /* Chip stack shown on a bet zone once money is down: layered dashed casino chips, sungblab-style. */
-.chip-stack { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 34px; height: 40px; animation: chip-pop .24s ease-out; }
+.chip-stack { position: absolute; right: 8px; bottom: 8px; z-index: 3; display: grid; place-items: center; width: 34px; height: 40px; animation: chip-pop .24s ease-out; }
 .chip-stack-layer, .chip-stack-top { position: absolute; left: 50%; width: 28px; height: 28px; transform: translateX(-50%); --chip-face: var(--chip-tier, var(--chip-0)); }
 .chip-stack-top { display: grid; place-items: center; color: #fff8e0; font-family: var(--ui-font); font-size: 10px; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
 @keyframes chip-pop { from { transform: translateY(-10px) scale(.6); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
@@ -356,7 +356,7 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
 .bj-chip-stack strong,
 .flying-chip {
   --chip-face: var(--chip-0);
-  --chip-rim: color-mix(in srgb, var(--chip-face), white 34%);
+  --chip-rim: var(--chip-0-rim);
   border: 0;
   border-radius: 50%;
   background:
@@ -381,7 +381,12 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
 .chip-stack-layer,
 .chip-stack-top {
   --chip-face: var(--chip-tier, var(--chip-0));
-  --chip-rim: color-mix(in srgb, var(--chip-face), white 34%);
+  /* Rim comes in inline beside --chip-tier (ChipStack.tsx). It used to be derived here with
+     color-mix(), but a custom property accepts any token stream, so on a browser without
+     color-mix() the declaration parsed and only failed when substituted into `background` -
+     taking the whole shorthand down with it. The chip's amount label still rendered, so the
+     bet read as "the number is there but the chip is not". */
+  --chip-rim: var(--chip-tier-rim, var(--chip-0-rim));
 }
 /*
  * Same class of bug as above, for the mobile chip picker: `.chip-picker-menu button`
@@ -1985,8 +1990,14 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
 /* No lift on hover (Baccarat and Dragon Tiger both use this same .ot-print markup) — it
    shoved the button, and any chip stack riding on it, upward for no real benefit. Brightness/
    border still cue "clickable" without moving anything. */
+/* No z-index here. .bet-zone is a flex container, so this button is a flex item - and
+   z-index applies to flex items even at position: static, creating a stacking context that
+   painted the button OVER the chip stack sitting on it. On a phone that is not a flicker:
+   a tap leaves the element in :hover until you tap somewhere else, so the chip you just
+   placed stayed hidden until betting closed and :not(:disabled) stopped matching. The
+   z-index was left behind when the hover lift (see comment above) was removed; brightness
+   and border-color are the whole cue now, and neither needs a stacking context. */
 .game-shell .ot-print .bet-zone-surface:not(:disabled):hover {
-  z-index: 2;
   filter: brightness(1.13) saturate(1.08);
   border-color: rgba(255,231,163,.7);
 }

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { chipColorForAmount } from "../lib/betting";
+import { chipColorForAmount, chipRimForAmount } from "../lib/betting";
 
 /** How many chips to draw in the stack, purely for visual weight (capped so it never overflows). */
 function chipLayerCount(amount: number): number {
@@ -19,7 +19,7 @@ function chipLayerCount(amount: number): number {
 export function ChipStack({ amount, label, className }: { amount: number; label: string; className?: string }) {
   if (amount <= 0) return null;
   const layers = chipLayerCount(amount);
-  const stackStyle = { "--chip-tier": chipColorForAmount(amount) } as CSSProperties;
+  const stackStyle = { "--chip-tier": chipColorForAmount(amount), "--chip-tier-rim": chipRimForAmount(amount) } as CSSProperties;
   return (
     <span className={`chip-stack${className ? ` ${className}` : ""}`} style={stackStyle} aria-label={`${label} ${amount}코인`}>
       {Array.from({ length: Math.max(0, layers - 1) }).map((_, index) => (

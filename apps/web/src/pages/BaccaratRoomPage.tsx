@@ -19,7 +19,7 @@ import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { playSound } from "../lib/sound";
-import { CHIP_TIER_COLORS, chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
+import { CHIP_TIER_COLORS, CHIP_TIER_RIM_COLORS, chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
 
 /**
  * Reveal pacing. The whole sequence has to finish inside the server's DEALING window
@@ -65,6 +65,7 @@ interface FlyingChip {
   toX: number;
   toY: number;
   color: string;
+  rim: string;
   value: number;
 }
 
@@ -171,6 +172,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
         toX: toRect.left + toRect.width / 2 - overlayRect.left,
         toY: toRect.top + toRect.height / 2 - overlayRect.top,
         color: CHIP_TIER_COLORS[chipTier(chipValue)]!,
+        rim: CHIP_TIER_RIM_COLORS[chipTier(chipValue)]!,
         value: amount,
       },
     ]);
@@ -542,7 +544,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
                 <motion.div
                   key={flyingChip.id}
                   className="flying-chip"
-                  style={{ "--chip-face": flyingChip.color } as CSSProperties}
+                  style={{ "--chip-face": flyingChip.color, "--chip-rim": flyingChip.rim } as CSSProperties}
                   initial={{ x: flyingChip.fromX - 14, y: flyingChip.fromY - 14, opacity: 1, scale: 1 }}
                   animate={{ x: flyingChip.toX - 14, y: flyingChip.toY - 14, opacity: 0, scale: 0.5 }}
                   transition={{ duration: 0.42, ease: "easeIn" }}
