@@ -18,7 +18,9 @@ API / Realtime Gateway
    ├─ Lobby / Rooms
    ├─ Wallet Ledger
    └─ Game Orchestrator
-         └─ Baccarat Core
+         ├─ Baccarat / Lightning Baccarat / Dragon Tiger Core
+         ├─ Blackjack / Lightning Blackjack Core
+         └─ Hold'em PvP Core
    │
 PostgreSQL
 ```
@@ -61,6 +63,20 @@ WAITING → BETTING → LOCKED → DEALING → SETTLING → RESULT
 ```
 
 각 `ledger_transaction`의 `ledger_entries.amount_minor` 합계는 반드시 0이어야 한다. 라운드의 모든 베팅 정산은 하나의 PostgreSQL 트랜잭션으로 처리한다.
+
+### 예외: 홀덤 PvP는 하우스가 상대가 아니다
+
+위 패턴은 하우스가 사용자의 상대방인 게임(바카라, 드래곤 타이거, 블랙잭)에 해당한다. 홀덤은 플레이어 간 대결이라 정산 구조가 다르다.
+
+베팅(콜/레이즈/올인) 접수는 동일하게 `사용자 계정 -amount / 방 예치 계정 +amount`다. 하지만 패배 시 그 금액은 하우스로 가지 않고 핸드가 끝날 때까지 방 예치 계정(팟)에 남는다. 쇼다운(또는 전원 폴드) 정산은:
+
+```text
+방 예치 계정 -pot
+하우스 계정 +rake        (팟의 5%, 3코인 상한)
+승자 계정(들) +(pot - rake)
+```
+
+사이드팟은 `buildHoldemPots`(`packages/game-core/src/holdem.ts`)가 기여액 기준으로 미리 나누고, 팟마다 독립적으로 레이크·승자 배분을 계산한다. `holdem_contributions` 테이블이 라운드·유저별 누적 기여액과 정산 결과를 기록하며, `wagers`와 별개다.
 
 ## 인증
 
