@@ -44,7 +44,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [resultNotice, setResultNotice] = useState<RoundResultNoticeData | null>(null);
-  const lastCardCountRef = useRef(0);
+  const lastPhaseSoundRef = useRef<string | null>(null);
   const noticeRoundRef = useRef<string | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -121,12 +121,15 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
     setMessage((current) => current === "이미 다른 좌석에 앉아 있습니다." ? "" : current);
   }, [snapshot?.mySeat, snapshot?.seats]);
 
+  // Phase snapshots can arrive several times per round. Play the table cue once per
+  // round phase, rather than once per snapshot/card update.
   useEffect(() => {
-    if (!snapshot?.roundId) return;
-    const nextCount = snapshot.dealerCards.length + snapshot.hands.reduce((sum, hand) => sum + hand.cards.length, 0);
-    if (nextCount > lastCardCountRef.current) playSound("deal");
-    lastCardCountRef.current = snapshot.room.phase === "BETTING" ? 0 : nextCount;
-  }, [snapshot]);
+    if (!snapshot?.roundId || (snapshot.room.phase !== "BETTING" && snapshot.room.phase !== "LOCKED")) return;
+    const phaseKey = `${snapshot.roundId}:${snapshot.room.phase}`;
+    if (lastPhaseSoundRef.current === phaseKey) return;
+    lastPhaseSoundRef.current = phaseKey;
+    playSound(snapshot.room.phase === "BETTING" ? "chip" : "deal");
+  }, [snapshot?.roundId, snapshot?.room.phase]);
 
   useEffect(() => () => {
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -180,14 +183,14 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
     if (!snapshot.roundId) return;
     if (snapshot.mySeat) setSelectedSeat(snapshot.mySeat);
     socket.emit("blackjack.bet", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, amount: chip }, (ack) => {
-      if (ack.ok) { accept(ack.data, `${chip}코인 본 베팅 완료`); playSound("chip"); }
+      if (ack.ok) accept(ack.data, `${chip}코인 본 베팅 완료`);
       else setMessage(ack.error);
     });
   };
   const placeBehind = (targetSeat: number) => {
     if (!snapshot.roundId) return;
     socket.emit("blackjack.betBehind", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, targetSeat, amount: chip }, (ack) => {
-      if (ack.ok) { accept(ack.data, `${targetSeat}번 좌석에 ${chip}코인 따라 베팅 완료`); playSound("chip"); }
+      if (ack.ok) accept(ack.data, `${targetSeat}번 좌석에 ${chip}코인 따라 베팅 완료`);
       else setMessage(ack.error);
     });
   };
@@ -201,7 +204,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   const takeInsurance = () => {
     if (!snapshot.roundId) return;
     socket.emit("blackjack.insurance", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId }, (ack) => {
-      if (ack.ok) { accept(ack.data, `보험 ${ack.data.myInsurance?.amount ?? 0}코인 가입 완료`); playSound("chip"); }
+      if (ack.ok) accept(ack.data, `보험 ${ack.data.myInsurance?.amount ?? 0}코인 가입 완료`);
       else setMessage(ack.error);
     });
   };
