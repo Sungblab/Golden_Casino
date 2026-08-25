@@ -5,6 +5,7 @@ import {
   type CancelBetCommand,
   type ClientToServerEvents,
   type GameRoom,
+  type GameType,
   type PlaceBetCommand,
   type RoomPhase,
   type RoomSnapshot,
@@ -12,7 +13,7 @@ import {
   type ServerToClientEvents,
   type WinnerFeedEntry,
 } from "@golden/contracts";
-import { playBaccaratRound, Shoe, type BaccaratResult } from "@golden/game-core";
+import { generateLightningCards, playBaccaratRound, Shoe, type BaccaratResult, type LightningCard } from "@golden/game-core";
 import { pool } from "../../database/pool.js";
 import { walletService } from "../../wallet/wallet-service.js";
 import { baccaratBetService, type BaccaratWin } from "../baccarat/bet-service.js";
@@ -32,7 +33,7 @@ type GoldenSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<st
 
 interface RoomRow {
   id: string;
-  game_type: "baccarat" | "blackjack";
+  game_type: GameType;
   code: string;
   name: string;
   min_bet: number;
@@ -59,12 +60,13 @@ const DEALING_MS = 3_400;
 const SETTLING_MS = 1_000;
 const RESULT_MS = 4_000;
 
-class BaccaratRoomActor {
+class AutomaticBaccaratRoomActor {
   private phase: RoomPhase = "WAITING";
   private roundId: string | null = null;
   private phaseEndsAt: string | null = null;
   private sequence = 0;
   private result: BaccaratResult | null = null;
+  private lightningCards: LightningCard[] = [];
   private shoe = new Shoe(6);
   private participants = new Map<string, Set<string>>();
   private usernames = new Map<string, string>();
@@ -75,6 +77,10 @@ class BaccaratRoomActor {
   private paused = false;
 
   constructor(private readonly io: GoldenServer, readonly room: RoomRow) {}
+
+  private get isLightning(): boolean {
+    return this.room.game_type === "lightning_baccarat";
+  }
 
   async loadHistory(): Promise<void> {
     // The shoe itself is in memory and is freshly shuffled after a server restart.
@@ -142,7 +148,7 @@ class BaccaratRoomActor {
   async placeBet(userId: string, command: PlaceBetCommand): Promise<RoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
-    await baccaratBetService.place(userId, command, this.room.min_bet, this.room.max_bet);
+    await baccaratBetService.place(userId, command, this.room.min_bet, this.room.max_bet, this.isLightning ? 20 : 0);
     this.sequence += 1;
     await this.emitSnapshots();
     return this.snapshot(userId);
@@ -182,6 +188,8 @@ class BaccaratRoomActor {
       walletBalance: await walletService.getUserBalance(userId),
       recentResults: this.recentResults,
       shoeRemaining: this.shoe.remaining,
+      lightningCards: this.lightningCards,
+      lightningFeePercent: this.isLightning ? 20 : 0,
     };
   }
 
@@ -200,9 +208,9 @@ class BaccaratRoomActor {
       const entries = wins.map((win) =>
         buildWinnerEntry({
           roomId: this.room.id,
-          game: "baccarat",
+          game: this.room.game_type,
           username: this.usernames.get(win.userId) ?? "player",
-          choiceLabel: BACCARAT_CHOICE_LABEL[win.choice],
+          choiceLabel: BACCARAT_CHOICE_LABEL[win.choice as BaccaratBetChoice],
           amount: win.profitMinor / COIN_SCALE,
         }),
       );
@@ -236,6 +244,7 @@ class BaccaratRoomActor {
       this.phaseEndsAt = null;
       this.roundId = null;
       this.result = null;
+      this.lightningCards = [];
       this.sequence += 1;
       await this.emitSnapshots();
       for (const sockets of this.participants.values()) {
@@ -251,7 +260,7 @@ class BaccaratRoomActor {
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
-        return await baccaratBetService.settle(this.room.id, this.roundId!, result);
+        return await baccaratBetService.settleBaccarat(this.room.id, this.roundId!, result, this.lightningCards);
       } catch (error) {
         lastError = error;
         if (attempt < 3) await delay(attempt * 500);
@@ -272,6 +281,7 @@ class BaccaratRoomActor {
     if (this.paused || this.phase !== "WAITING" || this.playerCount === 0) return;
     const token = ++this.cycleToken;
     this.result = null;
+    this.lightningCards = [];
     const next = await pool.query<{ next_number: string }>(
       "SELECT COALESCE(MAX(round_number),0)+1 AS next_number FROM game_rounds WHERE room_id=$1",
       [this.room.id],
@@ -291,6 +301,7 @@ class BaccaratRoomActor {
     // We still deal and publish a result; settlement simply has no ledger work
     // when the round contains no wagers.
     await delay(LOCKED_MS);
+    if (this.isLightning) this.lightningCards = generateLightningCards();
     await this.setPhase("DEALING", DEALING_MS);
     // Road maps represent the active shoe, which is how a live baccarat table
     // presents statistics. A fresh six-deck shoe starts with a fresh road.
@@ -305,8 +316,8 @@ class BaccaratRoomActor {
     ].slice(-60);
     await pool.query(
       `UPDATE game_rounds SET result=$2,player_cards=$3,banker_cards=$4,player_score=$5,banker_score=$6,
-       player_pair=$7,banker_pair=$8 WHERE id=$1`,
-      [this.roundId, this.result.result, JSON.stringify(this.result.playerCards), JSON.stringify(this.result.bankerCards), this.result.playerScore, this.result.bankerScore, this.result.playerPair, this.result.bankerPair],
+       player_pair=$7,banker_pair=$8,result_data=$9 WHERE id=$1`,
+      [this.roundId, this.result.result, JSON.stringify(this.result.playerCards), JSON.stringify(this.result.bankerCards), this.result.playerScore, this.result.bankerScore, this.result.playerPair, this.result.bankerPair, JSON.stringify({ lightningCards: this.lightningCards })],
     );
     // The DEALING snapshot already went out with empty hands; this is a distinct state
     // (cards now dealt) and must carry a newer sequence or clients that dedupe by
@@ -327,6 +338,7 @@ class BaccaratRoomActor {
     this.phaseEndsAt = null;
     this.roundId = null;
     this.result = null;
+    this.lightningCards = [];
     this.sequence += 1;
     await this.emitSnapshots();
     if (this.playerCount > 0) this.launchCycle();
@@ -334,7 +346,7 @@ class BaccaratRoomActor {
 }
 
 export class RoomManager {
-  private actors = new Map<string, BaccaratRoomActor>();
+  private actors = new Map<string, AutomaticBaccaratRoomActor>();
 
   constructor(private readonly io: GoldenServer) {}
 
@@ -343,8 +355,8 @@ export class RoomManager {
     if (recovered > 0) console.warn(`Recovered ${recovered} interrupted baccarat rounds`);
     const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms ORDER BY min_bet");
     for (const row of result.rows) {
-      if (row.game_type !== "baccarat") continue;
-      const actor = new BaccaratRoomActor(this.io, row);
+      if (row.game_type !== "baccarat" && row.game_type !== "lightning_baccarat") continue;
+      const actor = new AutomaticBaccaratRoomActor(this.io, row);
       await actor.loadHistory();
       this.actors.set(row.id, actor);
     }

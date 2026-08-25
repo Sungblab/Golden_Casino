@@ -9,6 +9,8 @@
     "./derived-roads": "./src/derived-roads.ts",
     "./baccarat": "./src/baccarat.ts",
     "./blackjack": "./src/blackjack.ts"
+    ,"./lightning": "./src/lightning.ts"
+    ,"./holdem": "./src/holdem.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

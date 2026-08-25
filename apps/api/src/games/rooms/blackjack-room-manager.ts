@@ -14,6 +14,7 @@ import {
   type Card,
   type ClientToServerEvents,
   type GameRoom,
+  type GameType,
   type RoomPhase,
   type ServerToClientEvents,
   type WinnerFeedEntry,
@@ -38,7 +39,7 @@ type GoldenSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<st
 
 interface RoomRow {
   id: string;
-  game_type: "baccarat" | "blackjack";
+  game_type: GameType;
   code: string;
   name: string;
   min_bet: number;
@@ -58,6 +59,7 @@ interface LiveHand {
   bet: number;
   status: BlackjackHandStatus;
   outcome: BlackjackPlayerHand["outcome"];
+  lightningMultiplier: number;
 }
 
 interface LiveInsurance {
@@ -108,8 +110,13 @@ class BlackjackRoomActor {
   private paused = false;
   private playerTurnEarlyResolve: (() => void) | null = null;
   private actionRequests = new Set<string>();
+  private nextLightningAwards = new Map<string, number>();
 
   constructor(private readonly io: GoldenServer, readonly room: RoomRow) {}
+
+  private get isLightning(): boolean {
+    return this.room.game_type === "lightning_blackjack";
+  }
 
   setPaused(paused: boolean): void {
     this.paused = paused;
@@ -204,7 +211,7 @@ class BlackjackRoomActor {
     if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
     const seatNumber = this.seatOf(userId);
     if (seatNumber === null) throw new Error("SEAT_REQUIRED");
-    const placed = await blackjackHandService.place(userId, command, seatNumber, this.room.min_bet, this.room.max_bet);
+    const placed = await blackjackHandService.place(userId, command, seatNumber, this.room.min_bet, this.room.max_bet, this.isLightning);
     const existing = this.userHands(userId)[0];
     if (existing) existing.bet = placed.totalBet;
     else this.hands.set(placed.handId, {
@@ -219,6 +226,7 @@ class BlackjackRoomActor {
       bet: placed.totalBet,
       status: "playing",
       outcome: null,
+      lightningMultiplier: placed.lightningMultiplier,
     });
     this.sequence += 1;
     await this.emitSnapshots();
@@ -316,6 +324,7 @@ class BlackjackRoomActor {
           originalCard,
           splitCard,
           splitAces,
+          lightningMultiplier: hand.lightningMultiplier,
         });
         if (!reserved.duplicate) {
           hand.cards = [originalCard, this.draw()];
@@ -415,6 +424,9 @@ class BlackjackRoomActor {
       myInsurance: this.insuranceBets.get(userId) ?? null,
       walletBalance: await walletService.getUserBalance(userId),
       shoeRemaining: this.shoe.remaining,
+      lightningFeePercent: this.isLightning ? 100 : 0,
+      activeLightningMultiplier: myHands[0] ? (this.hands.get(myHands[0].handId)?.lightningMultiplier ?? 1) : null,
+      nextLightningMultiplier: this.nextLightningAwards.get(userId) ?? null,
     };
   }
 
@@ -464,7 +476,7 @@ class BlackjackRoomActor {
       const entries = wins.map((win) =>
         buildWinnerEntry({
           roomId: this.room.id,
-          game: "blackjack",
+          game: this.room.game_type,
           username: this.usernames.get(win.userId) ?? "player",
           choiceLabel: win.outcome === "insurance" ? "보험" : BLACKJACK_OUTCOME_LABEL[win.outcome],
           amount: win.profitMinor / COIN_SCALE,
@@ -526,6 +538,7 @@ class BlackjackRoomActor {
     this.behindBets.clear();
     this.insuranceBets.clear();
     this.actionRequests.clear();
+    this.nextLightningAwards.clear();
     this.releaseDisconnectedSeats();
   }
 
@@ -639,7 +652,8 @@ class BlackjackRoomActor {
     await blackjackHandService.recordDealer(this.roundId, this.dealerCards, handValue(this.dealerCards).total);
 
     await this.setPhase("SETTLING", 1_000);
-    const { balances, wins } = await blackjackHandService.settle(this.room.id, this.roundId, this.dealerCards);
+    const { balances, wins, lightningAwards } = await blackjackHandService.settle(this.room.id, this.roundId, this.dealerCards, this.isLightning);
+    this.nextLightningAwards = lightningAwards;
     const finalHands = await blackjackHandService.handsForRound(this.roundId);
     const userWon = new Map<string, boolean>();
     for (const row of finalHands) {
@@ -684,7 +698,7 @@ export class BlackjackRoomManager {
     if (recovered > 0) console.warn(`Recovered ${recovered} interrupted blackjack rounds`);
     const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms ORDER BY min_bet");
     for (const row of result.rows) {
-      if (row.game_type !== "blackjack") continue;
+      if (row.game_type !== "blackjack" && row.game_type !== "lightning_blackjack") continue;
       this.actors.set(row.id, new BlackjackRoomActor(this.io, row));
     }
   }

@@ -135,13 +135,18 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   useEffect(() => {
     if (!snapshot?.roundId || snapshot.room.phase !== "RESULT" || noticeRoundRef.current === snapshot.roundId) return;
     const outcomes = [
-      ...snapshot.myHands.filter((hand) => hand.outcome).map((hand) => ({ outcome: hand.outcome!, amount: hand.bet })),
-      ...snapshot.behindBets.filter((bet) => bet.outcome).map((bet) => ({ outcome: bet.outcome!, amount: bet.amount })),
+      ...snapshot.myHands.filter((hand) => hand.outcome).map((hand) => ({ outcome: hand.outcome!, amount: hand.bet, lightning: true })),
+      ...snapshot.behindBets.filter((bet) => bet.outcome).map((bet) => ({ outcome: bet.outcome!, amount: bet.amount, lightning: false })),
     ];
     const insuranceNet = snapshot.myInsurance?.outcome === "win" ? snapshot.myInsurance.amount * 2 : snapshot.myInsurance?.outcome === "lose" ? -snapshot.myInsurance.amount : 0;
     if (outcomes.length === 0 && !snapshot.myInsurance?.outcome) return;
     noticeRoundRef.current = snapshot.roundId;
-    const net = outcomes.reduce((sum, entry) => sum + netForOutcome(entry.outcome, entry.amount), insuranceNet);
+    const multiplier = snapshot.activeLightningMultiplier ?? 1;
+    const fee = snapshot.lightningFeePercent === 100 ? (snapshot.myHands[0]?.bet ?? 0) : 0;
+    const net = outcomes.reduce((sum, entry) => {
+      const base = netForOutcome(entry.outcome, entry.amount);
+      return sum + (entry.lightning && base > 0 ? base * multiplier : base);
+    }, insuranceNet - fee);
     setResultNotice({ net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "푸시 · 베팅금 반환" });
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), 3600);
@@ -206,14 +211,16 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   const canMainBet = Boolean(snapshot.mySeat && (snapshot.myHand?.bet ?? 0) < snapshot.room.maxBet);
   const chipValues = chipValuesForRoom(snapshot.room.minBet, snapshot.room.maxBet);
   const selectedBet = selectedCanFollow ? (selected?.myBehindBet ?? 0) : (snapshot.myHand?.bet ?? 0);
-  const maxAdditional = maximumAdditionalBet(snapshot.walletBalance, selectedBet, snapshot.room.maxBet);
+  const affordableWallet = snapshot.lightningFeePercent === 100 && !selectedCanFollow ? Math.floor(snapshot.walletBalance / 2) : snapshot.walletBalance;
+  const maxAdditional = maximumAdditionalBet(affordableWallet, selectedBet, snapshot.room.maxBet);
   const dealerLiveScore = snapshot.dealerCards.length > 0 ? handValue(snapshot.dealerCards).total : null;
   const canDouble = Boolean(myTurn && snapshot.myHand?.cards.length === 2 && !snapshot.myHand.fromSplit && snapshot.walletBalance >= snapshot.myHand.bet);
   const canSplit = Boolean(myTurn && snapshot.myHand && snapshot.myHands.length < 4 && !snapshot.myHand.splitAces && snapshot.myHand.cards.length === 2 && cardPoint(snapshot.myHand.cards[0]!) === cardPoint(snapshot.myHand.cards[1]!) && snapshot.walletBalance >= snapshot.myHand.bet);
   const canSurrender = Boolean(myTurn && snapshot.myHand?.cards.length === 2 && !snapshot.myHand.fromSplit && snapshot.myHands.length === 1 && snapshot.myHand.bet % 2 === 0);
   const insuranceAmount = snapshot.myHand ? Math.floor(snapshot.myHand.bet / 2) : 0;
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / BETTING_SECONDS));
-  const totalRisk = snapshot.myHands.reduce((sum, hand) => sum + hand.bet, 0) + snapshot.behindBets.reduce((sum, bet) => sum + bet.amount, 0) + (snapshot.myInsurance?.amount ?? 0);
+  const lightningFeeTotal = snapshot.lightningFeePercent === 100 ? (snapshot.myHands[0]?.bet ?? 0) : 0;
+  const totalRisk = snapshot.myHands.reduce((sum, hand) => sum + hand.bet, 0) + snapshot.behindBets.reduce((sum, bet) => sum + bet.amount, 0) + (snapshot.myInsurance?.amount ?? 0) + lightningFeeTotal;
 
   return (
     <GameShell
@@ -232,6 +239,12 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
           <div className={`ot-felt bj bj-phase-${snapshot.room.phase.toLowerCase()}`}>
             <div className="ot-feed bj-feed"><WinnerFeed socket={socket} /></div>
             <div className="bj-table-meta"><span><Users size={14} /> 좌석 {snapshot.room.playerCount}/7</span><span>관전 {snapshot.spectatorCount}</span></div>
+            {snapshot.room.gameType === "lightning_blackjack" && <div className="bj-lightning-status">
+              <strong>LIGHTNING BLACKJACK</strong>
+              <span>최초 베팅 수수료 100%</span>
+              <b>{snapshot.activeLightningMultiplier && snapshot.activeLightningMultiplier > 1 ? `이번 라운드 ×${snapshot.activeLightningMultiplier}` : "기본 배당"}</b>
+              {snapshot.nextLightningMultiplier && <em>다음 라운드 ×{snapshot.nextLightningMultiplier}</em>}
+            </div>}
             <div className="ot-dealer-row bj-dealer-row">
               <div className="ot-hand dealer">
                 <div className="ot-hand-head">DEALER <span className="ot-score">{snapshot.dealerHoleHidden ? "?" : (dealerLiveScore ?? 0)}</span></div>
@@ -274,7 +287,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
             ) : myTurn ? (
               <div className="ot-acts bj-actions" aria-label="블랙잭 액션"><span className="bj-live-total">{snapshot.myHands.length > 1 ? `패 ${snapshot.myHand!.handIndex + 1}` : "합계"} <strong>{handValue(snapshot.myHand!.cards).total}</strong></span><button type="button" className="outline-button primary" onClick={() => act("hit")}>히트</button><button type="button" className="outline-button" onClick={() => act("stand")}>스탠드</button><button type="button" className="outline-button" disabled={!canDouble} onClick={() => act("double")}>더블</button><button type="button" className="outline-button" disabled={!canSplit} onClick={() => act("split")}>스플릿</button><button type="button" className="outline-button danger" disabled={!canSurrender} onClick={() => act("surrender")}>서렌더</button></div>
             ) : <div className="bj-phase-guide">{phaseGuide(snapshot, selected)}</div>}
-            <div className="ot-money right bj-total-risk"><small>총 베팅</small><strong>{totalRisk.toLocaleString()}</strong></div>
+            <div className="ot-money right bj-total-risk"><small>{snapshot.lightningFeePercent === 100 ? "베팅 + 수수료" : "총 베팅"}</small><strong>{totalRisk.toLocaleString()}</strong></div>
             <RoomChat socket={socket} roomId={roomId} token={token} />
           </footer>
         </section>

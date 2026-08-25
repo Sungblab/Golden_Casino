@@ -11,7 +11,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
   const navigate = useNavigate();
   const [rooms, setRooms] = useState<GameRoom[]>([]);
   const [balance, setBalance] = useState(0);
-  const [selectedGame, setSelectedGame] = useState<"all" | "baccarat" | "blackjack">("all");
+  const [selectedGame, setSelectedGame] = useState<"all" | "baccarat" | "blackjack" | "dragon_tiger" | "holdem">("all");
   const [error, setError] = useState("");
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
 
@@ -48,8 +48,10 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
     }
   };
 
-  const baccaratRooms = rooms.filter((room) => room.gameType === "baccarat");
-  const blackjackRooms = rooms.filter((room) => room.gameType === "blackjack");
+  const baccaratRooms = rooms.filter((room) => room.gameType === "baccarat" || room.gameType === "lightning_baccarat");
+  const blackjackRooms = rooms.filter((room) => room.gameType === "blackjack" || room.gameType === "lightning_blackjack");
+  const dragonTigerRooms = rooms.filter((room) => room.gameType === "dragon_tiger");
+  const holdemRooms = rooms.filter((room) => room.gameType === "holdem");
 
   const renderCard = (room: GameRoom) => (
     <article className="room-card" key={room.id}>
@@ -63,8 +65,12 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
       <p>
         {room.minBet}–{room.maxBet} 코인
       </p>
-      {room.gameType === "baccarat" && <BigRoad history={room.recentResults ?? []} compact />}
-      <button className="outline-button" onClick={() => navigate(room.gameType === "blackjack" ? `/rooms/blackjack/${room.id}` : `/rooms/${room.id}`)}>
+      {(room.gameType === "baccarat" || room.gameType === "lightning_baccarat") && <BigRoad history={room.recentResults ?? []} compact />}
+      <button className="outline-button" onClick={() => navigate(
+        room.gameType === "blackjack" || room.gameType === "lightning_blackjack" ? `/rooms/blackjack/${room.id}`
+          : room.gameType === "dragon_tiger" ? `/rooms/dragon-tiger/${room.id}`
+            : room.gameType === "holdem" ? `/rooms/holdem/${room.id}` : `/rooms/${room.id}`
+      )}>
         테이블 입장
       </button>
       {user?.role === "admin" && (
@@ -88,6 +94,8 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
           <button className={selectedGame === "blackjack" ? "active" : ""} onClick={() => setSelectedGame("blackjack")} role="tab" aria-selected={selectedGame === "blackjack"}>
             블랙잭 <span>{blackjackRooms.length}</span>
           </button>
+          <button className={selectedGame === "dragon_tiger" ? "active" : ""} onClick={() => setSelectedGame("dragon_tiger")} role="tab" aria-selected={selectedGame === "dragon_tiger"}>드래곤 타이거 <span>{dragonTigerRooms.length}</span></button>
+          <button className={selectedGame === "holdem" ? "active" : ""} onClick={() => setSelectedGame("holdem")} role="tab" aria-selected={selectedGame === "holdem"}>홀덤 <span>{holdemRooms.length}</span></button>
         </div>
       </div>
 
@@ -99,6 +107,8 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
             </h2>
             <div className="room-grid">{baccaratRooms.map(renderCard)}</div>
           </section>
+          <section className="room-section"><h2 className="room-section-title">드래곤 타이거 <span>{dragonTigerRooms.length}</span></h2><div className="room-grid">{dragonTigerRooms.map(renderCard)}</div></section>
+          {holdemRooms.length > 0 && <section className="room-section"><h2 className="room-section-title">홀덤 PvP <span>{holdemRooms.length}</span></h2><div className="room-grid">{holdemRooms.map(renderCard)}</div></section>}
           <section className="room-section">
             <h2 className="room-section-title">
               블랙잭 <span>{blackjackRooms.length}</span>
@@ -107,7 +117,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
           </section>
         </>
       ) : (
-        <div className="room-grid">{(selectedGame === "baccarat" ? baccaratRooms : blackjackRooms).map(renderCard)}</div>
+        <div className="room-grid">{(selectedGame === "baccarat" ? baccaratRooms : selectedGame === "blackjack" ? blackjackRooms : selectedGame === "dragon_tiger" ? dragonTigerRooms : holdemRooms).map(renderCard)}</div>
       )}
       {error && <p className="error-message">{error}</p>}
     </AppShell>

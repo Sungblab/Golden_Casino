@@ -8,7 +8,13 @@ import {
   type BlackjackOutcome,
   type Card,
 } from "@golden/contracts";
-import { insurancePayout, payoutForOutcome, settleHand } from "@golden/game-core";
+import {
+  applyLightningBlackjackMultiplier,
+  drawLightningBlackjackMultiplier,
+  insurancePayout,
+  payoutForOutcome,
+  settleHand,
+} from "@golden/game-core";
 import { pool } from "../../database/pool.js";
 import { walletService } from "../../wallet/wallet-service.js";
 import { wageringService } from "../../wallet/wagering-service.js";
@@ -21,6 +27,8 @@ export interface BlackjackHandRow {
   fromSplit: boolean;
   splitAces: boolean;
   betMinor: number;
+  lightningFeeMinor: number;
+  lightningMultiplier: number;
   cards: Card[];
   status: BlackjackHandStatus;
 }
@@ -65,9 +73,17 @@ export function buildBlackjackSettlementEntries(
 
 export class BlackjackHandService {
   /** Adds one idempotent chip increment to this round's hand. */
-  async place(userId: string, command: BlackjackBetCommand, seatNumber: number, minBet: number, maxBet: number): Promise<{ duplicate: boolean; balance: number; handId: string; totalBet: number }> {
+  async place(
+    userId: string,
+    command: BlackjackBetCommand,
+    seatNumber: number,
+    minBet: number,
+    maxBet: number,
+    lightning = false,
+  ): Promise<{ duplicate: boolean; balance: number; handId: string; totalBet: number; lightningMultiplier: number }> {
     if (!Number.isInteger(command.amount) || command.amount <= 0 || command.amount > maxBet) throw new Error("BET_LIMIT");
     const amountMinor = command.amount * COIN_SCALE;
+    const feeMinor = lightning ? amountMinor : 0;
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -83,12 +99,12 @@ export class BlackjackHandService {
       if (previousIncrement.rows[0]) {
         const prior = previousIncrement.rows[0];
         if (Number(prior.amount_minor) !== amountMinor || prior.room_id !== command.roomId || prior.round_id !== command.roundId || prior.seat_number !== seatNumber) throw new Error("IDEMPOTENCY_CONFLICT");
-        const total = await client.query<{ bet_minor: string }>("SELECT bet_minor FROM blackjack_hands WHERE id=$1", [previousIncrement.rows[0].hand_id]);
+        const total = await client.query<{ bet_minor: string; lightning_multiplier: number }>("SELECT bet_minor,lightning_multiplier FROM blackjack_hands WHERE id=$1", [previousIncrement.rows[0].hand_id]);
         await client.query("COMMIT");
-        return { duplicate: true, balance: await walletService.getUserBalance(userId), handId: previousIncrement.rows[0].hand_id, totalBet: Number(total.rows[0]!.bet_minor) / COIN_SCALE };
+        return { duplicate: true, balance: await walletService.getUserBalance(userId), handId: previousIncrement.rows[0].hand_id, totalBet: Number(total.rows[0]!.bet_minor) / COIN_SCALE, lightningMultiplier: total.rows[0]!.lightning_multiplier };
       }
-      const current = await client.query<{ id: string; bet_minor: string; seat_number: number }>(
-        "SELECT id,bet_minor,seat_number FROM blackjack_hands WHERE round_id=$1 AND user_id=$2 AND hand_index=0 FOR UPDATE",
+      const current = await client.query<{ id: string; bet_minor: string; seat_number: number; lightning_multiplier: number }>(
+        "SELECT id,bet_minor,seat_number,lightning_multiplier FROM blackjack_hands WHERE round_id=$1 AND user_id=$2 AND hand_index=0 FOR UPDATE",
         [command.roundId, userId],
       );
       const handId = current.rows[0]?.id ?? command.requestId;
@@ -101,25 +117,35 @@ export class BlackjackHandService {
         if (occupied.rowCount) throw new Error("SEAT_TAKEN");
       }
       const accounts = await walletService.accountIds(client, userId, command.roomId);
+      let lightningMultiplier = current.rows[0]?.lightning_multiplier ?? 1;
+      if (lightning && !current.rows[0]) {
+        const award = await client.query<{ multiplier: number }>(
+          "SELECT multiplier FROM blackjack_lightning_awards WHERE user_id=$1 AND expires_at>now() FOR UPDATE",
+          [userId],
+        );
+        lightningMultiplier = award.rows[0]?.multiplier ?? 1;
+        if (award.rows[0]) await client.query("DELETE FROM blackjack_lightning_awards WHERE user_id=$1", [userId]);
+      }
       await walletService.postTransaction(client, {
         type: "BJ_BET_RESERVED",
         idempotencyKey: `bj-bet:${command.requestId}`,
         referenceType: "blackjack_hand",
         referenceId: handId,
         entries: [
-          { accountId: accounts.user, amountMinor: -amountMinor },
+          { accountId: accounts.user, amountMinor: -(amountMinor + feeMinor) },
           { accountId: accounts.room, amountMinor },
+          ...(feeMinor > 0 ? [{ accountId: accounts.house, amountMinor: feeMinor }] : []),
         ],
-        metadata: { roundId: command.roundId },
+        metadata: { roundId: command.roundId, lightningFeeMinor: feeMinor, lightningMultiplier },
       });
-      if (current.rows[0]) await client.query("UPDATE blackjack_hands SET bet_minor=bet_minor+$2 WHERE id=$1", [handId, amountMinor]);
+      if (current.rows[0]) await client.query("UPDATE blackjack_hands SET bet_minor=bet_minor+$2,lightning_fee_minor=lightning_fee_minor+$3 WHERE id=$1", [handId, amountMinor, feeMinor]);
       else await client.query(
-        "INSERT INTO blackjack_hands (id,round_id,room_id,user_id,request_id,seat_number,bet_minor) VALUES ($1,$2,$3,$4,$1,$5,$6)",
-        [handId, command.roundId, command.roomId, userId, seatNumber, amountMinor],
+        "INSERT INTO blackjack_hands (id,round_id,room_id,user_id,request_id,seat_number,bet_minor,lightning_fee_minor,lightning_multiplier) VALUES ($1,$2,$3,$4,$1,$5,$6,$7,$8)",
+        [handId, command.roundId, command.roomId, userId, seatNumber, amountMinor, feeMinor, lightningMultiplier],
       );
       await client.query("INSERT INTO blackjack_bet_increments (request_id,hand_id,user_id,amount_minor) VALUES ($1,$2,$3,$4)", [command.requestId, handId, userId, amountMinor]);
       await client.query("COMMIT");
-      return { duplicate: false, balance: await walletService.getUserBalance(userId), handId, totalBet: (currentMinor + amountMinor) / COIN_SCALE };
+      return { duplicate: false, balance: await walletService.getUserBalance(userId), handId, totalBet: (currentMinor + amountMinor) / COIN_SCALE, lightningMultiplier };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -290,6 +316,7 @@ export class BlackjackHandService {
     originalCard: Card;
     splitCard: Card;
     splitAces: boolean;
+    lightningMultiplier: number;
   }): Promise<{ duplicate: boolean; newHandId: string }> {
     const client = await pool.connect();
     try {
@@ -326,9 +353,9 @@ export class BlackjackHandService {
       );
       await client.query(
         `INSERT INTO blackjack_hands
-         (id,round_id,room_id,user_id,request_id,seat_number,hand_index,parent_hand_id,from_split,split_aces,bet_minor,cards,status)
-         VALUES ($1,$2,$3,$4,$1,$5,$6,$7,true,$8,$9,$10,'playing')`,
-        [input.requestId, input.roundId, input.roomId, input.userId, input.seatNumber, input.nextHandIndex, input.handId, input.splitAces, input.betMinor, JSON.stringify([input.splitCard])],
+         (id,round_id,room_id,user_id,request_id,seat_number,hand_index,parent_hand_id,from_split,split_aces,bet_minor,lightning_multiplier,cards,status)
+         VALUES ($1,$2,$3,$4,$1,$5,$6,$7,true,$8,$9,$10,$11,'playing')`,
+        [input.requestId, input.roundId, input.roomId, input.userId, input.seatNumber, input.nextHandIndex, input.handId, input.splitAces, input.betMinor, input.lightningMultiplier, JSON.stringify([input.splitCard])],
       );
       await client.query("COMMIT");
       return { duplicate: false, newHandId: input.requestId };
@@ -341,11 +368,11 @@ export class BlackjackHandService {
   }
 
   async handsForRound(roundId: string): Promise<BlackjackHandRow[]> {
-    const result = await pool.query<{ id: string; user_id: string; seat_number: number; hand_index: number; from_split: boolean; split_aces: boolean; bet_minor: string; cards: Card[]; status: BlackjackHandStatus }>(
-      "SELECT id,user_id,seat_number,hand_index,from_split,split_aces,bet_minor,cards,status FROM blackjack_hands WHERE round_id=$1 ORDER BY seat_number,hand_index",
+    const result = await pool.query<{ id: string; user_id: string; seat_number: number; hand_index: number; from_split: boolean; split_aces: boolean; bet_minor: string; lightning_fee_minor: string; lightning_multiplier: number; cards: Card[]; status: BlackjackHandStatus }>(
+      "SELECT id,user_id,seat_number,hand_index,from_split,split_aces,bet_minor,lightning_fee_minor,lightning_multiplier,cards,status FROM blackjack_hands WHERE round_id=$1 ORDER BY seat_number,hand_index",
       [roundId],
     );
-    return result.rows.map((row) => ({ id: row.id, userId: row.user_id, seatNumber: row.seat_number, handIndex: row.hand_index, fromSplit: row.from_split, splitAces: row.split_aces, betMinor: Number(row.bet_minor), cards: row.cards, status: row.status }));
+    return result.rows.map((row) => ({ id: row.id, userId: row.user_id, seatNumber: row.seat_number, handIndex: row.hand_index, fromSplit: row.from_split, splitAces: row.split_aces, betMinor: Number(row.bet_minor), lightningFeeMinor: Number(row.lightning_fee_minor), lightningMultiplier: row.lightning_multiplier, cards: row.cards, status: row.status }));
   }
 
   async insuranceForRound(roundId: string): Promise<BlackjackInsuranceRow[]> {
@@ -386,12 +413,19 @@ export class BlackjackHandService {
     await pool.query("UPDATE blackjack_rounds SET dealer_cards=$2,dealer_score=$3 WHERE id=$1", [roundId, JSON.stringify(cards), score]);
   }
 
-  async settle(roomId: string, roundId: string, dealerCards: Card[]): Promise<{ balances: Map<string, number>; wins: BlackjackWin[] }> {
+  async settle(
+    roomId: string,
+    roundId: string,
+    dealerCards: Card[],
+    lightning = false,
+  ): Promise<{ balances: Map<string, number>; wins: BlackjackWin[]; lightningAwards: Map<string, number> }> {
     const hands = await this.handsForRound(roundId);
     const behindBets = await this.behindBetsForRound(roundId);
     const insuranceBets = await this.insuranceForRound(roundId);
     const balances = new Map<string, number>();
     const wins: BlackjackWin[] = [];
+    const lightningAwards = new Map<string, number>();
+    const lightningWinners = new Set<string>();
     const targetOutcomes = new Map<string, BlackjackOutcome>();
     const client = await pool.connect();
     try {
@@ -399,7 +433,10 @@ export class BlackjackHandService {
       for (const hand of hands) {
         const outcome: BlackjackOutcome = settleHand(hand.cards, hand.status, dealerCards, { fromSplit: hand.fromSplit });
         targetOutcomes.set(hand.id, outcome);
-        const payoutMinor = payoutForOutcome(outcome, hand.betMinor, COIN_SCALE);
+        const basePayoutMinor = payoutForOutcome(outcome, hand.betMinor, COIN_SCALE);
+        const payoutMinor = lightning
+          ? applyLightningBlackjackMultiplier(basePayoutMinor, hand.betMinor, hand.lightningMultiplier)
+          : basePayoutMinor;
         const accounts = await walletService.accountIds(client, hand.userId, roomId);
         const entries = buildBlackjackSettlementEntries(accounts, hand.betMinor, payoutMinor);
         await walletService.postTransaction(client, {
@@ -408,11 +445,14 @@ export class BlackjackHandService {
           referenceType: "blackjack_hand",
           referenceId: hand.id,
           entries,
-          metadata: { outcome },
+          metadata: { outcome, lightningMultiplier: hand.lightningMultiplier },
         });
         if (outcome !== "push" && outcome !== "surrender") await wageringService.applyEligibleWager(client, hand.userId, "blackjack_hand", hand.id, hand.betMinor);
         await client.query("UPDATE blackjack_hands SET payout_minor=$2,outcome=$3,settled_at=now() WHERE id=$1", [hand.id, payoutMinor, outcome]);
-        if (payoutMinor > hand.betMinor) wins.push({ userId: hand.userId, outcome, profitMinor: payoutMinor - hand.betMinor });
+        if (payoutMinor > hand.betMinor) {
+          wins.push({ userId: hand.userId, outcome, profitMinor: payoutMinor - hand.betMinor });
+          if (lightning) lightningWinners.add(hand.userId);
+        }
       }
       for (const behind of behindBets) {
         const outcome = targetOutcomes.get(behind.targetHandId);
@@ -458,6 +498,21 @@ export class BlackjackHandService {
         await client.query("UPDATE blackjack_insurance_bets SET payout_minor=$2,outcome=$3,settled_at=now() WHERE id=$1", [insurance.id, payoutMinor, outcome]);
         if (payoutMinor > insurance.amountMinor) wins.push({ userId: insurance.userId, outcome: "insurance", profitMinor: payoutMinor - insurance.amountMinor });
       }
+      for (const userId of lightningWinners) {
+        const generated = drawLightningBlackjackMultiplier();
+        const award = await client.query<{ multiplier: number }>(
+          `INSERT INTO blackjack_lightning_awards (user_id,multiplier,source_round_id,expires_at)
+           VALUES ($1,$2,$3,now()+interval '180 days')
+           ON CONFLICT (user_id) DO UPDATE SET
+             multiplier=CASE WHEN blackjack_lightning_awards.source_round_id=EXCLUDED.source_round_id THEN blackjack_lightning_awards.multiplier ELSE EXCLUDED.multiplier END,
+             source_round_id=EXCLUDED.source_round_id,
+             expires_at=CASE WHEN blackjack_lightning_awards.source_round_id=EXCLUDED.source_round_id THEN blackjack_lightning_awards.expires_at ELSE EXCLUDED.expires_at END,
+             updated_at=now()
+           RETURNING multiplier`,
+          [userId, generated, roundId],
+        );
+        lightningAwards.set(userId, award.rows[0]!.multiplier);
+      }
       await client.query("COMMIT");
       for (const userId of new Set([...hands.map((hand) => hand.userId), ...behindBets.map((bet) => bet.userId), ...insuranceBets.map((bet) => bet.userId)])) {
         balances.set(userId, await walletService.getUserBalance(userId));
@@ -468,7 +523,7 @@ export class BlackjackHandService {
     } finally {
       client.release();
     }
-    return { balances, wins };
+    return { balances, wins, lightningAwards };
   }
 
   async recoverInterruptedRounds(): Promise<number> {
@@ -545,12 +600,13 @@ export class BlackjackHandService {
       });
       await client.query("UPDATE blackjack_behind_bets SET payout_minor=amount_minor,outcome='push',settled_at=now() WHERE id=$1", [bet.id]);
     }
-    const hands = await client.query<{ id: string; user_id: string; bet_minor: string }>(
-      "SELECT id,user_id,bet_minor FROM blackjack_hands WHERE round_id=$1 AND settled_at IS NULL FOR UPDATE",
+    const hands = await client.query<{ id: string; user_id: string; bet_minor: string; lightning_fee_minor: string; lightning_multiplier: number }>(
+      "SELECT id,user_id,bet_minor,lightning_fee_minor,lightning_multiplier FROM blackjack_hands WHERE round_id=$1 AND settled_at IS NULL FOR UPDATE",
       [roundId],
     );
     for (const hand of hands.rows) {
       const betMinor = Number(hand.bet_minor);
+      const feeMinor = Number(hand.lightning_fee_minor);
       const accounts = await walletService.accountIds(client, hand.user_id, roomId);
       await walletService.postTransaction(client, {
         type: "BJ_HAND_REFUNDED",
@@ -559,11 +615,19 @@ export class BlackjackHandService {
         referenceId: hand.id,
         entries: [
           { accountId: accounts.room, amountMinor: -betMinor },
-          { accountId: accounts.user, amountMinor: betMinor },
+          ...(feeMinor > 0 ? [{ accountId: accounts.house, amountMinor: -feeMinor }] : []),
+          { accountId: accounts.user, amountMinor: betMinor + feeMinor },
         ],
         metadata: { reason: "round_interrupted" },
       });
       await client.query("UPDATE blackjack_hands SET payout_minor=bet_minor,outcome='push',settled_at=now() WHERE id=$1", [hand.id]);
+      if (hand.lightning_multiplier > 1) {
+        await client.query(
+          `INSERT INTO blackjack_lightning_awards (user_id,multiplier,source_round_id,expires_at)
+           VALUES ($1,$2,$3,now()+interval '180 days') ON CONFLICT (user_id) DO NOTHING`,
+          [hand.user_id, hand.lightning_multiplier, roundId],
+        );
+      }
     }
     await client.query("UPDATE blackjack_rounds SET phase='ABORTED',settled_at=now() WHERE id=$1", [roundId]);
   }

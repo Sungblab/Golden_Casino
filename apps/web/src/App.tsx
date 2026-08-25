@@ -5,6 +5,8 @@ import { LoginPage } from "./pages/LoginPage";
 import { LobbyPage } from "./pages/LobbyPage";
 import { BaccaratRoomPage } from "./pages/BaccaratRoomPage";
 import { BlackjackRoomPage } from "./pages/BlackjackRoomPage";
+import { DragonTigerRoomPage } from "./pages/DragonTigerRoomPage";
+import { HoldemRoomPage } from "./pages/HoldemRoomPage";
 import { WalletPage } from "./pages/WalletPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AdminApp } from "./admin/AdminShell";
@@ -82,6 +84,8 @@ export function App() {
         <Route path="stats" element={<AdminStatsPage />} />
       </Route>
       <Route path="/rooms/blackjack/:roomId" element={token ? <BlackjackRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
+      <Route path="/rooms/dragon-tiger/:roomId" element={token ? <DragonTigerRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
+      <Route path="/rooms/holdem/:roomId" element={token ? <HoldemRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/:roomId" element={token ? <BaccaratRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to={token ? "/lobby" : "/login"} replace />} />
     </Routes>

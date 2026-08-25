@@ -3273,3 +3273,161 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
     bottom: 30%;
   }
 }
+.dragon-tiger-print {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dragon-tiger-felt {
+  background: radial-gradient(circle at 50% 40%, #173b35 0%, #09251f 58%, #061814 100%);
+}
+
+.lightning-panel {
+  position: absolute;
+  z-index: 4;
+  top: 8%;
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid rgba(244, 198, 76, 0.65);
+  border-radius: 0.75rem;
+  color: #ffe59a;
+  background: rgba(10, 8, 4, 0.86);
+  box-shadow: 0 0 24px rgba(245, 184, 45, 0.22);
+}
+
+.lightning-fee,
+.lightning-card-list em {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.lightning-card-list {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.lightning-card {
+  position: relative;
+  display: inline-flex;
+  width: 30px;
+  height: 42px;
+}
+
+.lightning-card .card-face {
+  width: 100%;
+  height: 100%;
+}
+
+.lightning-card b {
+  position: absolute;
+  right: -6px;
+  bottom: -5px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  color: #1c1300;
+  background: #ffd45f;
+  font-size: 0.62rem;
+}
+
+.bj-lightning-status {
+  position: absolute;
+  z-index: 5;
+  top: 8%;
+  left: 1.2rem;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid rgba(255, 211, 90, 0.55);
+  border-radius: 0.7rem;
+  color: #ffe49a;
+  background: rgba(12, 9, 3, 0.82);
+}
+
+.bj-lightning-status span,
+.bj-lightning-status em {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+/* --------------------------------------------------------------------- */
+/* Hold'em: a round table with six floating seats instead of the fixed  */
+/* wager print used by the automatic games — the felt shows through     */
+/* everywhere except cards, chips and the seat's own small stack tag.   */
+/* --------------------------------------------------------------------- */
+.holdem-felt { padding-bottom: 24px; }
+.holdem-table { position: relative; z-index: 2; width: 100%; height: clamp(460px, calc(100vh - 340px), 600px); }
+.holdem-board {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  transform: translate(-50%, -50%);
+}
+.holdem-pot { min-height: 16px; color: var(--gold-light); font-family: var(--ui-font); font-size: 13px; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.holdem-board-cards { display: flex; }
+.holdem-board-slot { width: 46px; height: 66px; margin-left: -12px; font-size: 9px; }
+.holdem-board-cards .playing-card { transform: scale(.75); transform-origin: center; }
+.holdem-winners { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 320px; }
+.holdem-winner-pill {
+  padding: 3px 9px;
+  border: 1px solid rgba(255,210,74, 0.5);
+  border-radius: 999px;
+  background: rgba(1,20,13,.72);
+  color: var(--gold-light);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.holdem-timer { top: 8%; left: 50%; transform: translateX(-50%); }
+
+.holdem-seat {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 108px;
+  padding: 6px 4px;
+  transform: translate(-50%, -50%);
+  color: #cfb47c;
+  text-align: center;
+  background: none;
+  border: 0;
+}
+.holdem-seat-empty { cursor: pointer; width: 64px; height: 64px; padding: 0; place-items: center; border: 1px dashed rgba(220,194,135,.32); border-radius: 50%; color: rgba(220,194,135,.55); font-size: 9px; transition: border-color .18s, color .18s, background .18s; }
+.holdem-seat-empty span { pointer-events: none; }
+.holdem-seat-empty:hover, .holdem-seat-empty:focus-visible { border-color: rgba(255,210,74, 0.72); color: var(--gold-light); background: rgba(240,180,28, 0.14); }
+.holdem-seat-cards { display: flex; height: 40px; }
+.holdem-seat-cards .playing-card { transform: scale(.6); transform-origin: top center; }
+.holdem-hole-slot { width: 40px; height: 58px; margin-left: -10px; font-size: 8px; }
+.holdem-seat-name { display: flex; align-items: center; gap: 4px; overflow: hidden; max-width: 100%; color: var(--text); font-size: 10.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.holdem-button-chip { display: grid; width: 14px; height: 14px; place-items: center; border: 1px solid rgba(255,210,74, 0.7); border-radius: 50%; background: rgba(240,180,28,.22); color: var(--gold-light); font-size: 8px; font-weight: 800; }
+.holdem-seat-stack { color: var(--gold-light); font-family: var(--ui-font); font-size: 11px; font-variant-numeric: tabular-nums; }
+.holdem-seat-bet {
+  padding: 1px 8px;
+  border: 1px solid rgba(255,210,74, 0.45);
+  border-radius: 999px;
+  background: rgba(1,20,13,.75);
+  color: var(--gold-light);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.holdem-seat-status { color: #ffb0a8; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.holdem-seat.is-turn { filter: drop-shadow(0 0 10px rgba(255,210,74, .55)); }
+.holdem-seat.is-turn .holdem-seat-name { color: var(--gold-light); }
+.holdem-seat.is-folded { opacity: .42; }
+.holdem-seat.is-away { opacity: .55; }
+.holdem-seat.is-away .holdem-seat-status { color: rgba(220,194,135,.6); }
+
+.holdem-rail { flex-wrap: wrap; }
+.holdem-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.holdem-raise { display: flex; align-items: center; gap: 8px; }
+.holdem-raise input[type="range"] { width: 140px; accent-color: var(--gold-light); }

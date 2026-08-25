@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-export const gameTypeSchema = z.enum(["baccarat", "blackjack"]);
+export const gameTypeSchema = z.enum([
+  "baccarat",
+  "lightning_baccarat",
+  "dragon_tiger",
+  "blackjack",
+  "lightning_blackjack",
+  "holdem",
+]);
 export type GameType = z.infer<typeof gameTypeSchema>;
 
 export const roomPhaseSchema = z.enum([
@@ -26,11 +33,20 @@ export const baccaratBetChoiceSchema = z.enum([
 ]);
 export type BaccaratBetChoice = z.infer<typeof baccaratBetChoiceSchema>;
 
+export const dragonTigerBetChoiceSchema = z.enum(["dragon", "tiger", "tie", "suited_tie"]);
+export type DragonTigerBetChoice = z.infer<typeof dragonTigerBetChoiceSchema>;
+
 export const cardSchema = z.object({
   rank: z.enum(["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]),
   suit: z.enum(["S", "H", "D", "C"]),
 });
 export type Card = z.infer<typeof cardSchema>;
+
+export const lightningCardSchema = z.object({
+  card: cardSchema,
+  multiplier: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(8)]),
+});
+export type LightningCardSnapshot = z.infer<typeof lightningCardSchema>;
 
 export const roundResultSchema = z.enum(["player", "banker", "tie"]);
 export type RoundResult = z.infer<typeof roundResultSchema>;
@@ -130,6 +146,8 @@ export const roomSnapshotSchema = z.object({
   walletBalance: z.number().int().nonnegative(),
   recentResults: z.array(roundHistoryEntrySchema),
   shoeRemaining: z.number().int().nonnegative(),
+  lightningCards: z.array(lightningCardSchema).max(5).optional(),
+  lightningFeePercent: z.union([z.literal(0), z.literal(20)]).optional(),
 });
 export type RoomSnapshot = z.infer<typeof roomSnapshotSchema>;
 
@@ -148,6 +166,40 @@ export const cancelBetCommandSchema = z.object({
   choice: baccaratBetChoiceSchema,
 });
 export type CancelBetCommand = z.infer<typeof cancelBetCommandSchema>;
+
+export const dragonTigerResultSchema = z.enum(["dragon", "tiger", "tie"]);
+export type DragonTigerResult = z.infer<typeof dragonTigerResultSchema>;
+
+export const dragonTigerRoomSnapshotSchema = z.object({
+  room: gameRoomSchema,
+  roundId: z.string().uuid().nullable(),
+  sequence: z.number().int().nonnegative(),
+  phaseEndsAt: z.string().datetime().nullable(),
+  dragonCard: cardSchema.nullable(),
+  tigerCard: cardSchema.nullable(),
+  result: dragonTigerResultSchema.nullable(),
+  suitedTie: z.boolean(),
+  myBets: z.record(dragonTigerBetChoiceSchema, z.number().int().nonnegative()),
+  walletBalance: z.number().int().nonnegative(),
+  shoeRemaining: z.number().int().nonnegative(),
+});
+export type DragonTigerRoomSnapshot = z.infer<typeof dragonTigerRoomSnapshotSchema>;
+
+export const dragonTigerBetCommandSchema = z.object({
+  requestId: z.string().uuid(),
+  roomId: z.string().uuid(),
+  roundId: z.string().uuid(),
+  choice: dragonTigerBetChoiceSchema,
+  amount: z.number().int().positive(),
+});
+export type DragonTigerBetCommand = z.infer<typeof dragonTigerBetCommandSchema>;
+
+export const dragonTigerCancelCommandSchema = z.object({
+  roomId: z.string().uuid(),
+  roundId: z.string().uuid(),
+  choice: dragonTigerBetChoiceSchema,
+});
+export type DragonTigerCancelCommand = z.infer<typeof dragonTigerCancelCommandSchema>;
 
 // ---------------------------------------------------------------------------
 // Blackjack: seven seats share a dealer. A seat may hold up to four hands after
@@ -228,6 +280,9 @@ export const blackjackRoomSnapshotSchema = z.object({
   myInsurance: blackjackInsuranceSnapshotSchema.nullable(),
   walletBalance: z.number().int().nonnegative(),
   shoeRemaining: z.number().int().nonnegative(),
+  lightningFeePercent: z.union([z.literal(0), z.literal(100)]).optional(),
+  activeLightningMultiplier: z.number().int().min(1).max(25).nullable().optional(),
+  nextLightningMultiplier: z.number().int().min(2).max(25).nullable().optional(),
 });
 export type BlackjackRoomSnapshot = z.infer<typeof blackjackRoomSnapshotSchema>;
 
@@ -269,6 +324,100 @@ export const blackjackBehindBetCommandSchema = z.object({
   amount: z.number().int().positive(),
 });
 export type BlackjackBehindBetCommand = z.infer<typeof blackjackBehindBetCommandSchema>;
+
+// ---------------------------------------------------------------------------
+// Hold'em: 6-max No-Limit Texas Hold'em. Unlike the automatic tables above,
+// the house is never the counterparty — the pot is escrowed in the room's
+// wallet account across a hand and settle() splits it back to the winner(s)
+// (minus rake) instead of crediting the house on a loss.
+// ---------------------------------------------------------------------------
+
+export const holdemStreetSchema = z.enum(["preflop", "flop", "turn", "river", "showdown"]);
+export type HoldemStreet = z.infer<typeof holdemStreetSchema>;
+
+export const holdemActionSchema = z.enum(["fold", "check", "call", "bet", "raise", "allin"]);
+export type HoldemAction = z.infer<typeof holdemActionSchema>;
+
+export const pokerHandCategorySchema = z.enum([
+  "high_card",
+  "pair",
+  "two_pair",
+  "three_of_a_kind",
+  "straight",
+  "flush",
+  "full_house",
+  "four_of_a_kind",
+  "straight_flush",
+]);
+export type PokerHandCategoryName = z.infer<typeof pokerHandCategorySchema>;
+
+export const holdemPotSchema = z.object({
+  amount: z.number().int().nonnegative(),
+  eligibleSeats: z.array(z.number().int().min(1).max(6)),
+});
+export type HoldemPotSnapshot = z.infer<typeof holdemPotSchema>;
+
+export const holdemSeatSchema = z.object({
+  seatNumber: z.number().int().min(1).max(6),
+  userId: z.string().uuid().nullable(),
+  username: z.string().nullable(),
+  stack: z.number().int().nonnegative(),
+  streetContributed: z.number().int().nonnegative(),
+  totalContributed: z.number().int().nonnegative(),
+  folded: z.boolean(),
+  allIn: z.boolean(),
+  sittingOut: z.boolean(),
+  isButton: z.boolean(),
+  isSmallBlind: z.boolean(),
+  isBigBlind: z.boolean(),
+  isTurn: z.boolean(),
+  holeCards: z.array(cardSchema).length(2).nullable(),
+  handCategory: pokerHandCategorySchema.nullable(),
+});
+export type HoldemSeatSnapshot = z.infer<typeof holdemSeatSchema>;
+
+export const holdemWinnerSchema = z.object({
+  seatNumber: z.number().int().min(1).max(6),
+  username: z.string(),
+  amount: z.number().int().nonnegative(),
+  handCategory: pokerHandCategorySchema.nullable(),
+});
+export type HoldemWinnerSnapshot = z.infer<typeof holdemWinnerSchema>;
+
+export const holdemRoomSnapshotSchema = z.object({
+  room: gameRoomSchema,
+  roundId: z.string().uuid().nullable(),
+  sequence: z.number().int().nonnegative(),
+  phaseEndsAt: z.string().datetime().nullable(),
+  street: holdemStreetSchema.nullable(),
+  board: z.array(cardSchema),
+  pots: z.array(holdemPotSchema),
+  seats: z.array(holdemSeatSchema),
+  mySeatNumber: z.number().int().min(1).max(6).nullable(),
+  toCall: z.number().int().nonnegative(),
+  minRaiseTo: z.number().int().nonnegative(),
+  actingSeat: z.number().int().min(1).max(6).nullable(),
+  lastWinners: z.array(holdemWinnerSchema),
+  walletBalance: z.number().int().nonnegative(),
+});
+export type HoldemRoomSnapshot = z.infer<typeof holdemRoomSnapshotSchema>;
+
+export const holdemSeatCommandSchema = z.object({
+  requestId: z.string().uuid(),
+  roomId: z.string().uuid(),
+  seatNumber: z.number().int().min(1).max(6),
+});
+export type HoldemSeatCommand = z.infer<typeof holdemSeatCommandSchema>;
+
+export const holdemActionCommandSchema = z.object({
+  requestId: z.string().uuid(),
+  roomId: z.string().uuid(),
+  roundId: z.string().uuid(),
+  action: holdemActionSchema,
+  /** "Raise to" target total street contribution. Required for bet/raise, ignored otherwise. */
+  amount: z.number().int().nonnegative().optional(),
+});
+export type HoldemActionCommand = z.infer<typeof holdemActionCommandSchema>;
 
 export const walletTransactionItemSchema = z.object({
   id: z.string(),
@@ -382,7 +531,7 @@ export type SupportConversationList = z.infer<typeof supportConversationListSche
 export const winnerFeedEntrySchema = z.object({
   id: z.string(),
   roomId: z.string().uuid(),
-  game: z.enum(["baccarat", "blackjack"]),
+  game: gameTypeSchema,
   maskedUsername: z.string(),
   choiceLabel: z.string(),
   amount: z.number().int().positive(),
@@ -404,6 +553,8 @@ export interface ServerToClientEvents {
   "wallet.updated": (payload: { balance: number }) => void;
   "notification": (payload: { type: "success" | "error" | "info"; message: string }) => void;
   "blackjack.snapshot": (snapshot: BlackjackRoomSnapshot) => void;
+  "dragonTiger.snapshot": (snapshot: DragonTigerRoomSnapshot) => void;
+  "holdem.snapshot": (snapshot: HoldemRoomSnapshot) => void;
 }
 
 export interface ClientToServerEvents {
@@ -422,6 +573,15 @@ export interface ClientToServerEvents {
   "blackjack.betBehind": (payload: BlackjackBehindBetCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.insurance": (payload: BlackjackInsuranceCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.action": (payload: BlackjackActionCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
+  "dragonTiger.join": (payload: { roomId: string }, ack: (response: SocketAck<DragonTigerRoomSnapshot>) => void) => void;
+  "dragonTiger.leave": (payload: { roomId: string }, ack: (response: SocketAck) => void) => void;
+  "dragonTiger.bet": (payload: DragonTigerBetCommand, ack: (response: SocketAck<DragonTigerRoomSnapshot>) => void) => void;
+  "dragonTiger.cancel": (payload: DragonTigerCancelCommand, ack: (response: SocketAck<DragonTigerRoomSnapshot>) => void) => void;
+  "holdem.join": (payload: { roomId: string }, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
+  "holdem.leave": (payload: { roomId: string }, ack: (response: SocketAck) => void) => void;
+  "holdem.sit": (payload: HoldemSeatCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
+  "holdem.standUp": (payload: { roomId: string }, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
+  "holdem.act": (payload: HoldemActionCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
 }
 
 export const COIN_SCALE = 100;

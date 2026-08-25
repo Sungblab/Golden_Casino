@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS game_rooms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  game_type varchar(20) NOT NULL CHECK (game_type IN ('baccarat', 'blackjack')),
+  game_type varchar(30) NOT NULL CHECK (game_type IN ('baccarat','lightning_baccarat','dragon_tiger','blackjack','lightning_blackjack','holdem')),
   code varchar(50) NOT NULL UNIQUE,
   name varchar(80) NOT NULL,
   min_bet integer NOT NULL CHECK (min_bet > 0),
@@ -41,6 +41,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_wallet_per_user ON wallet_accounts(user_id
 CREATE UNIQUE INDEX IF NOT EXISTS one_wallet_per_room ON wallet_accounts(room_id) WHERE kind = 'room';
 CREATE UNIQUE INDEX IF NOT EXISTS one_house_wallet ON wallet_accounts(kind) WHERE kind = 'house';
 CREATE UNIQUE INDEX IF NOT EXISTS one_issuance_wallet ON wallet_accounts(kind) WHERE kind = 'issuance';
+
+ALTER TABLE game_rooms DROP CONSTRAINT IF EXISTS game_rooms_game_type_check;
+ALTER TABLE game_rooms ADD CONSTRAINT game_rooms_game_type_check
+  CHECK (game_type IN ('baccarat','lightning_baccarat','dragon_tiger','blackjack','lightning_blackjack','holdem'));
 
 CREATE TABLE IF NOT EXISTS ledger_transactions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -182,6 +186,7 @@ CREATE TABLE IF NOT EXISTS game_rounds (
   player_pair boolean NOT NULL DEFAULT false,
   banker_pair boolean NOT NULL DEFAULT false,
   rules_version varchar(20) NOT NULL DEFAULT 'baccarat-v1',
+  result_data jsonb NOT NULL DEFAULT '{}'::jsonb,
   started_at timestamptz NOT NULL DEFAULT now(),
   settled_at timestamptz,
   UNIQUE(room_id, round_number)
@@ -195,8 +200,9 @@ CREATE TABLE IF NOT EXISTS wagers (
   round_id uuid NOT NULL REFERENCES game_rounds(id) ON DELETE RESTRICT,
   room_id uuid NOT NULL REFERENCES game_rooms(id) ON DELETE RESTRICT,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  choice varchar(30) NOT NULL CHECK (choice IN ('player','banker','tie','player_pair','banker_pair')),
+  choice varchar(30) NOT NULL CHECK (choice IN ('player','banker','tie','player_pair','banker_pair','dragon','tiger','suited_tie')),
   amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  fee_minor bigint NOT NULL DEFAULT 0 CHECK (fee_minor >= 0),
   payout_minor bigint,
   outcome varchar(20) CHECK (outcome IN ('win','lose','push')),
   status varchar(20) NOT NULL DEFAULT 'accepted' CHECK (status IN ('accepted','settled','cancelled')),
@@ -205,6 +211,34 @@ CREATE TABLE IF NOT EXISTS wagers (
 );
 CREATE INDEX IF NOT EXISTS wagers_round_idx ON wagers(round_id);
 CREATE INDEX IF NOT EXISTS wagers_user_idx ON wagers(user_id, placed_at DESC);
+ALTER TABLE game_rounds ADD COLUMN IF NOT EXISTS result_data jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS fee_minor bigint NOT NULL DEFAULT 0 CHECK (fee_minor >= 0);
+ALTER TABLE wagers DROP CONSTRAINT IF EXISTS wagers_choice_check;
+ALTER TABLE wagers ADD CONSTRAINT wagers_choice_check
+  CHECK (choice IN ('player','banker','tie','player_pair','banker_pair','dragon','tiger','suited_tie'));
+
+-- Hold'em PvP: one row per seated player per hand (game_rounds row). There is
+-- no house counterparty, so amount_minor accumulates into the room escrow
+-- account across the whole hand and settle() splits it back out to winners
+-- (minus rake) instead of to the house on a loss.
+CREATE TABLE IF NOT EXISTS holdem_contributions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  round_id uuid NOT NULL REFERENCES game_rounds(id) ON DELETE RESTRICT,
+  room_id uuid NOT NULL REFERENCES game_rooms(id) ON DELETE RESTRICT,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  seat_number smallint NOT NULL CHECK (seat_number BETWEEN 1 AND 9),
+  amount_minor bigint NOT NULL DEFAULT 0 CHECK (amount_minor >= 0),
+  folded boolean NOT NULL DEFAULT false,
+  all_in boolean NOT NULL DEFAULT false,
+  hole_cards jsonb NOT NULL DEFAULT '[]'::jsonb,
+  payout_minor bigint,
+  outcome varchar(20) CHECK (outcome IN ('win','lose','push')),
+  placed_at timestamptz NOT NULL DEFAULT now(),
+  settled_at timestamptz,
+  UNIQUE(round_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS holdem_contributions_round_idx ON holdem_contributions(round_id);
+CREATE INDEX IF NOT EXISTS holdem_contributions_user_idx ON holdem_contributions(user_id, placed_at DESC);
 
 CREATE TABLE IF NOT EXISTS blackjack_rounds (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -231,6 +265,8 @@ CREATE TABLE IF NOT EXISTS blackjack_hands (
   from_split boolean NOT NULL DEFAULT false,
   split_aces boolean NOT NULL DEFAULT false,
   bet_minor bigint NOT NULL CHECK (bet_minor > 0),
+  lightning_fee_minor bigint NOT NULL DEFAULT 0 CHECK (lightning_fee_minor >= 0),
+  lightning_multiplier smallint NOT NULL DEFAULT 1 CHECK (lightning_multiplier IN (1,2,5,8,10,15,20,25)),
   cards jsonb NOT NULL DEFAULT '[]'::jsonb,
   status varchar(20) NOT NULL DEFAULT 'playing' CHECK (status IN ('playing','stand','bust','blackjack','doubled','surrendered')),
   outcome varchar(20) CHECK (outcome IN ('win','lose','push','blackjack','surrender')),
@@ -246,6 +282,8 @@ ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS hand_index smallint NOT NUL
 ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS parent_hand_id uuid;
 ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS from_split boolean NOT NULL DEFAULT false;
 ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS split_aces boolean NOT NULL DEFAULT false;
+ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS lightning_fee_minor bigint NOT NULL DEFAULT 0 CHECK (lightning_fee_minor >= 0);
+ALTER TABLE blackjack_hands ADD COLUMN IF NOT EXISTS lightning_multiplier smallint NOT NULL DEFAULT 1 CHECK (lightning_multiplier IN (1,2,5,8,10,15,20,25));
 ALTER TABLE blackjack_hands DROP CONSTRAINT IF EXISTS blackjack_hands_round_id_user_id_key;
 ALTER TABLE blackjack_hands DROP CONSTRAINT IF EXISTS blackjack_hands_status_check;
 ALTER TABLE blackjack_hands ADD CONSTRAINT blackjack_hands_status_check CHECK (status IN ('playing','stand','bust','blackjack','doubled','surrendered'));
@@ -334,10 +372,18 @@ CREATE TABLE IF NOT EXISTS wagering_requirements (
   CONSTRAINT wagering_progress_balanced CHECK (cycle_required_minor = cycle_completed_minor + remaining_minor)
 );
 
+CREATE TABLE IF NOT EXISTS blackjack_lightning_awards (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  multiplier smallint NOT NULL CHECK (multiplier IN (2,5,8,10,15,20,25)),
+  source_round_id uuid NOT NULL REFERENCES blackjack_rounds(id) ON DELETE RESTRICT,
+  expires_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS wagering_progress_events (
   id bigserial PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  source_type varchar(40) NOT NULL CHECK (source_type IN ('cash_deposit','baccarat_wager','blackjack_hand','blackjack_behind','blackjack_insurance')),
+  source_type varchar(40) NOT NULL CHECK (source_type IN ('cash_deposit','baccarat_wager','dragon_tiger_wager','blackjack_hand','blackjack_behind','blackjack_insurance','holdem_rake')),
   source_id uuid NOT NULL,
   qualifying_amount_minor bigint NOT NULL CHECK (qualifying_amount_minor > 0),
   credited_amount_minor bigint NOT NULL DEFAULT 0 CHECK (credited_amount_minor >= 0 AND credited_amount_minor <= qualifying_amount_minor),
@@ -345,6 +391,12 @@ CREATE TABLE IF NOT EXISTS wagering_progress_events (
   UNIQUE(source_type, source_id)
 );
 CREATE INDEX IF NOT EXISTS wagering_progress_user_idx ON wagering_progress_events(user_id, id DESC);
+-- dragon_tiger_wager and holdem_rake were added to the application's WageringSourceType union
+-- after this table first shipped; the CHECK constraint never followed, so every non-push Dragon
+-- Tiger settlement (and every Hold'em rake credit) was silently crashing settlement mid-transaction.
+ALTER TABLE wagering_progress_events DROP CONSTRAINT IF EXISTS wagering_progress_events_source_type_check;
+ALTER TABLE wagering_progress_events ADD CONSTRAINT wagering_progress_events_source_type_check
+  CHECK (source_type IN ('cash_deposit','baccarat_wager','dragon_tiger_wager','blackjack_hand','blackjack_behind','blackjack_insurance','holdem_rake'));
 
 CREATE TABLE IF NOT EXISTS wallet_transfers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

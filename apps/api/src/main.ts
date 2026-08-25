@@ -12,9 +12,14 @@ import {
   cancelBetCommandSchema,
   cashRequestCreateSchema,
   COIN_SCALE,
+  dragonTigerBetCommandSchema,
+  dragonTigerCancelCommandSchema,
+  holdemActionCommandSchema,
+  holdemSeatCommandSchema,
   placeBetCommandSchema,
   transferCreateSchema,
   type ClientToServerEvents,
+  type GameType,
   type ServerToClientEvents,
 } from "@golden/contracts";
 import { authRouter } from "./auth/routes.js";
@@ -23,6 +28,8 @@ import { config } from "./config.js";
 import { pool } from "./database/pool.js";
 import { RoomManager } from "./games/rooms/room-manager.js";
 import { BlackjackRoomManager } from "./games/rooms/blackjack-room-manager.js";
+import { DragonTigerRoomManager } from "./games/rooms/dragon-tiger-room-manager.js";
+import { HoldemRoomManager } from "./games/rooms/holdem-room-manager.js";
 import { walletService } from "./wallet/wallet-service.js";
 import { wageringService, WageringRequirementError } from "./wallet/wagering-service.js";
 import { createAdminSupportMessage, createRoomMessage, createSupportMessage, listAdminSupportConversations, listConversationMessages, listRoomMessages, listSupportMessages } from "./chat/chat-service.js";
@@ -39,6 +46,8 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string,
 });
 const rooms = new RoomManager(io);
 const blackjackRooms = new BlackjackRoomManager(io);
+const dragonTigerRooms = new DragonTigerRoomManager(io);
+const holdemRooms = new HoldemRoomManager(io);
 
 app.get("/api/v1/health", async (_req, res) => {
   await pool.query("SELECT 1");
@@ -47,26 +56,26 @@ app.get("/api/v1/health", async (_req, res) => {
 
 app.get("/api/v1/lobby", requireAuth, async (req, res) => {
   const user = (req as AuthRequest).user;
-  res.json({ rooms: [...rooms.listRooms(), ...blackjackRooms.listRooms()], walletBalance: await walletService.getUserBalance(user.id) });
+  res.json({ rooms: [...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms()], walletBalance: await walletService.getUserBalance(user.id) });
 });
 
 app.post("/api/v1/admin/rooms/:roomId/pause", requireAuth, requireAdmin, (req, res) => {
   const roomId = String(req.params.roomId ?? "");
-  const ok = rooms.setPaused(roomId, true) || blackjackRooms.setPaused(roomId, true);
+  const ok = rooms.setPaused(roomId, true) || dragonTigerRooms.setPaused(roomId, true) || blackjackRooms.setPaused(roomId, true) || holdemRooms.setPaused(roomId, true);
   if (!ok) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
   res.json({ status: "paused" });
 });
 
 app.post("/api/v1/admin/rooms/:roomId/resume", requireAuth, requireAdmin, (req, res) => {
   const roomId = String(req.params.roomId ?? "");
-  const ok = rooms.setPaused(roomId, false) || blackjackRooms.setPaused(roomId, false);
+  const ok = rooms.setPaused(roomId, false) || dragonTigerRooms.setPaused(roomId, false) || blackjackRooms.setPaused(roomId, false) || holdemRooms.setPaused(roomId, false);
   if (!ok) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
   res.json({ status: "resumed" });
 });
 
 app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) => {
   const [roomRows, userRows, roundRows, cashRows, supportRows] = await Promise.all([
-    pool.query<{ id: string; game_type: "baccarat" | "blackjack"; code: string; name: string; min_bet: number; max_bet: number; enabled: boolean }>(
+    pool.query<{ id: string; game_type: GameType; code: string; name: string; min_bet: number; max_bet: number; enabled: boolean }>(
       "SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms ORDER BY min_bet,game_type",
     ),
     pool.query<{
@@ -115,7 +124,7 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) =
     pool.query<{ count: string }>("SELECT COUNT(*) AS count FROM support_conversations WHERE status='open'"),
   ]);
 
-  const liveRooms = new Map([...rooms.listRooms(), ...blackjackRooms.listRooms()].map((room) => [room.id, room]));
+  const liveRooms = new Map([...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms()].map((room) => [room.id, room]));
   const adminRooms = roomRows.rows.map((room) => {
     const live = liveRooms.get(room.id);
     return {
@@ -441,16 +450,115 @@ io.on("connection", (socket) => {
       ack({ ok: false, code, error: messageFor(error) });
     }
   });
+  socket.on("dragonTiger.join", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND");
+      ack({ ok: true, data: await dragonTigerRooms.join(socket, payload.roomId) });
+    } catch (error) {
+      ack({ ok: false, code: "ROOM_JOIN_FAILED", error: messageFor(error) });
+    }
+  });
+  socket.on("dragonTiger.leave", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      await dragonTigerRooms.leave(socket, payload.roomId);
+      ack({ ok: true, data: undefined });
+    } catch (error) {
+      ack({ ok: false, code: "ROOM_LEAVE_FAILED", error: messageFor(error) });
+    }
+  });
+  socket.on("dragonTiger.bet", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = dragonTigerBetCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_BET", error: "베팅 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await dragonTigerRooms.placeBet(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "BET_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("dragonTiger.cancel", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = dragonTigerCancelCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_BET", error: "취소 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await dragonTigerRooms.cancelBet(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "BET_CANCEL_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("holdem.join", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND");
+      ack({ ok: true, data: await holdemRooms.join(socket, payload.roomId) });
+    } catch (error) {
+      ack({ ok: false, code: "ROOM_JOIN_FAILED", error: messageFor(error) });
+    }
+  });
+  socket.on("holdem.leave", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      await holdemRooms.leave(socket, payload.roomId);
+      ack({ ok: true, data: undefined });
+    } catch (error) {
+      ack({ ok: false, code: "ROOM_LEAVE_FAILED", error: messageFor(error) });
+    }
+  });
+  socket.on("holdem.sit", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = holdemSeatCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_SEAT", error: "착석 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await holdemRooms.sit(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "SEAT_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("holdem.standUp", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND");
+      ack({ ok: true, data: await holdemRooms.standUp(socket.data.user.id, payload.roomId) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "STAND_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("holdem.act", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = holdemActionCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_ACTION", error: "액션 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await holdemRooms.act(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "ACTION_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
   socket.on("room.chat.send", async (payload, ack) => {
     if (typeof ack !== "function") return;
     try {
       await authorizeCommand();
       if (!payload || typeof payload.roomId !== "string" || typeof payload.message !== "string") throw new Error("CHAT_INVALID");
-      if (!rooms.isParticipant(socket.data.user.id, payload.roomId) && !blackjackRooms.isParticipant(socket.data.user.id, payload.roomId)) throw new Error("ROOM_JOIN_REQUIRED");
+      if (!rooms.isParticipant(socket.data.user.id, payload.roomId) && !dragonTigerRooms.isParticipant(socket.data.user.id, payload.roomId) && !blackjackRooms.isParticipant(socket.data.user.id, payload.roomId) && !holdemRooms.isParticipant(socket.data.user.id, payload.roomId)) throw new Error("ROOM_JOIN_REQUIRED");
       const message = await createRoomMessage(socket.data.user.id, payload.roomId, payload.message);
       // Baccarat and blackjack actors use different gameplay channels. The
       // union also mirrors every table message to the admin monitoring feed.
-      io.to(`room:${payload.roomId}`).to(`bj-room:${payload.roomId}`).to("chat:admins").emit("room.chat.message", message);
+      io.to(`room:${payload.roomId}`).to(`dt-room:${payload.roomId}`).to(`bj-room:${payload.roomId}`).to(`holdem-room:${payload.roomId}`).to("chat:admins").emit("room.chat.message", message);
       ack({ ok: true, data: message });
     } catch (error) {
       const code = error instanceof Error ? error.message : "CHAT_FAILED";
@@ -582,7 +690,9 @@ io.on("connection", (socket) => {
   });
   socket.on("disconnect", () => {
     void rooms.disconnect(socket);
+    void dragonTigerRooms.disconnect(socket);
     void blackjackRooms.disconnect(socket);
+    void holdemRooms.disconnect(socket);
   });
 });
 
@@ -620,7 +730,12 @@ function messageFor(error: unknown): string {
   return "요청 처리 중 오류가 발생했습니다.";
 }
 
+// Hold'em recovers its own stuck hands first — rooms.initialize() below sweeps every unsettled
+// game_rounds row globally and only knows how to refund from the `wagers` table, so it must not
+// reach a leftover Hold'em hand before holdemRooms has had a chance to refund its pot properly.
+await holdemRooms.initialize();
 await rooms.initialize();
+await dragonTigerRooms.initialize();
 await blackjackRooms.initialize();
 httpServer.listen(config.port, "127.0.0.1", () => {
   console.log(`Golden Casino API listening on http://127.0.0.1:${config.port}`);

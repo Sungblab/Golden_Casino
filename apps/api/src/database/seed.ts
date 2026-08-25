@@ -8,6 +8,10 @@ const rooms = [
   ["20000000-0000-4000-8000-000000000001", "blackjack", "blackjack-rookie", "Rookie Blackjack", 1, 50, true],
   ["20000000-0000-4000-8000-000000000002", "blackjack", "blackjack-standard", "Standard Blackjack", 10, 100, true],
   ["20000000-0000-4000-8000-000000000003", "blackjack", "blackjack-high", "High Roller Blackjack", 50, 500, true],
+  ["11000000-0000-4000-8000-000000000001", "lightning_baccarat", "lightning-baccarat", "Lightning Baccarat", 5, 500, true],
+  ["12000000-0000-4000-8000-000000000001", "dragon_tiger", "dragon-tiger", "Dragon Tiger", 1, 500, true],
+  ["21000000-0000-4000-8000-000000000001", "lightning_blackjack", "lightning-blackjack", "Lightning Blackjack", 5, 500, true],
+  ["30000000-0000-4000-8000-000000000010", "holdem", "holdem-6max", "No-Limit Hold'em 6-Max", 10, 1000, true],
 ] as const;
 
 const client = await pool.connect();
@@ -17,7 +21,7 @@ try {
     await client.query(
       `INSERT INTO game_rooms (id, game_type, code, name, min_bet, max_bet, enabled)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,min_bet=EXCLUDED.min_bet,max_bet=EXCLUDED.max_bet,enabled=EXCLUDED.enabled`,
+       ON CONFLICT (id) DO UPDATE SET game_type=EXCLUDED.game_type,name=EXCLUDED.name,min_bet=EXCLUDED.min_bet,max_bet=EXCLUDED.max_bet,enabled=EXCLUDED.enabled`,
       [...room],
     );
     await client.query(

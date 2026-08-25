@@ -5,10 +5,12 @@ import { AnimatePresence, motion } from "motion/react";
 import { Repeat2, Undo2 } from "lucide-react";
 import type { BaccaratBetChoice, Card, ClientToServerEvents, RoomSnapshot, ServerToClientEvents } from "@golden/contracts";
 import { handScore, payoutForBaccaratBet, type BaccaratResult } from "@golden/game-core/baccarat";
+import { lightningFee, payoutForLightningBaccaratBet } from "@golden/game-core/lightning";
 import { API_URL } from "../api";
 import { GameShell } from "../components/GameShell";
 import { Brand } from "../components/Brand";
 import { PlayingCard } from "../components/PlayingCard";
+import { CardFace } from "../components/CardFace";
 import { BetZone } from "../components/BetZone";
 import { BigRoad } from "../components/BigRoad";
 import { DerivedRoads } from "../components/DerivedRoads";
@@ -254,11 +256,15 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
       playerPair: snapshot.playerPair,
       bankerPair: snapshot.bankerPair,
     };
+    const lightningCards = snapshot.lightningCards ?? [];
     const payout = Object.entries(settledBets).reduce(
-      (sum, [choice, amount]) => sum + payoutForBaccaratBet(choice as BaccaratBetChoice, roundResult, amount),
+      (sum, [choice, amount]) => sum + (lightningCards.length > 0
+        ? payoutForLightningBaccaratBet(choice as BaccaratBetChoice, roundResult, lightningCards, amount)
+        : payoutForBaccaratBet(choice as BaccaratBetChoice, roundResult, amount)),
       0,
     );
-    const net = payout - totalBet;
+    const fee = snapshot.lightningFeePercent === 20 ? lightningFee(totalBet, 20) : 0;
+    const net = payout - totalBet - fee;
     setResultNotice({ net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "베팅금이 반환됐습니다" });
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), RESULT_NOTICE_MS);
@@ -387,7 +393,8 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const dealFullyRevealed = visiblePlayerCards.length === snapshot.playerCards.length && visibleBankerCards.length === snapshot.bankerCards.length;
   const showResult = Boolean(snapshot.result) && dealFullyRevealed;
   const currentBet = Object.values(snapshot.myBets).reduce((sum, amount) => sum + amount, 0);
-  const maxAdditional = maximumAdditionalBet(snapshot.walletBalance, currentBet, snapshot.room.maxBet);
+  const affordableWallet = snapshot.lightningFeePercent === 20 ? Math.floor(snapshot.walletBalance / 1.2) : snapshot.walletBalance;
+  const maxAdditional = maximumAdditionalBet(affordableWallet, currentBet, snapshot.room.maxBet);
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / BETTING_SECONDS));
 
   return (
@@ -408,6 +415,22 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             <div className="ot-feed">
               <WinnerFeed socket={socket} />
             </div>
+
+            {snapshot.room.gameType === "lightning_baccarat" && (
+              <div className="lightning-panel" aria-label="이번 라운드 라이트닝 카드">
+                <strong>LIGHTNING</strong>
+                <span className="lightning-fee">수수료 20%</span>
+                <div className="lightning-card-list">
+                  {(snapshot.lightningCards ?? []).length === 0 && <em>베팅 마감 후 공개</em>}
+                  {(snapshot.lightningCards ?? []).map((item) => (
+                    <span className="lightning-card" key={`${item.card.rank}${item.card.suit}`}>
+                      <CardFace card={item.card} />
+                      <b>×{item.multiplier}</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="ot-hands">
               <div className={`ot-hand player ${showResult && snapshot.result === "player" ? "won" : ""}`} ref={(el) => { handRefs.current.player = el; }}>
@@ -520,8 +543,8 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             </div>
 
             <div className="ot-money right">
-              <small>총 베팅</small>
-              <strong>{currentBet.toLocaleString()}</strong>
+              <small>{snapshot.lightningFeePercent === 20 ? "베팅 + 수수료" : "총 베팅"}</small>
+              <strong>{(currentBet + (snapshot.lightningFeePercent === 20 ? lightningFee(currentBet, 20) : 0)).toLocaleString()}</strong>
             </div>
             <RoomChat socket={socket} roomId={roomId} token={token} />
           </footer>

@@ -1,20 +1,40 @@
-import { COIN_SCALE, type BaccaratBetChoice, type PlaceBetCommand, type RoundHistoryEntry } from "@golden/contracts";
-import { payoutForBaccaratBet, payoutMultiplierHundredths, type BaccaratResult } from "@golden/game-core";
+import {
+  COIN_SCALE,
+  type BaccaratBetChoice,
+  type DragonTigerBetChoice,
+  type DragonTigerBetCommand,
+  type PlaceBetCommand,
+  type RoundHistoryEntry,
+} from "@golden/contracts";
+import {
+  lightningFee,
+  payoutForBaccaratBet,
+  payoutForDragonTigerBet,
+  payoutForLightningBaccaratBet,
+  type BaccaratResult,
+  type DragonTigerResult,
+  type LightningCard,
+} from "@golden/game-core";
 import { pool } from "../../database/pool.js";
 import { walletService } from "../../wallet/wallet-service.js";
 import { wageringService } from "../../wallet/wagering-service.js";
 import type { PoolClient } from "pg";
 
-export interface BaccaratWin {
+type AutomaticBetChoice = BaccaratBetChoice | DragonTigerBetChoice;
+type AutomaticBetCommand = PlaceBetCommand | DragonTigerBetCommand;
+
+export interface AutomaticTableWin {
   userId: string;
-  choice: BaccaratBetChoice;
+  choice: AutomaticBetChoice;
   profitMinor: number;
 }
+export type BaccaratWin = AutomaticTableWin;
 
 export class BaccaratBetService {
-  async place(userId: string, command: PlaceBetCommand, minBet: number, maxBet: number): Promise<{ duplicate: boolean; balance: number }> {
+  async place(userId: string, command: AutomaticBetCommand, minBet: number, maxBet: number, feePercent: 0 | 20 = 0): Promise<{ duplicate: boolean; balance: number }> {
     if (!Number.isInteger(command.amount) || command.amount <= 0 || command.amount > maxBet) throw new Error("BET_LIMIT");
     const amountMinor = command.amount * COIN_SCALE;
+    const feeMinor = lightningFee(amountMinor, feePercent, COIN_SCALE);
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -28,8 +48,8 @@ export class BaccaratBetService {
       if (existing.rowCount) {
         const matching = await client.query(
           `SELECT 1 FROM wagers
-           WHERE request_id=$1 AND user_id=$2 AND room_id=$3 AND round_id=$4 AND choice=$5 AND amount_minor=$6`,
-          [command.requestId, userId, command.roomId, command.roundId, command.choice, amountMinor],
+           WHERE request_id=$1 AND user_id=$2 AND room_id=$3 AND round_id=$4 AND choice=$5 AND amount_minor=$6 AND fee_minor=$7`,
+          [command.requestId, userId, command.roomId, command.roundId, command.choice, amountMinor, feeMinor],
         );
         if (!matching.rowCount) throw new Error("IDEMPOTENCY_CONFLICT");
         await client.query("COMMIT");
@@ -49,15 +69,16 @@ export class BaccaratBetService {
         referenceType: "wager",
         referenceId: command.requestId,
         entries: [
-          { accountId: accounts.user, amountMinor: -amountMinor },
+          { accountId: accounts.user, amountMinor: -(amountMinor + feeMinor) },
           { accountId: accounts.room, amountMinor },
+          ...(feeMinor > 0 ? [{ accountId: accounts.house, amountMinor: feeMinor }] : []),
         ],
-        metadata: { roundId: command.roundId, choice: command.choice },
+        metadata: { roundId: command.roundId, choice: command.choice, feeMinor },
       });
       await client.query(
-        `INSERT INTO wagers (id,request_id,round_id,room_id,user_id,choice,amount_minor)
-         VALUES ($1,$1,$2,$3,$4,$5,$6)`,
-        [command.requestId, command.roundId, command.roomId, userId, command.choice, amountMinor],
+        `INSERT INTO wagers (id,request_id,round_id,room_id,user_id,choice,amount_minor,fee_minor)
+         VALUES ($1,$1,$2,$3,$4,$5,$6,$7)`,
+        [command.requestId, command.roundId, command.roomId, userId, command.choice, amountMinor, feeMinor],
       );
       await client.query("COMMIT");
       return { duplicate: false, balance: await walletService.getUserBalance(userId) };
@@ -69,7 +90,7 @@ export class BaccaratBetService {
     }
   }
 
-  async cancel(userId: string, roomId: string, roundId: string, choice: BaccaratBetChoice): Promise<{ balance: number; cancelledMinor: number }> {
+  async cancel(userId: string, roomId: string, roundId: string, choice: AutomaticBetChoice): Promise<{ balance: number; cancelledMinor: number }> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -78,15 +99,16 @@ export class BaccaratBetService {
         [roundId],
       );
       if (round.rows[0]?.phase !== "BETTING" || round.rows[0]?.room_id !== roomId) throw new Error("BETTING_CLOSED");
-      const wagers = await client.query<{ id: string; amount_minor: string }>(
-        "SELECT id,amount_minor FROM wagers WHERE round_id=$1 AND user_id=$2 AND choice=$3 AND status='accepted' FOR UPDATE",
+      const wagers = await client.query<{ id: string; amount_minor: string; fee_minor: string }>(
+        "SELECT id,amount_minor,fee_minor FROM wagers WHERE round_id=$1 AND user_id=$2 AND choice=$3 AND status='accepted' FOR UPDATE",
         [roundId, userId, choice],
       );
       if (wagers.rowCount === 0) throw new Error("BET_NOT_FOUND");
       let cancelledMinor = 0;
       for (const wager of wagers.rows) {
         const amountMinor = Number(wager.amount_minor);
-        cancelledMinor += amountMinor;
+        const feeMinor = Number(wager.fee_minor);
+        cancelledMinor += amountMinor + feeMinor;
         const accounts = await walletService.accountIds(client, userId, roomId);
         await walletService.postTransaction(client, {
           type: "BET_CANCELLED",
@@ -95,7 +117,8 @@ export class BaccaratBetService {
           referenceId: wager.id,
           entries: [
             { accountId: accounts.room, amountMinor: -amountMinor },
-            { accountId: accounts.user, amountMinor },
+            ...(feeMinor > 0 ? [{ accountId: accounts.house, amountMinor: -feeMinor }] : []),
+            { accountId: accounts.user, amountMinor: amountMinor + feeMinor },
           ],
           metadata: { roundId, choice },
         });
@@ -119,42 +142,76 @@ export class BaccaratBetService {
     return result.rows.reverse().map((row) => ({ result: row.result, playerPair: row.player_pair, bankerPair: row.banker_pair }));
   }
 
-  async betsForRound(roundId: string): Promise<Array<{ id: string; userId: string; choice: BaccaratBetChoice; amountMinor: number }>> {
-    const result = await pool.query<{ id: string; user_id: string; choice: BaccaratBetChoice; amount_minor: string }>(
-      "SELECT id,user_id,choice,amount_minor FROM wagers WHERE round_id=$1 AND status='accepted' ORDER BY placed_at",
+  async betsForRound(roundId: string): Promise<Array<{ id: string; userId: string; choice: AutomaticBetChoice; amountMinor: number; feeMinor: number }>> {
+    const result = await pool.query<{ id: string; user_id: string; choice: AutomaticBetChoice; amount_minor: string; fee_minor: string }>(
+      "SELECT id,user_id,choice,amount_minor,fee_minor FROM wagers WHERE round_id=$1 AND status='accepted' ORDER BY placed_at",
       [roundId],
     );
-    return result.rows.map((row) => ({ id: row.id, userId: row.user_id, choice: row.choice, amountMinor: Number(row.amount_minor) }));
+    return result.rows.map((row) => ({ id: row.id, userId: row.user_id, choice: row.choice, amountMinor: Number(row.amount_minor), feeMinor: Number(row.fee_minor) }));
   }
 
-  async settle(roomId: string, roundId: string, result: BaccaratResult): Promise<{ balances: Map<string, number>; wins: BaccaratWin[] }> {
+  async settle(roomId: string, roundId: string, result: BaccaratResult): Promise<{ balances: Map<string, number>; wins: AutomaticTableWin[] }> {
+    return this.settleBaccarat(roomId, roundId, result);
+  }
+
+  async settleBaccarat(
+    roomId: string,
+    roundId: string,
+    result: BaccaratResult,
+    lightningCards: LightningCard[] = [],
+  ): Promise<{ balances: Map<string, number>; wins: AutomaticTableWin[] }> {
+    return this.settleResolved(roomId, roundId, "baccarat_wager", (choice, stake) => {
+      if (!["player", "banker", "tie", "player_pair", "banker_pair"].includes(choice)) throw new Error("INVALID_BET_CHOICE");
+      const baccaratChoice = choice as BaccaratBetChoice;
+      return lightningCards.length > 0
+        ? payoutForLightningBaccaratBet(baccaratChoice, result, lightningCards, stake, COIN_SCALE)
+        : payoutForBaccaratBet(baccaratChoice, result, stake, COIN_SCALE);
+    }, { result: result.result, lightningCards });
+  }
+
+  async settleDragonTiger(
+    roomId: string,
+    roundId: string,
+    result: DragonTigerResult,
+  ): Promise<{ balances: Map<string, number>; wins: AutomaticTableWin[] }> {
+    return this.settleResolved(roomId, roundId, "dragon_tiger_wager", (choice, stake) => {
+      if (!["dragon", "tiger", "tie", "suited_tie"].includes(choice)) throw new Error("INVALID_BET_CHOICE");
+      return payoutForDragonTigerBet(choice as DragonTigerBetChoice, result, stake, COIN_SCALE);
+    }, { result: result.result, suitedTie: result.suitedTie });
+  }
+
+  private async settleResolved(
+    roomId: string,
+    roundId: string,
+    sourceType: "baccarat_wager" | "dragon_tiger_wager",
+    payoutFor: (choice: AutomaticBetChoice, stake: number) => number,
+    resultMetadata: Record<string, unknown>,
+  ): Promise<{ balances: Map<string, number>; wins: AutomaticTableWin[] }> {
     const bets = await this.betsForRound(roundId);
     const balances = new Map<string, number>();
-    const wins: BaccaratWin[] = [];
+    const wins: AutomaticTableWin[] = [];
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       for (const bet of bets) {
         const accounts = await walletService.accountIds(client, bet.userId, roomId);
-        const multiplier = payoutMultiplierHundredths(bet.choice, result);
-        const payoutMinor = payoutForBaccaratBet(bet.choice, result, bet.amountMinor, COIN_SCALE);
-        const outcome = multiplier === 0 ? "lose" : multiplier === 100 ? "push" : "win";
-        const entries = multiplier === 0
-          ? [{ accountId: accounts.room, amountMinor: -bet.amountMinor }, { accountId: accounts.house, amountMinor: bet.amountMinor }]
-          : [
-              { accountId: accounts.room, amountMinor: -bet.amountMinor },
-              { accountId: accounts.user, amountMinor: payoutMinor },
-              ...(payoutMinor > bet.amountMinor ? [{ accountId: accounts.house, amountMinor: -(payoutMinor - bet.amountMinor) }] : []),
-            ];
+        const payoutMinor = payoutFor(bet.choice, bet.amountMinor);
+        const outcome = payoutMinor === bet.amountMinor ? "push" : payoutMinor > bet.amountMinor ? "win" : "lose";
+        const houseDelta = bet.amountMinor - payoutMinor;
+        const entries = [
+          { accountId: accounts.room, amountMinor: -bet.amountMinor },
+          ...(payoutMinor > 0 ? [{ accountId: accounts.user, amountMinor: payoutMinor }] : []),
+          ...(houseDelta !== 0 ? [{ accountId: accounts.house, amountMinor: houseDelta }] : []),
+        ];
         await walletService.postTransaction(client, {
           type: "BET_SETTLED",
           idempotencyKey: `settle:${bet.id}`,
           referenceType: "wager",
           referenceId: bet.id,
           entries,
-          metadata: { outcome, multiplier },
+          metadata: { outcome, ...resultMetadata },
         });
-        if (outcome !== "push") await wageringService.applyEligibleWager(client, bet.userId, "baccarat_wager", bet.id, bet.amountMinor);
+        if (outcome !== "push") await wageringService.applyEligibleWager(client, bet.userId, sourceType, bet.id, bet.amountMinor);
         await client.query(
           "UPDATE wagers SET payout_minor=$2,outcome=$3,status='settled',settled_at=now() WHERE id=$1",
           [bet.id, payoutMinor, outcome],
@@ -212,12 +269,13 @@ export class BaccaratBetService {
   }
 
   private async refundRoundWithClient(client: PoolClient, roundId: string, roomId: string, reason: string): Promise<void> {
-    const wagers = await client.query<{ id: string; user_id: string; amount_minor: string }>(
-      "SELECT id,user_id,amount_minor FROM wagers WHERE round_id=$1 AND status='accepted' FOR UPDATE",
+    const wagers = await client.query<{ id: string; user_id: string; amount_minor: string; fee_minor: string }>(
+      "SELECT id,user_id,amount_minor,fee_minor FROM wagers WHERE round_id=$1 AND status='accepted' FOR UPDATE",
       [roundId],
     );
     for (const wager of wagers.rows) {
       const amountMinor = Number(wager.amount_minor);
+      const feeMinor = Number(wager.fee_minor);
       const accounts = await walletService.accountIds(client, wager.user_id, roomId);
       await walletService.postTransaction(client, {
         type: "BET_REFUNDED",
@@ -226,7 +284,8 @@ export class BaccaratBetService {
         referenceId: wager.id,
         entries: [
           { accountId: accounts.room, amountMinor: -amountMinor },
-          { accountId: accounts.user, amountMinor },
+          ...(feeMinor > 0 ? [{ accountId: accounts.house, amountMinor: -feeMinor }] : []),
+          { accountId: accounts.user, amountMinor: amountMinor + feeMinor },
         ],
         metadata: { reason },
       });
