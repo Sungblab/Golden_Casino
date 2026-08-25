@@ -11,7 +11,9 @@ const rooms = [
   ["11000000-0000-4000-8000-000000000001", "lightning_baccarat", "lightning-baccarat", "Lightning Baccarat", 5, 500, true],
   ["12000000-0000-4000-8000-000000000001", "dragon_tiger", "dragon-tiger", "Dragon Tiger", 1, 500, true],
   ["21000000-0000-4000-8000-000000000001", "lightning_blackjack", "lightning-blackjack", "Lightning Blackjack", 5, 500, true],
-  ["30000000-0000-4000-8000-000000000010", "holdem", "holdem-6max", "No-Limit Hold'em 6-Max", 10, 1000, true],
+  ["30000000-0000-4000-8000-000000000010", "holdem", "holdem-micro", "Micro Hold'em 6-Max", 1, 100, true],
+  ["30000000-0000-4000-8000-000000000011", "holdem", "holdem-standard", "Standard Hold'em 6-Max", 10, 1000, true],
+  ["30000000-0000-4000-8000-000000000012", "holdem", "holdem-high", "High Roller Hold'em 6-Max", 50, 5000, true],
 ] as const;
 
 const client = await pool.connect();

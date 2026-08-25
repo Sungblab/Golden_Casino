@@ -540,6 +540,12 @@ class HoldemRoomActor {
   private async dealStreet(street: HoldemStreet, cardCount: number, seatedOrder: number[], token: number): Promise<void> {
     if (this.contenderSeats().length <= 1) return;
     for (let index = 0; index < cardCount; index += 1) this.board.push(this.shoe.draw());
+    // Persisted so a crash after the river can be *settled* fairly from this board on restart
+    // instead of refunded — see HoldemService.recoverInterruptedRounds. A crash before the full
+    // board is dealt can never be resumed this way: the shoe's remaining draw order only ever
+    // lived in this process's memory, and persisting it would hand a card-counting/collusion
+    // tool to anyone with database access, so it deliberately is not.
+    await pool.query("UPDATE game_rounds SET result_data=$2 WHERE id=$1", [this.roundId, JSON.stringify({ board: this.board, street })]);
     this.street = street;
     for (const seat of this.seats) if (seat) seat.streetContributed = 0;
     this.currentBet = 0;
@@ -653,8 +659,9 @@ export class HoldemRoomManager {
   async initialize(): Promise<void> {
     // Must run before RoomManager.initialize() — its cross-game recovery sweep would otherwise
     // find any Hold'em hand stuck by an unclean restart and mark it ABORTED without a refund.
-    const recovered = await holdemService.recoverInterruptedRounds();
-    if (recovered > 0) console.log(`Recovered ${recovered} interrupted Hold'em hands`);
+    const { settled, refunded } = await holdemService.recoverInterruptedRounds();
+    if (settled > 0) console.log(`Settled ${settled} interrupted Hold'em hand(s) that had already reached the river`);
+    if (refunded > 0) console.log(`Refunded ${refunded} interrupted Hold'em hand(s) stopped before the river`);
     const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms WHERE game_type='holdem' ORDER BY min_bet");
     for (const row of result.rows) this.actors.set(row.id, new HoldemRoomActor(this.io, row));
   }

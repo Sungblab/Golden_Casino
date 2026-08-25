@@ -2307,6 +2307,8 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
     gap: 2px;
     padding: 0 3px;
   }
+  /* The Lightning status strip sits above the hands here and needs its own clearance. */
+  .game-shell .ot-felt.baccarat.lightning .ot-hands { top: 46px; }
   .game-shell .ot-felt.baccarat .ot-hand {
     gap: 3px;
     padding: 2px 3px 4px;
@@ -2661,6 +2663,8 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   .game-shell .ot-rail .chip,
   .game-shell .bj-rail .chip { width: 28px; min-width: 28px; height: 28px; min-height: 28px; }
   .game-shell .ot-felt.baccarat .ot-hands { top: 23px; }
+  /* The Lightning status strip sits above the hands and needs its own clearance, or the two overlap. */
+  .game-shell .ot-felt.baccarat.lightning .ot-hands { top: 42px; }
   .game-shell .ot-felt.baccarat .ot-cards { min-height: 63px; }
   .game-shell .ot-felt.baccarat .ot-cards .playing-card,
   .game-shell .ot-felt.baccarat .ot-card-slot { width: 44px; height: 63px; }
@@ -2723,6 +2727,7 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   .game-shell .bj-rail .chip { width: 28px; min-width: 28px; height: 28px; min-height: 28px; }
   .game-shell .ot-felt.baccarat .ot-status { top: 3px; padding: 2px 7px; font-size: 6px; }
   .game-shell .ot-felt.baccarat .ot-hands { top: 20px; padding-inline: 23%; }
+  .game-shell .ot-felt.baccarat.lightning .ot-hands { top: 40px; }
   .game-shell .ot-felt.baccarat .ot-cards { min-height: 59px; }
   .game-shell .ot-felt.baccarat .ot-cards .playing-card,
   .game-shell .ot-felt.baccarat .ot-card-slot { width: 41px; height: 58px; }
@@ -3301,7 +3306,15 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
     bottom: 30%;
   }
 }
-.dragon-tiger-print {
+/*
+ * `.ot-print.dragon-tiger-print` (not just `.dragon-tiger-print`) is required here: the base
+ * `.game-shell .ot-print` rule is a two-class selector sized for Baccarat's five bet zones, so
+ * a single-class override loses on specificity regardless of source order and the four Dragon
+ * Tiger zones inherited Baccarat's five-column track sizes — pushing the last two zones off the
+ * right edge of the felt on mobile (and misaligning them everywhere else too).
+ */
+.ot-print.dragon-tiger-print,
+.game-shell .ot-print.dragon-tiger-print {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

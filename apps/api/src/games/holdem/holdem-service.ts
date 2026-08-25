@@ -182,25 +182,58 @@ export class HoldemService {
    * *during* a live process — see the room manager's launchCycle) — this is the restart case.
    * Must run before the generic cross-game sweep in RoomManager.initialize(), which would
    * otherwise mark a stuck Hold'em round ABORTED without knowing to refund its pot at all.
+   *
+   * A hand whose board had already been fully dealt (river persisted to result_data — see
+   * HoldemRoomActor.dealStreet) before the crash is *settled* here from that persisted board,
+   * not refunded: the outcome was already fully determined, so refunding it would unfairly deny
+   * the winner(s) their pot. A hand interrupted before the river genuinely cannot be resumed —
+   * the shoe's remaining draw order only ever lived in process memory (never persisted, since
+   * doing so would hand a card-counting/collusion tool to anyone with database access) — so those
+   * still fall back to a full refund, same as every other game's crash recovery.
    */
-  async recoverInterruptedRounds(): Promise<number> {
+  async recoverInterruptedRounds(): Promise<{ settled: number; refunded: number }> {
     const client = await pool.connect();
+    let stuckRounds: Array<{ id: string; room_id: string; max_bet: number; result_data: { board?: Card[] } }>;
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtext('golden:holdem-round-recovery'))");
-      const rounds = await client.query<{ id: string; room_id: string }>(
-        `SELECT gr.id,gr.room_id FROM game_rounds gr
+      const rounds = await client.query<{ id: string; room_id: string; max_bet: number; result_data: { board?: Card[] } }>(
+        `SELECT gr.id,gr.room_id,gm.max_bet,gr.result_data FROM game_rounds gr
+         JOIN game_rooms gm ON gm.id=gr.room_id
          WHERE gr.settled_at IS NULL AND gr.phase NOT IN ('RESULT','ABORTED') AND gr.rules_version='holdem-v1' FOR UPDATE`,
       );
+      stuckRounds = rounds.rows;
       await client.query("COMMIT");
-      for (const round of rounds.rows) await this.refundRound(round.id, round.room_id);
-      return rounds.rowCount ?? 0;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
     }
+
+    let settled = 0;
+    let refunded = 0;
+    for (const round of stuckRounds) {
+      const board = round.result_data?.board ?? [];
+      const contributions = board.length === 5 ? await this.contributions(round.id) : [];
+      const canSettle = board.length === 5 && contributions
+        .filter((entry) => !entry.folded && entry.amountMinor > 0)
+        .every((entry) => entry.holeCards.length === 2);
+      if (canSettle) {
+        await this.settle(round.room_id, round.id, board, round.max_bet * COIN_SCALE);
+        // settle() only finalizes holdem_contributions — the room actor normally marks the round
+        // itself RESULT/settled right after calling settle(). Recovery has no actor, so it must
+        // do that step itself, or one_active_round_per_room blocks every future hand in this room
+        // and the next restart re-processes the same round (settle() is idempotent, so harmless,
+        // but still pointless work every time until this is fixed).
+        await pool.query("UPDATE game_rounds SET phase='RESULT',settled_at=now() WHERE id=$1", [round.id]);
+        settled += 1;
+      } else {
+        await this.refundRound(round.id, round.room_id);
+        refunded += 1;
+      }
+    }
+    return { settled, refunded };
   }
 
   /** Crash recovery: refunds every un-settled contribution for a hand back to its owner. */

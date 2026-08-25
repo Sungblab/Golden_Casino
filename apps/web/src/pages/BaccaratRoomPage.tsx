@@ -413,7 +413,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     >
       <div className="room-shell">
         <section className="ot-stage">
-          <div className="ot-felt baccarat">
+          <div className={`ot-felt baccarat ${snapshot.room.gameType === "lightning_baccarat" ? "lightning" : ""}`}>
             <div className="ot-feed">
               <WinnerFeed socket={socket} />
             </div>
