@@ -142,6 +142,16 @@ export class BaccaratBetService {
     return result.rows.reverse().map((row) => ({ result: row.result, playerPair: row.player_pair, bankerPair: row.banker_pair }));
   }
 
+  async recentDragonTigerResults(roomId: string, limit = 60): Promise<Array<{ result: "dragon" | "tiger" | "tie"; suitedTie: boolean }>> {
+    const result = await pool.query<{ result: "dragon" | "tiger" | "tie"; suited_tie: boolean | null }>(
+      `SELECT result, (result_data->>'suitedTie')::boolean AS suited_tie
+       FROM game_rounds WHERE room_id=$1 AND result IS NOT NULL AND rules_version='dragon-tiger-v1'
+       ORDER BY round_number DESC LIMIT $2`,
+      [roomId, limit],
+    );
+    return result.rows.reverse().map((row) => ({ result: row.result, suitedTie: row.suited_tie ?? false }));
+  }
+
   async betsForRound(roundId: string): Promise<Array<{ id: string; userId: string; choice: AutomaticBetChoice; amountMinor: number; feeMinor: number }>> {
     const result = await pool.query<{ id: string; user_id: string; choice: AutomaticBetChoice; amount_minor: string; fee_minor: string }>(
       "SELECT id,user_id,choice,amount_minor,fee_minor FROM wagers WHERE round_id=$1 AND status='accepted' ORDER BY placed_at",

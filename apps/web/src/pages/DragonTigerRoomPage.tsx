@@ -5,20 +5,25 @@ import type {
   ClientToServerEvents,
   DragonTigerBetChoice,
   DragonTigerRoomSnapshot,
+  RoundHistoryEntry,
   ServerToClientEvents,
 } from "@golden/contracts";
+import { payoutForDragonTigerBet } from "@golden/game-core/dragon-tiger";
 import { API_URL } from "../api";
 import { Brand } from "../components/Brand";
 import { BetZone } from "../components/BetZone";
+import { BigRoad } from "../components/BigRoad";
 import { GameShell } from "../components/GameShell";
 import { PlayingCard } from "../components/PlayingCard";
 import { RoomChat } from "../components/RoomChat";
+import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
 
 const BETTING_SECONDS = 12;
 const TIMER_RING = 163.4;
-const choices: DragonTigerBetChoice[] = ["dragon", "tiger", "tie", "suited_tie"];
+const RESULT_NOTICE_MS = 2_600;
+const ROAD_LABELS = { player: "D", banker: "T" } as const;
 
 export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const { roomId = "" } = useParams();
@@ -27,7 +32,10 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   const [chip, setChip] = useState(1);
   const [seconds, setSeconds] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [resultNotice, setResultNotice] = useState<RoundResultNoticeData | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  const noticeRoundRef = useRef<string | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
     () => io(API_URL, { auth: { token }, autoConnect: false }),
     [token],
@@ -73,6 +81,43 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+  }, []);
+
+  // Personal win/loss feedback, same "+total returned, not just profit" convention as Baccarat/Blackjack.
+  useEffect(() => {
+    if (!snapshot?.roundId || !snapshot.result || noticeRoundRef.current === snapshot.roundId) return;
+    const settledBets = snapshot.myBets;
+    const totalBet = Object.values(settledBets).reduce((sum, amount) => sum + (amount ?? 0), 0);
+    if (totalBet <= 0) return;
+    noticeRoundRef.current = snapshot.roundId;
+    const outcome = { dragonCard: snapshot.dragonCard!, tigerCard: snapshot.tigerCard!, result: snapshot.result, suitedTie: snapshot.suitedTie };
+    const payout = Object.entries(settledBets).reduce(
+      (sum, [choice, amount]) => sum + payoutForDragonTigerBet(choice as DragonTigerBetChoice, outcome, amount ?? 0),
+      0,
+    );
+    const net = payout - totalBet;
+    setResultNotice({ net, amount: net > 0 ? payout : net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "베팅금이 반환됐습니다" });
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), RESULT_NOTICE_MS);
+  }, [snapshot]);
+
+  useEffect(() => {
+    if (!snapshot || snapshot.roundId !== null) return;
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    setResultNotice(null);
+  }, [snapshot?.roundId]);
+
+  const roadHistory: RoundHistoryEntry[] = useMemo(
+    () => (snapshot?.recentResults ?? []).map((entry) => ({
+      result: entry.result === "dragon" ? "player" : entry.result === "tiger" ? "banker" : "tie",
+      playerPair: false,
+      bankerPair: entry.suitedTie,
+    })),
+    [snapshot?.recentResults],
+  );
 
   if (!snapshot) return <div className="loading-screen"><Brand /><p>{message || "테이블에 연결하고 있습니다…"}</p></div>;
 
@@ -120,6 +165,11 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
                 <div className="ot-hand-head">DRAGON</div>
                 <div className="ot-cards">{snapshot.dragonCard ? <PlayingCard card={snapshot.dragonCard} /> : <span className="ot-card-slot">D</span>}</div>
               </div>
+              <div className="dragon-tiger-center">
+                <span className="dragon-tiger-center-odds">TIE 11:1</span>
+                <span className="dragon-tiger-center-badge">VS</span>
+                <span className="dragon-tiger-center-odds">SUITED 50:1</span>
+              </div>
               <div className={`ot-hand banker ${snapshot.result === "tiger" ? "won" : ""}`}>
                 <div className="ot-hand-head">TIGER</div>
                 <div className="ot-cards">{snapshot.tigerCard ? <PlayingCard card={snapshot.tigerCard} /> : <span className="ot-card-slot">T</span>}</div>
@@ -131,12 +181,18 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
             </div>}
             {snapshot.room.phase === "LOCKED" && <div className="ot-banner lock">베팅 마감</div>}
             {snapshot.result && <div className={`ot-banner ${snapshot.result}`}>{snapshot.suitedTie ? "SUITED TIE" : snapshot.result.toUpperCase()} WIN</div>}
+            <RoundResultNotice notice={resultNotice} />
+            {/* Dragon left / Tiger right (matching the physical card positions above), with Tie and
+                Suited Tie grouped in the middle two columns — Evolution's own Dragon Tiger layout. */}
             <div className="ot-print dragon-tiger-print">
               <BetZone className="player" label="DRAGON" odds="1:1" amount={snapshot.myBets.dragon ?? 0} disabled={!betting} onPlace={() => place("dragon")} onCancel={() => cancel("dragon")} />
-              <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} onCancel={() => cancel("tiger")} />
               <BetZone className="tie" label="TIE" odds="11:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} onCancel={() => cancel("tie")} />
               <BetZone className="pair" label="SUITED TIE" odds="50:1" amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} onCancel={() => cancel("suited_tie")} />
+              <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} onCancel={() => cancel("tiger")} />
             </div>
+            <aside className="ot-road left dragon-tiger-road">
+              <BigRoad history={roadHistory} compact labels={ROAD_LABELS} />
+            </aside>
             {message && <p className="ot-message">{message}</p>}
           </div>
           <footer className="ot-rail">

@@ -1,7 +1,15 @@
 import { CircleCheckBig, CircleX, Minus } from "lucide-react";
 
 export interface RoundResultNoticeData {
+  /** Profit/loss, used only to pick the win/lose/push tone — never shown directly. */
   net: number;
+  /**
+   * The number actually displayed. On a win this is the *total* coins credited back
+   * (stake + profit), not just the profit — a bet that returns your 50-coin stake plus
+   * 50 profit reads as "+100", matching what actually lands in your balance, not "+50"
+   * (which reads like a smaller win than it was). On a loss/push this is just `net`.
+   */
+  amount: number;
   title: string;
 }
 
@@ -18,7 +26,7 @@ export function RoundResultNotice({ notice }: { notice: RoundResultNoticeData | 
         <strong>{notice.title}</strong>
       </span>
       <span className="round-result-net">
-        {notice.net > 0 ? "+" : ""}{notice.net.toLocaleString()}<small>코인</small>
+        {notice.amount > 0 ? "+" : ""}{notice.amount.toLocaleString()}<small>코인</small>
       </span>
     </div>
   );

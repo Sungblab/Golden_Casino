@@ -5,6 +5,7 @@ import {
   type DragonTigerBetChoice,
   type DragonTigerBetCommand,
   type DragonTigerCancelCommand,
+  type DragonTigerHistoryEntry,
   type DragonTigerRoomSnapshot,
   type GameRoom,
   type GameType,
@@ -59,6 +60,7 @@ class DragonTigerRoomActor {
   private participants = new Map<string, Set<string>>();
   private usernames = new Map<string, string>();
   private recentWinners: WinnerFeedEntry[] = [];
+  private recentResults: DragonTigerHistoryEntry[] = [];
   private cycleRunning = false;
   private cycleToken = 0;
   private paused = false;
@@ -73,6 +75,10 @@ class DragonTigerRoomActor {
     return `dt-room:${this.room.id}`;
   }
 
+  async loadHistory(): Promise<void> {
+    this.recentResults = await baccaratBetService.recentDragonTigerResults(this.room.id);
+  }
+
   publicRoom(): GameRoom {
     return {
       id: this.room.id,
@@ -85,6 +91,13 @@ class DragonTigerRoomActor {
       phase: this.phase,
       enabled: this.room.enabled,
       paused: this.paused,
+      // The lobby card's compact road preview reuses Baccarat's road shape — map dragon/tiger
+      // onto player/banker and suitedTie onto the pair-dot slot purely for that visual reuse.
+      recentResults: this.recentResults.map((entry) => ({
+        result: entry.result === "dragon" ? "player" : entry.result === "tiger" ? "banker" : "tie",
+        playerPair: false,
+        bankerPair: entry.suitedTie,
+      })),
     };
   }
 
@@ -162,6 +175,7 @@ class DragonTigerRoomActor {
       myBets,
       walletBalance: await walletService.getUserBalance(userId),
       shoeRemaining: this.shoe.remaining,
+      recentResults: this.recentResults,
     };
   }
 
@@ -246,12 +260,17 @@ class DragonTigerRoomActor {
     await this.setPhase("LOCKED", LOCKED_MS);
     await delay(LOCKED_MS);
     await this.setPhase("DEALING", DEALING_MS);
-    if (this.shoe.remaining < 52) this.shoe = new Shoe(8);
+    // The road map represents the active shoe, same convention as Baccarat: a fresh shoe starts a fresh road.
+    if (this.shoe.remaining < 52) {
+      this.shoe = new Shoe(8);
+      this.recentResults = [];
+    }
     this.result = playDragonTigerRound(this.shoe);
     await pool.query(
       "UPDATE game_rounds SET result=$2,player_cards=$3,banker_cards=$4,result_data=$5 WHERE id=$1",
       [this.roundId, this.result.result, JSON.stringify([this.result.dragonCard]), JSON.stringify([this.result.tigerCard]), JSON.stringify({ suitedTie: this.result.suitedTie })],
     );
+    this.recentResults = [...this.recentResults, { result: this.result.result, suitedTie: this.result.suitedTie }].slice(-60);
     this.sequence += 1;
     await this.emitSnapshots();
     await delay(DEALING_MS);
@@ -281,7 +300,11 @@ export class DragonTigerRoomManager {
 
   async initialize(): Promise<void> {
     const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms WHERE game_type='dragon_tiger' ORDER BY min_bet");
-    for (const row of result.rows) this.actors.set(row.id, new DragonTigerRoomActor(this.io, row));
+    for (const row of result.rows) {
+      const actor = new DragonTigerRoomActor(this.io, row);
+      await actor.loadHistory();
+      this.actors.set(row.id, actor);
+    }
   }
 
   listRooms(): GameRoom[] { return [...this.actors.values()].map((actor) => actor.publicRoom()); }

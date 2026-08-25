@@ -147,7 +147,11 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
       const base = netForOutcome(entry.outcome, entry.amount);
       return sum + (entry.lightning && base > 0 ? base * multiplier : base);
     }, insuranceNet - fee);
-    setResultNotice({ net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "푸시 · 베팅금 반환" });
+    // Total coins staked this round across every hand/behind bet/insurance/fee — combined with
+    // net profit, this gives the total credited back on a win ("+100" for a 50-coin bet that
+    // wins even money), rather than just the profit portion ("+50"), which reads as a smaller win.
+    const totalStaked = outcomes.reduce((sum, entry) => sum + entry.amount, 0) + (snapshot.myInsurance?.amount ?? 0) + fee;
+    setResultNotice({ net, amount: net > 0 ? totalStaked + net : net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "푸시 · 베팅금 반환" });
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), 3600);
   }, [snapshot]);

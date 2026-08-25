@@ -265,7 +265,9 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     );
     const fee = snapshot.lightningFeePercent === 20 ? lightningFee(totalBet, 20) : 0;
     const net = payout - totalBet - fee;
-    setResultNotice({ net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "베팅금이 반환됐습니다" });
+    // On a win, show the total coins credited back (stake + profit) — a 50-coin bet that
+    // returns 100 should read as "+100", not "+50", since 100 is what actually lands in the balance.
+    setResultNotice({ net, amount: net > 0 ? payout : net, title: net > 0 ? "승리했습니다" : net < 0 ? "아쉽게 패배했습니다" : "베팅금이 반환됐습니다" });
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), RESULT_NOTICE_MS);
   }, [snapshot, visiblePlayerCards.length, visibleBankerCards.length]);

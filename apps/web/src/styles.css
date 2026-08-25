@@ -252,6 +252,19 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
 .chip-tier-2 { --chip-face: var(--chip-2); --chip-rim: var(--chip-2-rim); }
 .chip-tier-3 { --chip-face: var(--chip-3); --chip-rim: var(--chip-3-rim); }
 .chip-tier-4 { --chip-face: var(--chip-4); --chip-rim: var(--chip-4-rim); }
+/*
+ * The shared recipe above sets --chip-face: var(--chip-0) unconditionally for every
+ * selector in its list, including .chip-stack-layer/.chip-stack-top — which silently
+ * clobbered the per-amount --chip-tier value BetZone.tsx sets inline on .chip-stack
+ * (via chipColorForAmount), because a later same-specificity rule always wins the
+ * cascade. Every settled bet stack rendered in tier-0 orange no matter the amount.
+ * Re-assert the tier-aware value here, after the shared block, so it wins again.
+ */
+.chip-stack-layer,
+.chip-stack-top {
+  --chip-face: var(--chip-tier, var(--chip-0));
+  --chip-rim: color-mix(in srgb, var(--chip-face), white 34%);
+}
 .chip { display: grid; width: 52px; height: 52px; place-items: center; color: #fff8e0; font-family: var(--ui-font); font-weight: 900; text-shadow: 0 1px 2px rgba(0,0,0,.55); cursor: pointer; transition: transform .14s ease, box-shadow .14s ease; }
 .chip:hover, .chip.active { transform: translateY(-3px) scale(1.05); outline: 2px solid #ffd76e; outline-offset: 2px; }
 .repeat-bet-button { min-height: 42px; padding: 0 16px; border: 1px solid var(--gold-deep); border-radius: 10px; background: rgba(240,180,28, 0.217); color: var(--gold-light); font-size: 12px; font-weight: 700; font-family: var(--ui-font); cursor: pointer; }
@@ -403,11 +416,26 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
 .game-switcher button.disabled { color: #8a7546; cursor: not-allowed; }
 .game-switcher button small { color: #a88d51; font-size: 10px; font-weight: 600; }
 .lobby-toolbar + .section-title { margin-bottom: 16px; }
+.game-switcher-mobile {
+  display: none;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(240,180,28, 0.465);
+  border-radius: 9px;
+  background: rgba(255,255,255,.04) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23d7bc84' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 14px center;
+  color: #d7bc84;
+  font-family: var(--ui-font);
+  font-size: 13px;
+  font-weight: 800;
+  appearance: none;
+}
+.game-switcher-mobile option { background: #171008; color: #f0e6cf; }
 @media (max-width: 620px) {
   .lobby-toolbar { display: block; margin-top: 0; padding-bottom: 18px; }
   .lobby-toolbar h1 { font-size: 28px; }
-  .game-switcher { margin-top: 18px; }
-  .game-switcher button { flex: 1; justify-content: center; min-height: 40px; padding: 0 10px; }
+  .game-switcher { display: none; }
+  .game-switcher-mobile { display: block; margin-top: 18px; }
   .room-card { padding: 20px; }
 }
 
@@ -3281,6 +3309,45 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   background: radial-gradient(circle at 50% 40%, #173b35 0%, #09251f 58%, #061814 100%);
 }
 
+/* Dragon left / Tiger right with a small VS + odds badge between them, mirroring the
+   Dragon/Tie-wheel/Tiger arrangement of a real Dragon Tiger table. */
+.dragon-tiger-hands { grid-template-columns: 1fr auto 1fr; }
+.dragon-tiger-center {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  padding-top: 8px;
+}
+.dragon-tiger-center-badge {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(255,210,74, 0.6);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(6,48,31,.92), rgba(1,20,12,.96));
+  color: var(--gold-light);
+  font-family: var(--ui-font);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .06em;
+}
+.dragon-tiger-center-odds {
+  color: rgba(220,194,135,.75);
+  font-family: var(--ui-font);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.dragon-tiger-road { bottom: 66px; }
+@media (max-width: 900px) {
+  .dragon-tiger-center-odds { display: none; }
+  .dragon-tiger-road { display: none; }
+}
+
 .lightning-panel {
   position: absolute;
   z-index: 4;
@@ -3431,3 +3498,104 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
 .holdem-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .holdem-raise { display: flex; align-items: center; gap: 8px; }
 .holdem-raise input[type="range"] { width: 140px; accent-color: var(--gold-light); }
+
+/* --------------------------------------------------------------------- */
+/* Poker hand-ranking ("족보") reference, toggled from the Hold'em rail. */
+/* --------------------------------------------------------------------- */
+.poker-guide-trigger { display: inline-flex; align-items: center; gap: 5px; }
+.poker-guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(2, 6, 4, .72);
+  backdrop-filter: blur(3px);
+}
+.poker-guide-panel {
+  width: min(560px, 100%);
+  max-height: min(80vh, 640px);
+  overflow-y: auto;
+  border: 1px solid rgba(240,180,28, 0.55);
+  border-radius: 16px;
+  padding: 18px 20px 20px;
+  background: linear-gradient(160deg, #0f2a1f 0%, #071b14 60%, #04120d 100%);
+  box-shadow: 0 30px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,229,158,.08);
+}
+.poker-guide-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.poker-guide-panel h2 { margin: 0; color: var(--gold-light); font-family: var(--ui-font); font-size: 15px; letter-spacing: .04em; }
+.poker-guide-close {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(220,194,135,.35);
+  border-radius: 50%;
+  background: rgba(0,0,0,.3);
+  color: rgba(220,194,135,.85);
+  cursor: pointer;
+}
+.poker-guide-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.poker-guide-list li {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(240,180,28, 0.18);
+  border-radius: 10px;
+  background: rgba(255,255,255,.02);
+}
+.poker-guide-rank {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(240,180,28, 0.16);
+  color: var(--gold-light);
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 800;
+}
+.poker-guide-name { color: var(--text); font-family: var(--ui-font); font-size: 13px; font-weight: 700; }
+.poker-guide-name small { margin-left: 6px; color: rgba(220,194,135,.6); font-weight: 500; }
+.poker-guide-example { grid-column: 3; color: var(--gold-light); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.poker-guide-note { grid-column: 2 / span 2; color: rgba(220,194,135,.72); font-size: 11px; }
+.poker-guide-footnote { margin: 14px 2px 0; color: rgba(220,194,135,.6); font-size: 10.5px; line-height: 1.5; }
+@media (max-width: 480px) {
+  .poker-guide-list li { grid-template-columns: 20px 1fr; }
+  .poker-guide-example { grid-column: 2; }
+  .poker-guide-note { grid-column: 1 / span 2; }
+}
+
+/* Lightning Baccarat/Blackjack status panels were never given a mobile pass — on a narrow
+   felt they crowded the header/hand area at full desktop size. Shrink them to a slim strip. */
+@media (max-width: 600px) {
+  .game-shell .lightning-panel {
+    top: 4px;
+    left: 50%;
+    gap: 0.4rem;
+    padding: 0.28rem 0.5rem;
+    border-radius: 0.55rem;
+    font-size: 10px;
+  }
+  .game-shell .lightning-panel strong { font-size: 9px; letter-spacing: .03em; }
+  .game-shell .lightning-fee,
+  .game-shell .lightning-card-list em { font-size: 8px; }
+  .game-shell .lightning-card { width: 18px; height: 26px; }
+  .game-shell .lightning-card b { right: -4px; bottom: -3px; padding: 0 3px; font-size: 7px; }
+  .game-shell .lightning-card-list { gap: 0.18rem; }
+
+  .game-shell .bj-lightning-status {
+    top: 4px;
+    left: 6px;
+    gap: 0.05rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+  .game-shell .bj-lightning-status span,
+  .game-shell .bj-lightning-status em { font-size: 8px; }
+}

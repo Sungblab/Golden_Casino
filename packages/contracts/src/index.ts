@@ -170,6 +170,13 @@ export type CancelBetCommand = z.infer<typeof cancelBetCommandSchema>;
 export const dragonTigerResultSchema = z.enum(["dragon", "tiger", "tie"]);
 export type DragonTigerResult = z.infer<typeof dragonTigerResultSchema>;
 
+/** One settled round's outcome, used to draw the Dragon Tiger road map. */
+export const dragonTigerHistoryEntrySchema = z.object({
+  result: dragonTigerResultSchema,
+  suitedTie: z.boolean(),
+});
+export type DragonTigerHistoryEntry = z.infer<typeof dragonTigerHistoryEntrySchema>;
+
 export const dragonTigerRoomSnapshotSchema = z.object({
   room: gameRoomSchema,
   roundId: z.string().uuid().nullable(),
@@ -182,6 +189,7 @@ export const dragonTigerRoomSnapshotSchema = z.object({
   myBets: z.record(dragonTigerBetChoiceSchema, z.number().int().nonnegative()),
   walletBalance: z.number().int().nonnegative(),
   shoeRemaining: z.number().int().nonnegative(),
+  recentResults: z.array(dragonTigerHistoryEntrySchema),
 });
 export type DragonTigerRoomSnapshot = z.infer<typeof dragonTigerRoomSnapshotSchema>;
 

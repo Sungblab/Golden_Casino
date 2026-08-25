@@ -12,6 +12,7 @@ import { API_URL } from "../api";
 import { Brand } from "../components/Brand";
 import { GameShell } from "../components/GameShell";
 import { PlayingCard } from "../components/PlayingCard";
+import { PokerHandGuide } from "../components/PokerHandGuide";
 import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 
@@ -176,6 +177,7 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
             )}
             {mySeat && !myTurn && <div className="ot-money right"><small>내 좌석</small><strong>{mySeat.stack.toLocaleString()}</strong></div>}
             {mySeat && <button className="outline-button" onClick={standUp} disabled={!!snapshot.roundId && mySeat.totalContributed > 0 && !mySeat.folded}>자리 비우기</button>}
+            <PokerHandGuide />
             <RoomChat socket={socket} roomId={roomId} token={token} />
           </footer>
         </section>

@@ -66,6 +66,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
         {room.minBet}–{room.maxBet} 코인
       </p>
       {(room.gameType === "baccarat" || room.gameType === "lightning_baccarat") && <BigRoad history={room.recentResults ?? []} compact />}
+      {room.gameType === "dragon_tiger" && <BigRoad history={room.recentResults ?? []} compact labels={{ player: "D", banker: "T" }} />}
       <button className="outline-button" onClick={() => navigate(
         room.gameType === "blackjack" || room.gameType === "lightning_blackjack" ? `/rooms/blackjack/${room.id}`
           : room.gameType === "dragon_tiger" ? `/rooms/dragon-tiger/${room.id}`
@@ -97,6 +98,20 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
           <button className={selectedGame === "dragon_tiger" ? "active" : ""} onClick={() => setSelectedGame("dragon_tiger")} role="tab" aria-selected={selectedGame === "dragon_tiger"}>드래곤 타이거 <span>{dragonTigerRooms.length}</span></button>
           <button className={selectedGame === "holdem" ? "active" : ""} onClick={() => setSelectedGame("holdem")} role="tab" aria-selected={selectedGame === "holdem"}>홀덤 <span>{holdemRooms.length}</span></button>
         </div>
+        {/* Five tabs don't fit a phone width without wrapping or truncating — a dropdown reads
+            better than a cramped/scrolling tab row. Swapped for the tablist below 620px. */}
+        <select
+          className="game-switcher-mobile"
+          aria-label="게임 선택"
+          value={selectedGame}
+          onChange={(event) => setSelectedGame(event.target.value as typeof selectedGame)}
+        >
+          <option value="all">전체 ({rooms.length})</option>
+          <option value="baccarat">바카라 ({baccaratRooms.length})</option>
+          <option value="blackjack">블랙잭 ({blackjackRooms.length})</option>
+          <option value="dragon_tiger">드래곤 타이거 ({dragonTigerRooms.length})</option>
+          <option value="holdem">홀덤 ({holdemRooms.length})</option>
+        </select>
       </div>
 
       {selectedGame === "all" ? (

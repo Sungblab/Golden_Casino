@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { buildBigRoad, tallyResults } from "@golden/game-core/big-road";
 import type { RoundHistoryEntry, RoundResult } from "@golden/contracts";
 
-const OUTCOME_LABEL: Record<"player" | "banker", string> = { player: "P", banker: "B" };
+const DEFAULT_LABEL: Record<"player" | "banker", string> = { player: "P", banker: "B" };
 
 /** Max trailing columns kept for the compact lobby-card preview, so the newest results always stay visible. */
 const COMPACT_MAX_COLUMNS = 12;
@@ -11,8 +11,10 @@ const COMPACT_MAX_COLUMNS = 12;
  * Casino-style Big Road scoreboard, built from the room's recent results.
  * In `compact` mode it renders as a small dotted preview (lobby room cards): fewer columns,
  * round cells instead of lettered squares, and a condensed hand-count + tally header.
+ * `labels` lets a game whose two main outcomes aren't literally "player"/"banker" — e.g.
+ * Dragon Tiger — relabel the same P/B-shaped road as D/T without duplicating this component.
  */
-export function BigRoad({ history, compact = false, prediction, onPredict }: { history: RoundHistoryEntry[]; compact?: boolean; prediction?: RoundResult | null; onPredict?: (result: RoundResult) => void }) {
+export function BigRoad({ history, compact = false, prediction, onPredict, labels = DEFAULT_LABEL }: { history: RoundHistoryEntry[]; compact?: boolean; prediction?: RoundResult | null; onPredict?: (result: RoundResult) => void; labels?: Record<"player" | "banker", string> }) {
   const gridRef = useRef<HTMLDivElement>(null);
   const previousLengthRef = useRef(0);
   const displayHistory = useMemo(
@@ -36,12 +38,12 @@ export function BigRoad({ history, compact = false, prediction, onPredict }: { h
   return (
     <div className={compact ? "big-road big-road-compact" : "big-road"}>
       <div className="big-road-head">
-        {compact ? <h3>#{history.length}</h3> : <div className="road-predict-controls" role="group" aria-label="다음 결과 예측">
-          {(["player", "banker", "tie"] as const).map((result) => <button type="button" key={result} className={prediction === result ? "active" : ""} aria-pressed={prediction === result} onClick={() => onPredict?.(result)}>{OUTCOME_LABEL[result as "player" | "banker"] ?? "T"}</button>)}
-        </div>}
+        {!compact && onPredict ? <div className="road-predict-controls" role="group" aria-label="다음 결과 예측">
+          {(["player", "banker", "tie"] as const).map((result) => <button type="button" key={result} className={prediction === result ? "active" : ""} aria-pressed={prediction === result} onClick={() => onPredict(result)}>{labels[result as "player" | "banker"] ?? "T"}</button>)}
+        </div> : <h3>#{history.length}</h3>}
         <div className="road-tally">
-          <span className="tally-player">P {compact ? tally.player : `${tally.playerPct}%`}</span>
-          <span className="tally-banker">B {compact ? tally.banker : `${tally.bankerPct}%`}</span>
+          <span className="tally-player">{labels.player} {compact ? tally.player : `${tally.playerPct}%`}</span>
+          <span className="tally-banker">{labels.banker} {compact ? tally.banker : `${tally.bankerPct}%`}</span>
           <span className="tally-tie">T {compact ? tally.tie : `${tally.tiePct}%`}</span>
         </div>
       </div>
@@ -59,7 +61,7 @@ export function BigRoad({ history, compact = false, prediction, onPredict }: { h
             {column.map((cell, rowIndex) => {
               const preview = Boolean(prediction && !compact && columnIndex === columns.length - 1 && rowIndex === column.length - 1);
               return <span key={rowIndex} className={`road-cell ${cell.outcome} ${preview ? "road-preview" : ""}`} style={{ gridRow: cell.row + 1 }}>
-                {!compact && OUTCOME_LABEL[cell.outcome]}
+                {!compact && labels[cell.outcome]}
                 {cell.ties > 0 && <em>{cell.ties > 1 ? cell.ties : ""}</em>}
                 {cell.playerPair && <i className="road-pair-dot player-pair-dot" aria-hidden="true" />}
                 {cell.bankerPair && <i className="road-pair-dot banker-pair-dot" aria-hidden="true" />}
