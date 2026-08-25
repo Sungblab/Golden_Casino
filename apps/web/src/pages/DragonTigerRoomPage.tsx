@@ -26,6 +26,10 @@ const TIMER_RING = 163.4;
 const RESULT_NOTICE_MS = 2_600;
 const ROAD_LABELS = { player: "D", banker: "T" } as const;
 const BET_CHOICES: DragonTigerBetChoice[] = ["dragon", "tie", "suited_tie", "tiger"];
+/** Beat after both cards finish their flip animation before the road updates, same reasoning
+ * as Baccarat's ROAD_REVEAL_DELAY_MS — the scoreboard shouldn't know the outcome before the
+ * cards have visibly finished revealing. */
+const ROAD_REVEAL_DELAY_MS = 450;
 
 export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const { roomId = "" } = useParams();
@@ -39,6 +43,9 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   const shellRef = useRef<HTMLDivElement>(null);
   const noticeRoundRef = useRef<string | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
+  const [visibleRoadHistory, setVisibleRoadHistory] = useState<RoundHistoryEntry[]>([]);
+  const roadRevealTimer = useRef<number | null>(null);
+  const roadRevealedRoundRef = useRef<string | null>(null);
   const previousPhase = useRef<DragonTigerRoomSnapshot["room"]["phase"] | null>(null);
   const lastBets = useRef<Partial<DragonTigerRoomSnapshot["myBets"]>>({});
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
@@ -136,6 +143,26 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     [snapshot?.recentResults],
   );
 
+  // Lags the road behind roadHistory while the Dragon/Tiger cards are still flipping, so the
+  // scoreboard doesn't visibly update before the reveal — mirrors Baccarat's own deal-sequence fix.
+  useEffect(() => {
+    if (!snapshot) return;
+    if (!snapshot.result) {
+      // No result in flight — safe to match the server's history immediately.
+      setVisibleRoadHistory(roadHistory);
+      if (roadRevealedRoundRef.current !== snapshot.roundId) roadRevealedRoundRef.current = null;
+      return;
+    }
+    if (roadRevealedRoundRef.current === snapshot.roundId) return;
+    roadRevealedRoundRef.current = snapshot.roundId;
+    if (roadRevealTimer.current !== null) window.clearTimeout(roadRevealTimer.current);
+    roadRevealTimer.current = window.setTimeout(() => setVisibleRoadHistory(roadHistory), ROAD_REVEAL_DELAY_MS);
+  }, [snapshot, roadHistory]);
+
+  useEffect(() => () => {
+    if (roadRevealTimer.current !== null) window.clearTimeout(roadRevealTimer.current);
+  }, []);
+
   if (!snapshot) return <div className="loading-screen"><Brand /><p>{message || "테이블에 연결하고 있습니다…"}</p></div>;
 
   const betting = snapshot.room.phase === "BETTING";
@@ -220,7 +247,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
               <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} />
             </div>
             <aside className="ot-road left dragon-tiger-road">
-              <BigRoad history={roadHistory} compact labels={ROAD_LABELS} />
+              <BigRoad history={visibleRoadHistory} compact labels={ROAD_LABELS} />
             </aside>
             {message && <p className="ot-message">{message}</p>}
           </div>

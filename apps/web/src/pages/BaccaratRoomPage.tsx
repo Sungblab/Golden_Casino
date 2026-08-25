@@ -34,6 +34,9 @@ const DEAL_STEP_MS = 430;
 const DEAL_LEAD_MS = 140;
 /** A natural-table pause before either side receives a third card. */
 const THIRD_CARD_PAUSE_MS = 520;
+/** Beat between the last card landing and the road/stats updating, so the scoreboard never
+ * appears to know the outcome before the cards have finished being shown. */
+const ROAD_REVEAL_DELAY_MS = 450;
 const BET_CHOICES: BaccaratBetChoice[] = ["player_pair", "player", "tie", "banker", "banker_pair"];
 /** Must match room-manager.ts's BETTING_MS (12_000ms) — drives the countdown ring. */
 const BETTING_SECONDS = 12;
@@ -106,6 +109,10 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const [seconds, setSeconds] = useState(0);
   const [visiblePlayerCards, setVisiblePlayerCards] = useState<Card[]>([]);
   const [visibleBankerCards, setVisibleBankerCards] = useState<Card[]>([]);
+  // Lags behind snapshot.recentResults during a deal so the road/derived-road stats never update
+  // before the cards finish revealing — see the deal-sequence effect below for when it catches up.
+  const [visibleRecentResults, setVisibleRecentResults] = useState<RoomSnapshot["recentResults"]>([]);
+  const roadRevealTimer = useRef<number | null>(null);
   const previousPhase = useRef<RoomSnapshot["room"]["phase"] | null>(null);
   const lastBets = useRef<Partial<RoomSnapshot["myBets"]>>({});
   const roundBetsRef = useRef<Partial<RoomSnapshot["myBets"]>>({});
@@ -204,6 +211,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
       socket.off("connect_error", handleConnectError);
       socket.disconnect();
       for (const timer of dealTimers.current) window.clearTimeout(timer);
+      if (roadRevealTimer.current !== null) window.clearTimeout(roadRevealTimer.current);
     };
   }, [roomId, socket]);
 
@@ -289,6 +297,9 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     const roundId = snapshot.roundId;
     const hasCards = snapshot.playerCards.length > 0 && snapshot.bankerCards.length > 0;
     if (!hasCards) {
+      // No deal in flight (WAITING/BETTING/LOCKED, or a fresh page load/reconnect) — the road
+      // is safe to match the server's history immediately, nothing is mid-reveal to spoil.
+      setVisibleRecentResults(snapshot.recentResults);
       if (dealtRoundRef.current !== roundId) {
         dealtRoundRef.current = null;
         setVisiblePlayerCards([]);
@@ -302,6 +313,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     setVisibleBankerCards([]);
     for (const timer of dealTimers.current) window.clearTimeout(timer);
     dealTimers.current = [];
+    if (roadRevealTimer.current !== null) window.clearTimeout(roadRevealTimer.current);
 
     const sequence: Array<{ target: "player" | "banker"; card: Card }> = [
       { target: "player", card: snapshot.playerCards[0]! },
@@ -319,6 +331,9 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
         else setVisibleBankerCards((current) => [...current, item.card]);
         if (index === sequence.length - 1 && snapshot.result) {
           playSound(snapshot.result);
+          // A beat after the last card lands, not the instant it does — so the scoreboard
+          // reads as reacting to the finished hand rather than announcing it in advance.
+          roadRevealTimer.current = window.setTimeout(() => setVisibleRecentResults(snapshot.recentResults), ROAD_REVEAL_DELAY_MS);
           if (burstRoundRef.current !== roundId) {
             burstRoundRef.current = roundId;
             if (snapshot.result === "player") spawnBurst(handRefs.current.player);
@@ -482,10 +497,10 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             </div>
 
             <aside className="ot-road left">
-              <BigRoad history={snapshot.recentResults} prediction={roadPrediction} onPredict={(result) => setRoadPrediction((current) => current === result ? null : result)} />
+              <BigRoad history={visibleRecentResults} prediction={roadPrediction} onPredict={(result) => setRoadPrediction((current) => current === result ? null : result)} />
             </aside>
             <aside className="ot-road right">
-              <DerivedRoads history={snapshot.recentResults} prediction={roadPrediction} />
+              <DerivedRoads history={visibleRecentResults} prediction={roadPrediction} />
             </aside>
 
             {message && <p className="ot-message">{message}</p>}

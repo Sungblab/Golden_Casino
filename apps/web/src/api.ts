@@ -13,7 +13,7 @@ async function request(path: string, options: RequestInit = {}, token?: string):
     },
   });
   const body = await response.json().catch(() => ({}));
-  if (response.status === 401 && path !== "/api/v1/auth/login" && path !== "/api/v1/auth/logout") {
+  if (response.status === 401 && path !== "/api/v1/auth/login" && path !== "/api/v1/auth/logout" && path !== "/api/v1/auth/refresh") {
     window.dispatchEvent(new Event("golden:session-expired"));
   }
   if (!response.ok) throw new Error(typeof body.message === "string" ? body.message : "요청에 실패했습니다.");
