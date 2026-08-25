@@ -2,6 +2,12 @@ import "dotenv/config";
 
 const webOrigin = process.env.WEB_ORIGIN ?? "http://127.0.0.1:5173";
 
+if (process.env.NODE_ENV === "production") {
+  for (const [name, value] of Object.entries({ DATABASE_URL: process.env.DATABASE_URL, JWT_SECRET: process.env.JWT_SECRET, WEB_ORIGIN: process.env.WEB_ORIGIN })) {
+    if (!value) throw new Error(`${name} must be configured in production`);
+  }
+}
+
 /**
  * "localhost" and "127.0.0.1" are different CORS origins even though they point at the
  * same dev machine, and browsers block the mismatch with an opaque "Failed to fetch".
@@ -27,7 +33,7 @@ export const config = {
   webOrigins: withLocalhostAlias(webOrigin),
 };
 
-if (process.env.NODE_ENV === "production" && config.jwtSecret.startsWith("development")) {
+if (process.env.NODE_ENV === "production" && (config.jwtSecret.startsWith("development") || config.jwtSecret.length < 32)) {
   throw new Error("JWT_SECRET must be configured in production");
 }
 

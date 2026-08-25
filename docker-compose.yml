@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: golden
       POSTGRES_PASSWORD: golden
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - golden-postgres-data:/var/lib/postgresql/data
     healthcheck:

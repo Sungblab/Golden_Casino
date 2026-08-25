@@ -31,7 +31,7 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
     setMessage("");
     try {
       if (action === "transfer") {
-        if (!recipient.trim()) throw new Error("받는 사람 아이디를 입력해주세요.");
+        if (!recipient.trim()) throw new Error("받는 사람 닉네임을 입력해주세요.");
         const result = await createTransfer(token, recipient.trim(), numericAmount);
         setMessage(result.duplicate ? "이미 처리된 송금 요청입니다." : `${recipient.trim()}님에게 ${numericAmount.toLocaleString()}코인을 송금했습니다.`);
       } else if (action) {
@@ -58,7 +58,7 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
           <Link className="lobby-return-button profile-lobby-link" to="/lobby">
             <span aria-hidden="true">←</span> 게임 로비
           </Link>
-          <h1>{profile.user.username}</h1>
+          <h1>{profile.user.nickname}</h1>
         </div>
       </section>
 
@@ -83,7 +83,7 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
         </div>
         {action && (
           <form className={`profile-form ${action}`} onSubmit={submit}>
-            {action === "transfer" && <label>받는 사람 아이디<input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="아이디 입력" autoComplete="off" list="recipient-list" /><datalist id="recipient-list">{profile.recipients.map((entry) => <option key={entry.username} value={entry.username} />)}</datalist></label>}
+            {action === "transfer" && <label>받는 사람 닉네임<input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="닉네임 입력" autoComplete="off" list="recipient-list" /><datalist id="recipient-list">{profile.recipients.map((entry) => <option key={entry.nickname} value={entry.nickname} />)}</datalist></label>}
             <label>{action === "deposit" ? "충전 신청 금액" : action === "withdraw" ? "환전 신청 금액" : "송금 금액"}<input type="number" min="1" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="코인 수량" /></label>
             <button className="gold-button" disabled={busy || (action !== "deposit" && outgoingLocked)}>{busy ? "처리 중…" : action === "deposit" ? "충전 신청" : outgoingLocked ? `롤링 ${profile.wagering.remaining.toLocaleString()}코인 남음` : action === "withdraw" ? "환전 신청" : "송금하기"}</button>
           </form>

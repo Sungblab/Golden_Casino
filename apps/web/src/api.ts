@@ -1,6 +1,6 @@
-import { adminOverviewSchema, adminCashRequestSchema, cashRequestSchema, chatHistoryResponseSchema, lobbyResponseSchema, loginResponseSchema, profileResponseSchema, supportConversationListSchema, walletTransactionsResponseSchema, type AdminCashRequest, type AdminOverview, type CashRequest, type ChatHistoryResponse, type LobbyResponse, type LoginResponse, type ProfileResponse, type SupportConversationList, type WalletTransactionsResponse } from "@golden/contracts";
+import { adminOverviewSchema, adminCashRequestSchema, cashRequestSchema, chatHistoryResponseSchema, lobbyResponseSchema, loginResponseSchema, profileResponseSchema, registerResponseSchema, supportConversationListSchema, walletTransactionsResponseSchema, type AdminCashRequest, type AdminOverview, type CashRequest, type ChatHistoryResponse, type LobbyResponse, type LoginResponse, type ProfileResponse, type SupportConversationList, type WalletTransactionsResponse } from "@golden/contracts";
 
-export const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:5100";
+export const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 async function request(path: string, options: RequestInit = {}, token?: string): Promise<unknown> {
   const response = await fetch(`${API_URL}${path}`, {
@@ -22,6 +22,10 @@ async function request(path: string, options: RequestInit = {}, token?: string):
 
 export async function login(username: string, password: string): Promise<LoginResponse> {
   return loginResponseSchema.parse(await request("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }));
+}
+
+export async function register(username: string, nickname: string, password: string): Promise<void> {
+  registerResponseSchema.parse(await request("/api/v1/auth/register", { method: "POST", body: JSON.stringify({ username, nickname, password }) }));
 }
 
 /** Rotates the httpOnly refresh cookie and returns a fresh short-lived access token. */
@@ -74,10 +78,10 @@ export async function createCashRequest(token: string, type: "deposit" | "withdr
   return cashRequestSchema.parse(await request("/api/v1/wallet/cash-requests", { method: "POST", body: JSON.stringify({ type, amount }) }, token));
 }
 
-export async function createTransfer(token: string, recipientUsername: string, amount: number): Promise<{ walletBalance: number; duplicate: boolean }> {
+export async function createTransfer(token: string, recipientNickname: string, amount: number): Promise<{ walletBalance: number; duplicate: boolean }> {
   const body = await request("/api/v1/wallet/transfers", {
     method: "POST",
-    body: JSON.stringify({ requestId: crypto.randomUUID(), recipientUsername, amount }),
+    body: JSON.stringify({ requestId: crypto.randomUUID(), recipientNickname, amount }),
   }, token) as { walletBalance: number; duplicate: boolean };
   return body;
 }

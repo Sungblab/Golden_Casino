@@ -78,6 +78,7 @@ export type GameRoom = z.infer<typeof gameRoomSchema>;
 export const authUserSchema = z.object({
   id: z.string().uuid(),
   username: z.string(),
+  nickname: z.string(),
   role: z.enum(["user", "admin"]),
 });
 export type PublicAuthUser = z.infer<typeof authUserSchema>;
@@ -87,6 +88,16 @@ export const loginResponseSchema = z.object({
   user: authUserSchema,
 });
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
+
+export const registerRequestSchema = z.object({
+  username: z.string().min(2).max(40),
+  nickname: z.string().min(2).max(20),
+  password: z.string().min(8).max(100),
+});
+export type RegisterRequest = z.infer<typeof registerRequestSchema>;
+
+export const registerResponseSchema = z.object({ status: z.literal("pending") });
+export type RegisterResponse = z.infer<typeof registerResponseSchema>;
 
 export const lobbyResponseSchema = z.object({
   rooms: z.array(gameRoomSchema),
@@ -490,7 +501,7 @@ export const profileResponseSchema = z.object({
   wagering: wageringProgressSchema,
   cashRequests: z.array(cashRequestSchema),
   transactions: z.array(walletTransactionItemSchema),
-  recipients: z.array(z.object({ username: z.string() })),
+  recipients: z.array(z.object({ nickname: z.string() })),
 });
 export type ProfileResponse = z.infer<typeof profileResponseSchema>;
 
@@ -502,7 +513,7 @@ export type CashRequestCreate = z.infer<typeof cashRequestCreateSchema>;
 
 export const transferCreateSchema = z.object({
   requestId: z.string().uuid(),
-  recipientUsername: z.string().min(2).max(40),
+  recipientNickname: z.string().min(2).max(20),
   amount: z.number().int().positive(),
 });
 export type TransferCreate = z.infer<typeof transferCreateSchema>;

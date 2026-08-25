@@ -33,7 +33,7 @@ export class WalletService {
     return { user, room, house };
   }
 
-  async transfer(senderId: string, recipientUsername: string, amountMinor: number, requestId: string): Promise<{ duplicate: boolean }> {
+  async transfer(senderId: string, recipientNickname: string, amountMinor: number, requestId: string): Promise<{ duplicate: boolean }> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -43,7 +43,7 @@ export class WalletService {
         [requestId],
       );
       if (existing.rows[0]) {
-        const recipient = await client.query<{ id: string }>("SELECT id FROM users WHERE username=$1", [recipientUsername]);
+        const recipient = await client.query<{ id: string }>("SELECT id FROM users WHERE nickname=$1", [recipientNickname]);
         if (existing.rows[0].sender_id !== senderId || existing.rows[0].recipient_id !== recipient.rows[0]?.id || Number(existing.rows[0].amount_minor) !== amountMinor) {
           throw new Error("IDEMPOTENCY_CONFLICT");
         }
@@ -51,8 +51,8 @@ export class WalletService {
         return { duplicate: true };
       }
       const recipient = await client.query<{ id: string }>(
-        "SELECT id FROM users WHERE username=$1 AND approved=true",
-        [recipientUsername],
+        "SELECT id FROM users WHERE nickname=$1 AND approved=true",
+        [recipientNickname],
       );
       const recipientId = recipient.rows[0]?.id;
       if (!recipientId) throw new Error("RECIPIENT_NOT_FOUND");

@@ -215,12 +215,12 @@ app.get("/api/v1/profile", requireAuth, async (req, res) => {
       "SELECT id,request_type,amount_minor,status,created_at FROM cash_requests WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20",
       [user.id],
     ),
-    pool.query<{ username: string }>("SELECT username FROM users WHERE id<>$1 AND approved=true AND role='user' ORDER BY username LIMIT 100", [user.id]),
+    pool.query<{ nickname: string }>("SELECT nickname FROM users WHERE id<>$1 AND approved=true AND role='user' ORDER BY nickname LIMIT 100", [user.id]),
     wageringService.getProgress(user.id),
   ]);
   const row = stats.rows[0]!;
   res.json({
-    user: { id: user.id, username: user.username, role: user.role },
+    user: { id: user.id, username: user.username, nickname: user.nickname, role: user.role },
     walletBalance: await walletService.getUserBalance(user.id),
     stats: {
       totalWagered: coins(row.total_wagered),
@@ -276,7 +276,7 @@ app.post("/api/v1/wallet/transfers", requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ message: "송금 정보를 확인해주세요." });
   const user = (req as AuthRequest).user;
   try {
-    const result = await walletService.transfer(user.id, parsed.data.recipientUsername, parsed.data.amount * COIN_SCALE, parsed.data.requestId);
+    const result = await walletService.transfer(user.id, parsed.data.recipientNickname, parsed.data.amount * COIN_SCALE, parsed.data.requestId);
     res.status(result.duplicate ? 200 : 201).json({ status: "ok", duplicate: result.duplicate, walletBalance: await walletService.getUserBalance(user.id) });
   } catch (error) {
     const code = error instanceof Error ? error.message : "TRANSFER_FAILED";
@@ -737,8 +737,8 @@ await holdemRooms.initialize();
 await rooms.initialize();
 await dragonTigerRooms.initialize();
 await blackjackRooms.initialize();
-httpServer.listen(config.port, "127.0.0.1", () => {
-  console.log(`Golden Casino API listening on http://127.0.0.1:${config.port}`);
+httpServer.listen(config.port, "0.0.0.0", () => {
+  console.log(`Golden Casino API listening on port ${config.port}`);
 });
 
 async function shutdown(): Promise<void> {

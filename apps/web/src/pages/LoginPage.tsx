@@ -1,18 +1,23 @@
 import { useState, type FormEvent } from "react";
+import { Link, useLocation } from "react-router-dom";
 import type { PublicAuthUser } from "@golden/contracts";
 import { Brand } from "../components/Brand";
 import { login } from "../api";
 
 export function LoginPage({ onLogin }: { onLogin: (token: string, user: PublicAuthUser) => void }) {
-  const [username, setUsername] = useState("demo");
-  const [password, setPassword] = useState("demo1234");
+  const location = useLocation();
+  const noticeFromSignup = (location.state as { notice?: string } | null)?.notice ?? "";
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(noticeFromSignup);
   const [busy, setBusy] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const result = await login(username, password);
       onLogin(result.token, result.user);
@@ -37,12 +42,15 @@ export function LoginPage({ onLogin }: { onLogin: (token: string, user: PublicAu
             비밀번호
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
           </label>
+          {notice && <p className="notice-message">{notice}</p>}
           {error && <p className="error-message">{error}</p>}
           <button className="gold-button" disabled={busy}>
             {busy ? "확인 중…" : "로그인"}
           </button>
         </form>
-        <small className="demo-hint">개발 계정: demo / demo1234 · 관리자: admin / admin1234</small>
+        <p className="login-signup-link">
+          아직 계정이 없으신가요? <Link to="/signup">회원가입</Link>
+        </p>
       </section>
     </main>
   );

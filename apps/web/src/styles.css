@@ -148,6 +148,10 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
 .gold-button:hover:not(:disabled) { background: linear-gradient(to right, #d69a10, #ffcb4d); box-shadow: inset 0 1px 0 rgba(255,240,180,.38), 0 7px 15px rgba(0,0,0,.3); }
 .demo-hint { display: block; margin-top: 16px; color: #b0935e; font-size: 10px; font-family: var(--ui-font); text-align: center; }
 .error-message { color: #ff4d5c; font-size: 12px; font-family: var(--ui-font); }
+.notice-message { color: #7cd68a; font-size: 12px; font-family: var(--ui-font); }
+.login-signup-link { margin: 18px 0 0; color: var(--muted); font-size: 12px; font-family: var(--ui-font); text-align: center; }
+.login-signup-link a { color: #f0b41c; font-weight: 700; text-decoration: none; }
+.login-signup-link a:hover { text-decoration: underline; }
 .table-heading { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 22px; margin-bottom: 28px; }
 .fullscreen-toggle { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid var(--gold-deep); border-radius: 10px; background: var(--panel-gradient); color: var(--gold-light); cursor: pointer; }
 .fullscreen-toggle:hover { border-color: var(--gold-light); background: rgba(240,180,28, 0.217); }
@@ -448,7 +452,7 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
 .login-card form, .login-card .gold-button { width: 100%; min-width: 0; }
 .demo-hint { overflow-wrap: anywhere; line-height: 1.5; }
 @media (max-width: 768px) {
-  .login-page { align-items: start; padding: 18px 10px; }
+  .login-page { padding: 18px 10px; }
   .login-card { padding: 24px 18px; }
   .login-card .brand strong { font-size: clamp(19px, 6.5vw, 26px); }
 }

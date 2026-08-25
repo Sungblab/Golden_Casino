@@ -12,6 +12,17 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Nickname: the display name shown across chat/game surfaces, distinct from the
+-- login username. Backfilled from username for pre-existing accounts so the
+-- NOT NULL/UNIQUE constraints can apply uniformly going forward.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname varchar(20);
+UPDATE users SET nickname = username WHERE nickname IS NULL;
+ALTER TABLE users ALTER COLUMN nickname SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS users_nickname_unique ON users(nickname);
+-- New accounts now go through self-service signup and start unapproved until
+-- an admin reviews them; existing rows keep whatever value they already had.
+ALTER TABLE users ALTER COLUMN approved SET DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS game_rooms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   game_type varchar(30) NOT NULL CHECK (game_type IN ('baccarat','lightning_baccarat','dragon_tiger','blackjack','lightning_blackjack','holdem')),

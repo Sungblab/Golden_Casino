@@ -6,6 +6,7 @@ import { config } from "../config.js";
 export interface AuthUser {
   id: string;
   username: string;
+  nickname: string;
   role: "user" | "admin";
   exp?: number;
 }
@@ -23,8 +24,8 @@ export function createToken(user: AuthUser): string {
 
 export function verifyToken(token: string): AuthUser {
   const value = jwt.verify(token, config.jwtSecret, { issuer: "golden-casino" });
-  if (typeof value === "string" || !value.id || !value.username || !value.role) throw new Error("Invalid token payload");
-  return { id: String(value.id), username: String(value.username), role: value.role as AuthUser["role"], exp: value.exp };
+  if (typeof value === "string" || !value.id || !value.username || !value.nickname || !value.role) throw new Error("Invalid token payload");
+  return { id: String(value.id), username: String(value.username), nickname: String(value.nickname), role: value.role as AuthUser["role"], exp: value.exp };
 }
 
 /** Creates a long-lived refresh JWT carrying only a `jti`; the jti is what gets stored/revoked server-side. */

@@ -40,8 +40,10 @@ function mapMessage(row: MessageRow): ChatMessage {
   };
 }
 
+// ChatMessage.username is the display value shown in chat bubbles, so it's
+// sourced from the account's nickname rather than its login username.
 const messageSelect = `
-  SELECT cm.id,cm.room_id,cm.conversation_id,cm.user_id,u.username,u.role,
+  SELECT cm.id,cm.room_id,cm.conversation_id,cm.user_id,u.nickname AS username,u.role,
          cm.message,cm.highlighted,cm.created_at
   FROM chat_messages cm
   JOIN users u ON u.id=cm.user_id

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import type { PublicAuthUser } from "@golden/contracts";
 import { LoginPage } from "./pages/LoginPage";
+import { SignupPage } from "./pages/SignupPage";
 import { LobbyPage } from "./pages/LobbyPage";
 import { BaccaratRoomPage } from "./pages/BaccaratRoomPage";
 import { BlackjackRoomPage } from "./pages/BlackjackRoomPage";
@@ -71,6 +72,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={token ? <Navigate to="/lobby" replace /> : <LoginPage onLogin={authenticate} />} />
+      <Route path="/signup" element={token ? <Navigate to="/lobby" replace /> : <SignupPage />} />
       <Route path="/lobby" element={token ? <LobbyPage token={token} user={user} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/wallet" element={token ? <WalletPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/profile" element={token ? <ProfilePage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />

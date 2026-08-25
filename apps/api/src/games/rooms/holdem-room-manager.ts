@@ -131,7 +131,7 @@ class HoldemRoomActor {
     const sockets = this.participants.get(user.id) ?? new Set<string>();
     sockets.add(socket.id);
     this.participants.set(user.id, sockets);
-    this.usernames.set(user.id, user.username);
+    this.usernames.set(user.id, user.nickname);
     // A reconnect (page refresh, brief network blip) must not read as "still gone" —
     // otherwise the next hand boundary would silently drop their seat from under them.
     this.sittingOut.delete(user.id);
