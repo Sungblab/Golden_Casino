@@ -139,6 +139,12 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
       else setMessage(ack.error);
     });
   };
+  const setReady = (readyValue: boolean) => {
+    socket.emit("holdem.ready", { roomId, ready: readyValue }, (ack) => {
+      if (ack.ok) setSnapshot(ack.data);
+      else setMessage(ack.error);
+    });
+  };
   const act = (action: HoldemAction, amount?: number) => {
     if (!snapshot.roundId) return;
     socket.emit("holdem.act", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, action, amount }, (ack) => {
@@ -207,6 +213,7 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                   onSit={() => sit(seat.seatNumber)}
                   canSit={!mySeat && !seat.userId}
                   liveHandLabel={seat.seatNumber === snapshot.mySeatNumber ? myHandLabel : null}
+                  showReady={snapshot.room.phase === "WAITING"}
                 />
               ))}
               {myTurn && (
@@ -258,7 +265,22 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                 </div>
               </div>
             )}
-            {mySeat && !myTurn && <div className="ot-money right"><small>내 좌석</small><strong>{mySeat.stack.toLocaleString()}</strong></div>}
+            {mySeat && snapshot.room.phase === "WAITING" ? (
+              <div className="holdem-ready-dock">
+                <span className="holdem-ready-status">
+                  {snapshot.seats.filter((seat) => seat.userId && seat.ready).length}/{snapshot.seats.filter((seat) => seat.userId).length}명 준비 완료
+                </span>
+                <button
+                  type="button"
+                  className={`outline-button ${mySeat.ready ? "bj-act-surrender" : "bj-act-hit"}`}
+                  onClick={() => setReady(!mySeat.ready)}
+                >
+                  {mySeat.ready ? "준비 취소" : "준비 완료"}
+                </button>
+              </div>
+            ) : (
+              mySeat && !myTurn && <div className="ot-money right"><small>내 좌석</small><strong>{mySeat.stack.toLocaleString()}</strong></div>
+            )}
             {mySeat && <button className="outline-button" onClick={standUp} disabled={!!snapshot.roundId && mySeat.totalContributed > 0 && !mySeat.folded}>자리 비우기</button>}
             <PokerHandGuide />
             <RoomChat socket={socket} roomId={roomId} token={token} />
@@ -274,7 +296,7 @@ function orderedSeats(seats: HoldemSeatSnapshot[], mySeatNumber: number | null):
   return seats.map((seat, index) => ({ seat, angle: SEAT_ANGLES[(index - rotation + seats.length) % seats.length]! }));
 }
 
-function SeatView({ seat, angle, onSit, canSit, liveHandLabel }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; liveHandLabel?: string | null }) {
+function SeatView({ seat, angle, onSit, canSit, liveHandLabel, showReady }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; liveHandLabel?: string | null; showReady: boolean }) {
   const radius = 42;
   const x = 50 + radius * Math.cos((angle * Math.PI) / 180);
   const y = 50 + radius * Math.sin((angle * Math.PI) / 180) * 0.72;
@@ -296,6 +318,7 @@ function SeatView({ seat, angle, onSit, canSit, liveHandLabel }: { seat: HoldemS
       <div className="holdem-seat-name">
         {seat.isButton && <span className="holdem-button-chip">D</span>}
         {seat.username}
+        {showReady && <span className={`holdem-ready-dot ${seat.ready ? "is-ready" : ""}`} title={seat.ready ? "준비 완료" : "준비 대기"} />}
       </div>
       <div className="holdem-seat-stack">{seat.stack.toLocaleString()}</div>
       {seat.streetContributed > 0 && <div className="holdem-seat-bet">{seat.streetContributed.toLocaleString()}</div>}

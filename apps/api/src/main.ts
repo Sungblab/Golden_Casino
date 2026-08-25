@@ -19,6 +19,7 @@ import {
   dragonTigerBetCommandSchema,
   dragonTigerCancelCommandSchema,
   holdemActionCommandSchema,
+  holdemReadyCommandSchema,
   holdemSeatCommandSchema,
   placeBetCommandSchema,
   transferCreateSchema,
@@ -587,6 +588,18 @@ io.on("connection", (socket) => {
       ack({ ok: true, data: await holdemRooms.standUp(socket.data.user.id, payload.roomId) });
     } catch (error) {
       const code = error instanceof Error ? error.message : "STAND_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("holdem.ready", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = holdemReadyCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_READY", error: "준비 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await holdemRooms.setReady(socket.data.user.id, parsed.data.roomId, parsed.data.ready) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "READY_FAILED";
       ack({ ok: false, code, error: messageFor(error) });
     }
   });

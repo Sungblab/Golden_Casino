@@ -410,6 +410,8 @@ export const holdemSeatSchema = z.object({
   isTurn: z.boolean(),
   holeCards: z.array(cardSchema).length(2).nullable(),
   handCategory: pokerHandCategorySchema.nullable(),
+  /** Only meaningful pre-hand (room.phase WAITING) — cleared for everyone once a hand starts. */
+  ready: z.boolean(),
 });
 export type HoldemSeatSnapshot = z.infer<typeof holdemSeatSchema>;
 
@@ -445,6 +447,12 @@ export const holdemSeatCommandSchema = z.object({
   seatNumber: z.number().int().min(1).max(6),
 });
 export type HoldemSeatCommand = z.infer<typeof holdemSeatCommandSchema>;
+
+export const holdemReadyCommandSchema = z.object({
+  roomId: z.string().uuid(),
+  ready: z.boolean(),
+});
+export type HoldemReadyCommand = z.infer<typeof holdemReadyCommandSchema>;
 
 export const holdemActionCommandSchema = z.object({
   requestId: z.string().uuid(),
@@ -619,6 +627,7 @@ export interface ClientToServerEvents {
   "holdem.join": (payload: { roomId: string }, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
   "holdem.leave": (payload: { roomId: string }, ack: (response: SocketAck) => void) => void;
   "holdem.sit": (payload: HoldemSeatCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
+  "holdem.ready": (payload: HoldemReadyCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
   "holdem.standUp": (payload: { roomId: string }, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
   "holdem.act": (payload: HoldemActionCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
 }

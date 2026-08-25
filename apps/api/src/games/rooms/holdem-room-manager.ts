@@ -66,6 +66,9 @@ class HoldemRoomActor {
   private board: Card[] = [];
   private seats: Array<SeatState | null> = Array.from({ length: SEAT_COUNT }, () => null);
   private sittingOut = new Set<string>();
+  // A hand only auto-launches once every seated player has explicitly readied up — cleared
+  // after every hand, so it's a fresh check each time rather than a one-time gate at sit-down.
+  private ready = new Set<string>();
   private buttonSeat = 0;
   private smallBlindSeat: number | null = null;
   private bigBlindSeat: number | null = null;
@@ -166,7 +169,8 @@ class HoldemRoomActor {
     this.sittingOut.delete(userId);
     this.sequence += 1;
     await this.emitSnapshots();
-    if (this.phase === "WAITING") this.launchCycle();
+    // No auto-launch here anymore — sitting down no longer implies wanting to play the very
+    // next hand. The player still has to ready up (see setReady) before a hand can start.
     return this.snapshot(userId);
   }
 
@@ -181,8 +185,19 @@ class HoldemRoomActor {
     } else {
       this.seats[index] = null;
     }
+    this.ready.delete(userId);
     this.sequence += 1;
     await this.emitSnapshots();
+    return this.snapshot(userId);
+  }
+
+  async setReady(userId: string, readyValue: boolean): Promise<HoldemRoomSnapshot> {
+    if (!this.seats.some((seat) => seat?.userId === userId)) throw new Error("NOT_SEATED");
+    if (readyValue) this.ready.add(userId);
+    else this.ready.delete(userId);
+    this.sequence += 1;
+    await this.emitSnapshots();
+    if (readyValue) this.launchCycle();
     return this.snapshot(userId);
   }
 
@@ -289,7 +304,7 @@ class HoldemRoomActor {
         return {
           seatNumber, userId: null, username: null, stack: 0, streetContributed: 0, totalContributed: 0,
           folded: false, allIn: false, sittingOut: false, isButton: false, isSmallBlind: false, isBigBlind: false,
-          isTurn: false, holeCards: null, handCategory: null,
+          isTurn: false, holeCards: null, handCategory: null, ready: false,
         };
       }
       const mine = seat.userId === userId;
@@ -309,6 +324,7 @@ class HoldemRoomActor {
         isTurn: seatNumber === this.actingSeat,
         holeCards: mine || (showCards && !seat.folded) ? (seat.holeCards.length ? seat.holeCards : null) : null,
         handCategory: showCards && seat.holeCards.length === 2 && !seat.folded ? evaluateBestHoldemHand([...seat.holeCards, ...this.board]).category : null,
+        ready: this.ready.has(seat.userId),
       };
     }));
     const mySeat = mySeatIndex >= 0 ? this.seats[mySeatIndex] : null;
@@ -395,8 +411,14 @@ class HoldemRoomActor {
     });
   }
 
+  /** Every occupied seat has readied up — the only condition (besides seatedCount) that
+   *  actually starts a hand now, instead of two seats filling being enough on its own. */
+  private allSeatedReady(): boolean {
+    return this.seats.every((seat) => !seat || this.ready.has(seat.userId));
+  }
+
   private launchCycle(): void {
-    if (this.cycleRunning || this.paused || this.phase !== "WAITING" || this.seatedCount < 2) return;
+    if (this.cycleRunning || this.paused || this.phase !== "WAITING" || this.seatedCount < 2 || !this.allSeatedReady()) return;
     this.cycleRunning = true;
     void this.startHand().catch(async (error) => {
       console.error(`Hold'em room ${this.room.code} hand failed`, error);
@@ -429,6 +451,8 @@ class HoldemRoomActor {
       if (index !== -1) this.seats[index] = null;
     }
     this.sittingOut.clear();
+    // Ready is per-hand, not a standing preference — everyone re-readies for the next one.
+    this.ready.clear();
   }
 
   private seatOrderFrom(startSeat: number): number[] {
@@ -519,7 +543,7 @@ class HoldemRoomActor {
     this.resetHandState();
     this.sequence += 1;
     await this.emitSnapshots();
-    if (this.seatedCount >= 2) this.launchCycle();
+    this.launchCycle();
   }
 
   private nextButtonSeat(seatedOrder: number[]): number {
@@ -692,6 +716,11 @@ export class HoldemRoomManager {
     const actor = this.actors.get(roomId);
     if (!actor) throw new Error("ROOM_NOT_FOUND");
     return actor.standUp(userId);
+  }
+  async setReady(userId: string, roomId: string, ready: boolean): Promise<HoldemRoomSnapshot> {
+    const actor = this.actors.get(roomId);
+    if (!actor) throw new Error("ROOM_NOT_FOUND");
+    return actor.setReady(userId, ready);
   }
   async act(userId: string, command: HoldemActionCommand): Promise<HoldemRoomSnapshot> {
     const actor = this.actors.get(command.roomId);

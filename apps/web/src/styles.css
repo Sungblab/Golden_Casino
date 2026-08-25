@@ -3842,3 +3842,53 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   .game-shell .holdem-step-btn { width: 32px; height: 32px; font-size: 16px; }
   .game-shell .holdem-act-row .outline-button { min-height: 36px; font-size: 12px; }
 }
+
+/* =============================================================================
+   Hold'em rail fix — the global `.outline-button { width: 100% }` rule (written
+   for stacked form buttons on other pages) was never overridden for buttons used
+   inline in this rail. "족보"/"자리 비우기" each claimed the full row width and
+   wrapped everything after them onto extra lines, which the fixed-height
+   `.game-shell` (overflow: hidden) then clipped — the actual fold/call/raise/
+   all-in buttons were rendering, just pushed below the visible viewport.
+   `>` scopes this to direct rail children only, so it can't touch the nested
+   .holdem-act-row buttons, which already size correctly via flex: 1 1 0.
+   ============================================================================= */
+.game-shell .holdem-rail > .outline-button {
+  width: auto;
+  flex: none;
+  margin-top: 0;
+  min-height: 40px;
+}
+/* Belt-and-braces: if the rail's content is ever taller than the available
+   space again (very short landscape phones), scroll it instead of silently
+   clipping controls off-screen. */
+.game-shell .holdem-rail {
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+/* =============================================================================
+   Hold'em ready-check — hands no longer auto-start the instant two seats fill;
+   each seated player has to ready up, and the WAITING-phase rail dock replaces
+   the ordinary "내 좌석" balance readout while that's happening.
+   ============================================================================= */
+.game-shell .holdem-ready-dock { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; justify-content: center; }
+.game-shell .holdem-ready-dock .holdem-ready-status { font-size: 11px; color: var(--muted); white-space: nowrap; }
+/* Nested inside the dock, not a direct .holdem-rail child, so it needs its own override of
+   the same global `.outline-button { width: 100% }` rule fixed above for 족보/자리 비우기. */
+.game-shell .holdem-ready-dock .outline-button { width: auto; flex: none; margin-top: 0; min-height: 40px; min-width: 110px; }
+
+.holdem-ready-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: rgba(220,194,135,.35);
+  border: 1px solid rgba(220,194,135,.5);
+}
+.holdem-ready-dot.is-ready {
+  background: var(--positive);
+  border-color: var(--tie-light);
+  box-shadow: 0 0 6px rgba(47,217,126,.7);
+}
