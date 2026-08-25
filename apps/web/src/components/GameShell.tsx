@@ -36,6 +36,9 @@ export function GameShell({
   children: ReactNode;
 }) {
   const displayBalance = useCountUp(balance);
+  /* On phones the felt's countdown ring is laid out away or hidden entirely, so this chip is
+     the only countdown on screen - it has to carry the closing-soon urgency too. */
+  const closing = typeof phaseSeconds === "number" && phaseSeconds <= 5;
 
   useEffect(() => {
     document.body.classList.add("game-screen-active");
@@ -52,7 +55,7 @@ export function GameShell({
           <strong>{title}</strong>
           <span>{subtitle}</span>
         </div>
-        <div className="game-bar-phase">
+        <div className={`game-bar-phase ${closing ? "is-closing" : ""}`}>
           <span>{phaseLabel}</span>
           {/* A countdown that has genuinely reached 0 must read "0", not "–". Only a phase
               with no deadline at all (WAITING) has nothing to show. */}

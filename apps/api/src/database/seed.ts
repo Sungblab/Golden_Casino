@@ -24,6 +24,9 @@ const rooms = [
   ["30000000-0000-4000-8000-000000000010", "holdem", "holdem-micro", "Micro Hold'em 6-Max", 1, 100, null],
   ["30000000-0000-4000-8000-000000000011", "holdem", "holdem-standard", "Standard Hold'em 6-Max", 10, 1_000, null],
   ["30000000-0000-4000-8000-000000000012", "holdem", "holdem-high", "High Roller Hold'em 6-Max", 50, 5_000, null],
+  ["40000000-0000-4000-8000-000000000001", "sutda", "sutda-rookie", "Rookie Sutda 2–6", 1, 100, null],
+  ["40000000-0000-4000-8000-000000000002", "sutda", "sutda-standard", "Standard Sutda 2–6", 10, 1_000, null],
+  ["40000000-0000-4000-8000-000000000003", "sutda", "sutda-high", "High Roller Sutda 2–6", 50, 5_000, null],
 ] as const;
 
 const client = await pool.connect();

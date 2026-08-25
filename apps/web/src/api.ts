@@ -1,4 +1,4 @@
-import { adminOverviewSchema, adminCashRequestSchema, cashRequestSchema, chatHistoryResponseSchema, lobbyResponseSchema, loginResponseSchema, profileResponseSchema, registerResponseSchema, supportConversationListSchema, walletTransactionsResponseSchema, type AdminCashRequest, type AdminOverview, type CashRequest, type ChatHistoryResponse, type LobbyResponse, type LoginResponse, type ProfileResponse, type SupportConversationList, type WalletTransactionsResponse } from "@golden/contracts";
+import { adminOverviewSchema, adminCashRequestSchema, cashRequestSchema, chatHistoryResponseSchema, gameHistoryResponseSchema, lobbyResponseSchema, loginResponseSchema, profileResponseSchema, registerResponseSchema, supportConversationListSchema, walletTransactionsResponseSchema, type AdminCashRequest, type AdminOverview, type CashRequest, type ChatHistoryResponse, type GameHistoryResponse, type LobbyResponse, type LoginResponse, type ProfileResponse, type SupportConversationList, type WalletTransactionsResponse } from "@golden/contracts";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -45,6 +45,16 @@ export async function resumeRoom(token: string, roomId: string): Promise<void> {
   await request(`/api/v1/admin/rooms/${roomId}/resume`, { method: "POST" }, token);
 }
 
+/** Clears a Baccarat/Dragon Tiger table's visible road/scoreboard. Underlying round & wager
+ * history is untouched — only which rounds feed the road display resets. */
+export async function resetRoomRoad(token: string, roomId: string): Promise<void> {
+  await request(`/api/v1/admin/rooms/${roomId}/reset-road`, { method: "POST" }, token);
+}
+
+export async function sendAdminBroadcast(token: string, payload: { scope: "all" | "room"; roomId?: string; message: string }): Promise<void> {
+  await request("/api/v1/admin/broadcast", { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
 export async function getAdminOverview(token: string): Promise<AdminOverview> {
   return adminOverviewSchema.parse(await request("/api/v1/admin/overview", {}, token));
 }
@@ -53,12 +63,28 @@ export async function setAdminUserApproval(token: string, userId: string, approv
   await request(`/api/v1/admin/users/${userId}/approval`, { method: "POST", body: JSON.stringify({ approved }) }, token);
 }
 
+export async function setAdminUserRole(token: string, userId: string, role: "user" | "admin"): Promise<void> {
+  await request(`/api/v1/admin/users/${userId}/role`, { method: "POST", body: JSON.stringify({ role }) }, token);
+}
+
+export async function adminDeleteUser(token: string, userId: string): Promise<void> {
+  await request(`/api/v1/admin/users/${userId}`, { method: "DELETE" }, token);
+}
+
 export async function changePassword(token: string, currentPassword: string, newPassword: string): Promise<void> {
   await request("/api/v1/profile/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }, token);
 }
 
 export async function adminResetPassword(token: string, userId: string): Promise<{ tempPassword: string }> {
   return await request(`/api/v1/admin/users/${userId}/reset-password`, { method: "POST" }, token) as { tempPassword: string };
+}
+
+export async function adminAdjustBalance(token: string, userId: string, amount: number): Promise<{ balance: number }> {
+  return await request(
+    `/api/v1/admin/users/${userId}/balance`,
+    { method: "POST", body: JSON.stringify({ amount, requestId: crypto.randomUUID() }) },
+    token,
+  ) as { balance: number };
 }
 
 export async function getAdminCashRequests(token: string): Promise<AdminCashRequest[]> {
@@ -80,6 +106,10 @@ export async function getWalletTransactions(token: string): Promise<WalletTransa
 
 export async function getProfile(token: string): Promise<ProfileResponse> {
   return profileResponseSchema.parse(await request("/api/v1/profile", {}, token));
+}
+
+export async function getGameHistory(token: string): Promise<GameHistoryResponse> {
+  return gameHistoryResponseSchema.parse(await request("/api/v1/game-history", {}, token));
 }
 
 export async function createCashRequest(token: string, type: "deposit" | "withdraw", amount: number): Promise<CashRequest> {

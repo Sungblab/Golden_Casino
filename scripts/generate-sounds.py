@@ -26,6 +26,8 @@ LINES = {
     "player": (VOICE_EN, "Player Wins"),
     "banker": (VOICE_EN, "Banker Wins"),
     "tie": (VOICE_EN, "Tie"),
+    "dragon": (VOICE_EN, "Dragon Wins"),
+    "tiger": (VOICE_EN, "Tiger Wins"),
     "chip": (VOICE_KO, "베팅을 시작하겠습니다"),
     "deal": (VOICE_KO, "베팅이 마감됐습니다"),
     "win": (VOICE_KO, "승리했습니다"),

@@ -3,7 +3,9 @@ import { io, type Socket } from "socket.io-client";
 import { MessageCircleMore, Radio, UserRound } from "lucide-react";
 import type { ChatMessage, ClientToServerEvents, GameRoom, ServerToClientEvents, SupportConversation } from "@golden/contracts";
 import { API_URL, getAdminSupportConversations, getAdminSupportMessages, getRoomChatMessages } from "../api";
+import { GAME_TYPE_LABEL } from "../lib/gameLabels";
 import { ChatComposer, ChatThread } from "./ChatThread";
+import { Dropdown } from "./Dropdown";
 
 function appendMessage(current: ChatMessage[], message: ChatMessage): ChatMessage[] {
   return current.some((item) => item.id === message.id) ? current : [...current, message];
@@ -162,12 +164,15 @@ export function AdminChatCenter({ token, rooms, onSupportChanged }: { token: str
 
         <article className="admin-panel admin-room-chat-panel">
           <div className="admin-panel-heading"><h2><Radio size={17} /> 각 방 채팅</h2><span>읽기 전용 실시간 모니터</span></div>
-          <label className="admin-room-chat-select">
+          <div className="admin-room-chat-select">
             <span>모니터링 방</span>
-            <select value={selectedRoomId} onChange={(event) => setSelectedRoomId(event.target.value)}>
-              {rooms.map((room) => <option key={room.id} value={room.id}>{room.name} · {room.gameType === "baccarat" ? "바카라" : "블랙잭"}</option>)}
-            </select>
-          </label>
+            <Dropdown
+              ariaLabel="모니터링 방"
+              value={selectedRoomId}
+              onChange={setSelectedRoomId}
+              options={rooms.map((room) => ({ value: room.id, label: `${room.name} · ${GAME_TYPE_LABEL[room.gameType]}` }))}
+            />
+          </div>
           <header className="admin-room-chat-head"><strong>{selectedRoom?.name ?? "방 없음"}</strong><small>{selectedRoom ? `${selectedRoom.playerCount}명 접속 · ${selectedRoom.phase}` : ""}</small></header>
           <ChatThread messages={roomMessages} currentUserId={adminId} emptyText="이 방에는 아직 채팅이 없습니다." />
         </article>

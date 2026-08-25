@@ -1,6 +1,7 @@
 import {
   COIN_SCALE,
   type BaccaratBetChoice,
+  type BetZoneTotal,
   type DragonTigerBetChoice,
   type DragonTigerBetCommand,
   type PlaceBetCommand,
@@ -155,17 +156,45 @@ export class BaccaratBetService {
 
   async recentResults(roomId: string, limit = 60): Promise<RoundHistoryEntry[]> {
     const result = await pool.query<{ result: "player" | "banker" | "tie"; player_pair: boolean; banker_pair: boolean }>(
-      "SELECT result, player_pair, banker_pair FROM game_rounds WHERE room_id=$1 AND result IS NOT NULL ORDER BY round_number DESC LIMIT $2",
+      `SELECT gr.result, gr.player_pair, gr.banker_pair FROM game_rounds gr
+       JOIN game_rooms r ON r.id = gr.room_id
+       WHERE gr.room_id=$1 AND gr.result IS NOT NULL AND gr.round_number > r.road_reset_after_round
+       ORDER BY gr.round_number DESC LIMIT $2`,
       [roomId, limit],
     );
     return result.rows.reverse().map((row) => ({ result: row.result, playerPair: row.player_pair, bankerPair: row.banker_pair }));
   }
 
+  /** Admin "clear the scoreboard" — the road rebuilds as empty going forward, without touching
+   * the audited game_rounds/wagers history those rounds still live in. */
+  async resetRoad(roomId: string): Promise<void> {
+    await pool.query(
+      `UPDATE game_rooms SET road_reset_after_round = COALESCE(
+         (SELECT MAX(round_number) FROM game_rounds WHERE room_id=$1), 0
+       ) WHERE id=$1`,
+      [roomId],
+    );
+  }
+
+  /** Room-wide "who's backing this zone" for the live board — every accepted bettor, not just me. */
+  async roundBetTotals(roundId: string): Promise<Record<string, BetZoneTotal>> {
+    const result = await pool.query<{ choice: string; amount: string; players: string }>(
+      "SELECT choice,SUM(amount_minor) AS amount,COUNT(DISTINCT user_id) AS players FROM wagers WHERE round_id=$1 AND status='accepted' GROUP BY choice",
+      [roundId],
+    );
+    const totals: Record<string, BetZoneTotal> = {};
+    for (const row of result.rows) totals[row.choice] = { amount: Math.floor(Number(row.amount) / COIN_SCALE), players: Number(row.players) };
+    return totals;
+  }
+
   async recentDragonTigerResults(roomId: string, limit = 60): Promise<Array<{ result: "dragon" | "tiger" | "tie"; suitedTie: boolean }>> {
     const result = await pool.query<{ result: "dragon" | "tiger" | "tie"; suited_tie: boolean | null }>(
-      `SELECT result, (result_data->>'suitedTie')::boolean AS suited_tie
-       FROM game_rounds WHERE room_id=$1 AND result IS NOT NULL AND rules_version='dragon-tiger-v1'
-       ORDER BY round_number DESC LIMIT $2`,
+      `SELECT gr.result, (gr.result_data->>'suitedTie')::boolean AS suited_tie
+       FROM game_rounds gr
+       JOIN game_rooms r ON r.id = gr.room_id
+       WHERE gr.room_id=$1 AND gr.result IS NOT NULL AND gr.rules_version='dragon-tiger-v1'
+         AND gr.round_number > r.road_reset_after_round
+       ORDER BY gr.round_number DESC LIMIT $2`,
       [roomId, limit],
     );
     return result.rows.reverse().map((row) => ({ result: row.result, suitedTie: row.suited_tie ?? false }));
@@ -218,7 +247,9 @@ export class BaccaratBetService {
   ): Promise<{ balances: Map<string, number>; wins: AutomaticTableWin[] }> {
     const bets = await this.betsForRound(roundId);
     const balances = new Map<string, number>();
-    const wins: AutomaticTableWin[] = [];
+    // Keyed by userId+choice so a player who splits one bet into several small wagers (e.g. clicking
+    // "+1 coin" repeatedly) shows up in the winner feed as a single combined win, not one entry per wager.
+    const winsByKey = new Map<string, AutomaticTableWin>();
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -245,7 +276,13 @@ export class BaccaratBetService {
           "UPDATE wagers SET payout_minor=$2,outcome=$3,status='settled',settled_at=now() WHERE id=$1",
           [bet.id, payoutMinor, outcome],
         );
-        if (payoutMinor > bet.amountMinor) wins.push({ userId: bet.userId, choice: bet.choice, profitMinor: payoutMinor - bet.amountMinor });
+        if (payoutMinor > bet.amountMinor) {
+          const key = `${bet.userId}:${bet.choice}`;
+          const profitMinor = payoutMinor - bet.amountMinor;
+          const existing = winsByKey.get(key);
+          if (existing) existing.profitMinor += profitMinor;
+          else winsByKey.set(key, { userId: bet.userId, choice: bet.choice, profitMinor });
+        }
       }
       await client.query("COMMIT");
       for (const userId of new Set(bets.map((bet) => bet.userId))) balances.set(userId, await walletService.getUserBalance(userId));
@@ -255,7 +292,7 @@ export class BaccaratBetService {
     } finally {
       client.release();
     }
-    return { balances, wins };
+    return { balances, wins: [...winsByKey.values()] };
   }
 
   async recoverInterruptedRounds(): Promise<number> {

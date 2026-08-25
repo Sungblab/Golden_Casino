@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import {
   COIN_SCALE,
+  type BetZoneTotal,
   type ClientToServerEvents,
   type DragonTigerBetChoice,
   type DragonTigerBetCommand,
@@ -103,6 +104,15 @@ class DragonTigerRoomActor {
     };
   }
 
+  /** Admin "clear the scoreboard" — wipes the visible road now, and durably (see resetRoad in
+   * bet-service.ts) so it stays clear across a restart too, without touching round/wager history. */
+  async resetRoad(): Promise<void> {
+    await baccaratBetService.resetRoad(this.room.id);
+    this.recentResults = [];
+    this.sequence += 1;
+    await this.emitSnapshots();
+  }
+
   setPaused(paused: boolean): void {
     this.paused = paused;
     if (!paused && this.phase === "WAITING" && this.playerCount > 0) this.launchCycle();
@@ -115,6 +125,10 @@ class DragonTigerRoomActor {
 
   hasParticipant(userId: string): boolean {
     return this.participants.has(userId);
+  }
+
+  participantUserIds(): string[] {
+    return [...this.participants.keys()];
   }
 
   async join(socket: GoldenSocket): Promise<DragonTigerRoomSnapshot> {
@@ -156,7 +170,7 @@ class DragonTigerRoomActor {
     return this.snapshot(userId);
   }
 
-  async snapshot(userId: string): Promise<DragonTigerRoomSnapshot> {
+  async snapshot(userId: string, betTotals?: Record<string, BetZoneTotal>): Promise<DragonTigerRoomSnapshot> {
     const myBets: Record<DragonTigerBetChoice, number> = { dragon: 0, tiger: 0, tie: 0, suited_tie: 0 };
     if (this.roundId) {
       const wagers = await pool.query<{ choice: DragonTigerBetChoice; total: string }>(
@@ -175,6 +189,7 @@ class DragonTigerRoomActor {
       result: this.result?.result ?? null,
       suitedTie: this.result?.suitedTie ?? false,
       myBets,
+      betTotals: betTotals ?? (this.roundId ? await baccaratBetService.roundBetTotals(this.roundId) : {}),
       walletBalance: await walletService.getUserBalance(userId),
       shoeRemaining: this.shoe.remaining,
       recentResults: this.recentResults,
@@ -186,8 +201,9 @@ class DragonTigerRoomActor {
   }
 
   private async emitSnapshots(): Promise<void> {
+    const betTotals = this.roundId ? await baccaratBetService.roundBetTotals(this.roundId) : {};
     for (const [userId, sockets] of this.participants) {
-      const snapshot = await this.snapshot(userId);
+      const snapshot = await this.snapshot(userId, betTotals);
       for (const socketId of sockets) this.io.to(socketId).emit("dragonTiger.snapshot", snapshot);
     }
   }
@@ -311,10 +327,17 @@ export class DragonTigerRoomManager {
 
   listRooms(): GameRoom[] { return [...this.actors.values()].map((actor) => actor.publicRoom()); }
   isParticipant(userId: string, roomId: string): boolean { return this.actors.get(roomId)?.hasParticipant(userId) ?? false; }
+  participantUserIds(roomId: string): string[] | null { return this.actors.get(roomId)?.participantUserIds() ?? null; }
   setPaused(roomId: string, paused: boolean): boolean {
     const actor = this.actors.get(roomId);
     if (!actor) return false;
     actor.setPaused(paused);
+    return true;
+  }
+  async resetRoad(roomId: string): Promise<boolean> {
+    const actor = this.actors.get(roomId);
+    if (!actor) return false;
+    await actor.resetRoad();
     return true;
   }
   async join(socket: GoldenSocket, roomId: string): Promise<DragonTigerRoomSnapshot> {

@@ -138,6 +138,47 @@ export class WalletService {
     }
   }
 
+  /**
+   * A direct admin correction to a user's balance — positive credits, negative debits.
+   * Unlike a cash-request deposit this never touches wagering requirements: it's a manual
+   * fix/grant, not a real-money-equivalent top-up that should come with rollover strings.
+   */
+  async adminAdjustBalance(adminId: string, userId: string, amountMinor: number, idempotencyKey: string): Promise<number> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const accounts = await client.query<{ id: string; kind: string }>(
+        "SELECT id,kind FROM wallet_accounts WHERE kind='issuance' OR (kind='user' AND user_id=$1) ORDER BY id FOR UPDATE",
+        [userId],
+      );
+      const issuance = accounts.rows.find((account) => account.kind === "issuance")?.id;
+      const user = accounts.rows.find((account) => account.kind === "user")?.id;
+      if (!issuance || !user) throw new Error("Wallet account configuration is incomplete");
+      await this.postTransaction(client, {
+        type: "ADMIN_ADJUSTMENT",
+        idempotencyKey,
+        referenceType: "admin_adjustment",
+        // ledger_transactions.reference_id is a real uuid column — idempotencyKey is a
+        // prefixed string ("admin-adjustment:<uuid>"), not a uuid, and Postgres rejects it.
+        // The adjusted user's id is already a valid uuid and is the natural reference here.
+        referenceId: userId,
+        entries: [
+          { accountId: user, amountMinor },
+          { accountId: issuance, amountMinor: -amountMinor },
+        ],
+        metadata: { adminId, userId },
+      });
+      const balance = await client.query<{ balance_minor: string }>("SELECT balance_minor FROM wallet_accounts WHERE id=$1", [user]);
+      await client.query("COMMIT");
+      return Number(balance.rows[0]!.balance_minor);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async postTransaction(
     client: PoolClient,
     input: {

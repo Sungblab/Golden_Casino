@@ -66,8 +66,9 @@ class HoldemRoomActor {
   private board: Card[] = [];
   private seats: Array<SeatState | null> = Array.from({ length: SEAT_COUNT }, () => null);
   private sittingOut = new Set<string>();
-  // A hand only auto-launches once every seated player has explicitly readied up — cleared
-  // after every hand, so it's a fresh check each time rather than a one-time gate at sit-down.
+  // A hand only auto-launches once every seated player has explicitly readied up. Sticky
+  // across hands once set — a player stays ready until they un-ready or stand up, not just
+  // for the next hand — so regulars don't have to re-click it after every single hand.
   private ready = new Set<string>();
   private buttonSeat = 0;
   private smallBlindSeat: number | null = null;
@@ -127,6 +128,10 @@ class HoldemRoomActor {
 
   hasParticipant(userId: string): boolean {
     return this.participants.has(userId);
+  }
+
+  participantUserIds(): string[] {
+    return [...this.participants.keys()];
   }
 
   async join(socket: GoldenSocket): Promise<HoldemRoomSnapshot> {
@@ -451,8 +456,9 @@ class HoldemRoomActor {
       if (index !== -1) this.seats[index] = null;
     }
     this.sittingOut.clear();
-    // Ready is per-hand, not a standing preference — everyone re-readies for the next one.
-    this.ready.clear();
+    // Deliberately NOT clearing `ready` here: once a player readies up it's a standing
+    // preference that carries into the next hand, not a one-shot gate — they only stop being
+    // ready by explicitly un-readying or standing up (see setReady/standUp).
   }
 
   private seatOrderFrom(startSeat: number): number[] {
@@ -692,6 +698,7 @@ export class HoldemRoomManager {
 
   listRooms(): GameRoom[] { return [...this.actors.values()].map((actor) => actor.publicRoom()); }
   isParticipant(userId: string, roomId: string): boolean { return this.actors.get(roomId)?.hasParticipant(userId) ?? false; }
+  participantUserIds(roomId: string): string[] | null { return this.actors.get(roomId)?.participantUserIds() ?? null; }
   setPaused(roomId: string, paused: boolean): boolean {
     const actor = this.actors.get(roomId);
     if (!actor) return false;

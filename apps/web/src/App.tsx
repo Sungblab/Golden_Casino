@@ -8,8 +8,10 @@ import { BaccaratRoomPage } from "./pages/BaccaratRoomPage";
 import { BlackjackRoomPage } from "./pages/BlackjackRoomPage";
 import { DragonTigerRoomPage } from "./pages/DragonTigerRoomPage";
 import { HoldemRoomPage } from "./pages/HoldemRoomPage";
+import { SutdaRoomPage } from "./pages/SutdaRoomPage";
 import { WalletPage } from "./pages/WalletPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { GameHistoryPage } from "./pages/GameHistoryPage";
 import { AdminApp } from "./admin/AdminShell";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage";
 import { AdminCashPage } from "./pages/AdminCashPage";
@@ -18,6 +20,7 @@ import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { AdminGamesPage } from "./pages/AdminGamesPage";
 import { AdminStatsPage } from "./pages/AdminStatsPage";
 import { SupportPage } from "./pages/SupportPage";
+import { SiteToast } from "./components/SiteToast";
 import { logoutServer, refreshAccessToken } from "./api";
 
 /** Access tokens expire after 30 minutes; rotate the httpOnly refresh cookie well before that. */
@@ -95,12 +98,15 @@ export function App() {
   if (!authReady) return <main className="loading-screen">로그인 상태 확인 중…</main>;
 
   return (
-    <Routes>
+    <>
+      {token && <SiteToast token={token} />}
+      <Routes>
       <Route path="/login" element={token ? <Navigate to="/lobby" replace /> : <LoginPage onLogin={authenticate} />} />
       <Route path="/signup" element={token ? <Navigate to="/lobby" replace /> : <SignupPage />} />
       <Route path="/lobby" element={token ? <LobbyPage token={token} user={user} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/wallet" element={token ? <WalletPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/profile" element={token ? <ProfilePage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
+      <Route path="/game-history" element={token ? <GameHistoryPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/support" element={token && user?.role !== "admin" ? <SupportPage token={token} onLogout={logout} /> : token ? <Navigate to="/admin" replace /> : <Navigate to="/login" replace />} />
       <Route path="/admin" element={token && user?.role === "admin" ? <AdminApp token={token} onLogout={logout} /> : token ? <Navigate to="/lobby" replace /> : <Navigate to="/login" replace />}>
         <Route index element={<AdminDashboardPage />} />
@@ -113,8 +119,10 @@ export function App() {
       <Route path="/rooms/blackjack/:roomId" element={token ? <BlackjackRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/dragon-tiger/:roomId" element={token ? <DragonTigerRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/holdem/:roomId" element={token ? <HoldemRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
+      <Route path="/rooms/sutda/:roomId" element={token ? <SutdaRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/:roomId" element={token ? <BaccaratRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to={token ? "/lobby" : "/login"} replace />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }

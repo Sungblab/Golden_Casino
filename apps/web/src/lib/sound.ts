@@ -7,6 +7,8 @@ const SOUND_FILES = {
   player: "/sounds/player.mp3",
   banker: "/sounds/banker.mp3",
   tie: "/sounds/tie.mp3",
+  dragon: "/sounds/dragon.mp3",
+  tiger: "/sounds/tiger.mp3",
   chip: "/sounds/chip.mp3",
   deal: "/sounds/deal.mp3",
   win: "/sounds/win.mp3",

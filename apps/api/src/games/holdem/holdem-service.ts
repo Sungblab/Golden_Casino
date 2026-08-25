@@ -5,10 +5,15 @@ import { pool } from "../../database/pool.js";
 import { walletService } from "../../wallet/wallet-service.js";
 import { wageringService } from "../../wallet/wagering-service.js";
 
-/** 5% rake, capped at three coins, matching typical low-stakes online Hold'em rake caps. */
+// 5% rake. The cap used to be a flat 3 coins, which happened to equal 3% of the rookie room's
+// 100-coin max bet — but it stayed flat 3 coins for every tier, so a High Roller table (max bet
+// 5,000, shared by both Hold'em and Sutda) capped rake at the same 3 coins as Rookie despite pots
+// running 50x larger. Deriving the cap from the room's own max bet keeps that original 3%
+// relationship intact and scales it with the tier instead.
 const RAKE_PERCENT = 5;
+const RAKE_CAP_PERCENT_OF_MAX_BET = 3;
 export function rakeFor(potAmountMinor: number, maxBetMinor: number): number {
-  const cap = Math.min(3 * COIN_SCALE, maxBetMinor);
+  const cap = Math.min(Math.floor((maxBetMinor * RAKE_CAP_PERCENT_OF_MAX_BET) / 100), maxBetMinor);
   return Math.min(Math.floor((potAmountMinor * RAKE_PERCENT) / 100), cap);
 }
 

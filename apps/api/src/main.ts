@@ -2,10 +2,11 @@ import bcrypt from "bcryptjs";
 import cors from "cors";
 import express from "express";
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { Server } from "socket.io";
 import { z } from "zod";
 import {
+  adminBroadcastSchema,
   blackjackActionCommandSchema,
   blackjackBehindBetCommandSchema,
   blackjackBetCommandSchema,
@@ -21,6 +22,9 @@ import {
   holdemActionCommandSchema,
   holdemReadyCommandSchema,
   holdemSeatCommandSchema,
+  sutdaActionCommandSchema,
+  sutdaReadyCommandSchema,
+  sutdaSeatCommandSchema,
   placeBetCommandSchema,
   transferCreateSchema,
   type ClientToServerEvents,
@@ -35,6 +39,7 @@ import { RoomManager } from "./games/rooms/room-manager.js";
 import { BlackjackRoomManager } from "./games/rooms/blackjack-room-manager.js";
 import { DragonTigerRoomManager } from "./games/rooms/dragon-tiger-room-manager.js";
 import { HoldemRoomManager } from "./games/rooms/holdem-room-manager.js";
+import { SutdaRoomManager } from "./games/rooms/sutda-room-manager.js";
 import { walletService } from "./wallet/wallet-service.js";
 import { wageringService, WageringRequirementError } from "./wallet/wagering-service.js";
 import { createAdminSupportMessage, createRoomMessage, createSupportMessage, listAdminSupportConversations, listConversationMessages, listRoomMessages, listSupportMessages } from "./chat/chat-service.js";
@@ -53,6 +58,7 @@ const rooms = new RoomManager(io);
 const blackjackRooms = new BlackjackRoomManager(io);
 const dragonTigerRooms = new DragonTigerRoomManager(io);
 const holdemRooms = new HoldemRoomManager(io);
+const sutdaRooms = new SutdaRoomManager(io);
 
 app.get("/api/v1/health", async (_req, res) => {
   await pool.query("SELECT 1");
@@ -61,25 +67,85 @@ app.get("/api/v1/health", async (_req, res) => {
 
 app.get("/api/v1/lobby", requireAuth, async (req, res) => {
   const user = (req as AuthRequest).user;
-  res.json({ rooms: [...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms()], walletBalance: await walletService.getUserBalance(user.id) });
+  res.json({ rooms: [...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms(), ...sutdaRooms.listRooms()], walletBalance: await walletService.getUserBalance(user.id) });
 });
 
 app.post("/api/v1/admin/rooms/:roomId/pause", requireAuth, requireAdmin, (req, res) => {
   const roomId = String(req.params.roomId ?? "");
-  const ok = rooms.setPaused(roomId, true) || dragonTigerRooms.setPaused(roomId, true) || blackjackRooms.setPaused(roomId, true) || holdemRooms.setPaused(roomId, true);
+  const ok = rooms.setPaused(roomId, true) || dragonTigerRooms.setPaused(roomId, true) || blackjackRooms.setPaused(roomId, true) || holdemRooms.setPaused(roomId, true) || sutdaRooms.setPaused(roomId, true);
   if (!ok) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
   res.json({ status: "paused" });
 });
 
 app.post("/api/v1/admin/rooms/:roomId/resume", requireAuth, requireAdmin, (req, res) => {
   const roomId = String(req.params.roomId ?? "");
-  const ok = rooms.setPaused(roomId, false) || dragonTigerRooms.setPaused(roomId, false) || blackjackRooms.setPaused(roomId, false) || holdemRooms.setPaused(roomId, false);
+  const ok = rooms.setPaused(roomId, false) || dragonTigerRooms.setPaused(roomId, false) || blackjackRooms.setPaused(roomId, false) || holdemRooms.setPaused(roomId, false) || sutdaRooms.setPaused(roomId, false);
   if (!ok) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
   res.json({ status: "resumed" });
 });
 
+// Baccarat/Dragon Tiger only — the road/scoreboard concept those room managers track. No such
+// thing to reset for Blackjack/Hold'em/Sutda, so this doesn't chain through those managers.
+app.post("/api/v1/admin/rooms/:roomId/reset-road", requireAuth, requireAdmin, async (req, res) => {
+  const roomId = String(req.params.roomId ?? "");
+  const ok = (await rooms.resetRoad(roomId)) || (await dragonTigerRooms.resetRoad(roomId));
+  if (!ok) return void res.status(404).json({ message: "이 방은 통계 초기화를 지원하지 않습니다." });
+  res.json({ status: "reset" });
+});
+
+/**
+ * Admin-triggered toast, either site-wide or scoped to one live room's current occupants.
+ * Room targeting rides the personal `support:user:<id>` channel every socket already joins
+ * on connect (see io.on("connection") below) rather than each game type's own room channel —
+ * one delivery path works across every game type without threading a new event through each
+ * room actor's snapshot loop.
+ */
+app.post("/api/v1/admin/broadcast", requireAuth, requireAdmin, (req, res) => {
+  const parsed = adminBroadcastSchema.safeParse(req.body);
+  if (!parsed.success) return void res.status(400).json({ message: "요청이 올바르지 않습니다." });
+  const message = parsed.data.message.trim();
+  if (!message) return void res.status(400).json({ message: "메시지를 입력해주세요." });
+  const entry = { id: randomUUID(), message, createdAt: new Date().toISOString() };
+
+  if (parsed.data.scope === "all") {
+    io.emit("site.announcement", entry);
+    return void res.json({ status: "sent", recipients: "all" });
+  }
+
+  const roomId = parsed.data.roomId;
+  if (!roomId) return void res.status(400).json({ message: "방을 선택해주세요." });
+  const userIds =
+    rooms.participantUserIds(roomId) ??
+    dragonTigerRooms.participantUserIds(roomId) ??
+    blackjackRooms.participantUserIds(roomId) ??
+    holdemRooms.participantUserIds(roomId) ??
+    sutdaRooms.participantUserIds(roomId);
+  if (userIds === null) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
+  for (const userId of userIds) io.to(`support:user:${userId}`).emit("site.announcement", entry);
+  res.json({ status: "sent", recipients: userIds.length });
+});
+
+// Settled activity, normalized across every game family's own table (Baccarat/Dragon
+// Tiger share `wagers`; Blackjack settles into `blackjack_hands`; Hold'em contributions
+// settle into `holdem_contributions`). House/user stats used to read `wagers` alone,
+// which silently dropped every Blackjack and Hold'em bet from admin reporting.
+const ALL_BETS_CTE = `
+  WITH all_bets AS (
+    SELECT user_id, room_id, amount_minor, payout_minor, outcome, settled_at
+    FROM wagers WHERE status='settled'
+    UNION ALL
+    SELECT user_id, room_id, bet_minor AS amount_minor, payout_minor,
+           CASE outcome WHEN 'blackjack' THEN 'win' WHEN 'surrender' THEN 'lose' ELSE outcome END AS outcome,
+           settled_at
+    FROM blackjack_hands WHERE settled_at IS NOT NULL
+    UNION ALL
+    SELECT user_id, room_id, amount_minor, payout_minor, outcome, settled_at
+    FROM holdem_contributions WHERE settled_at IS NOT NULL
+  )
+`;
+
 app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) => {
-  const [roomRows, userRows, roundRows, cashRows, supportRows] = await Promise.all([
+  const [roomRows, userRows, roundRows, cashRows, supportRows, houseTotalsRows, houseByGameRows, trendRows, cashFlowRows] = await Promise.all([
     pool.query<{ id: string; game_type: GameType; code: string; name: string; min_bet: number; max_bet: number; enabled: boolean }>(
       "SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms ORDER BY min_bet,game_type",
     ),
@@ -96,7 +162,8 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) =
       losses: string;
       wagering_remaining_minor: string;
     }>(
-      `SELECT u.id,u.username,u.role,u.approved,u.created_at,
+      `${ALL_BETS_CTE}
+       SELECT u.id,u.username,u.role,u.approved,u.created_at,
               COALESCE(wa.balance_minor,0) AS balance_minor,
               COALESCE(stats.total_bets,0) AS total_bets,
               COALESCE(stats.total_wagered,0) AS total_wagered,
@@ -110,8 +177,9 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) =
          SELECT user_id,COUNT(*) AS total_bets,SUM(amount_minor) AS total_wagered,
                 COUNT(*) FILTER (WHERE outcome='win') AS wins,
                 COUNT(*) FILTER (WHERE outcome='lose') AS losses
-         FROM wagers GROUP BY user_id
+         FROM all_bets GROUP BY user_id
        ) stats ON stats.user_id=u.id
+       WHERE u.deleted_at IS NULL
        ORDER BY u.created_at DESC LIMIT 200`,
     ),
     pool.query<{ total_rounds: string; player_rounds: string; banker_rounds: string; tie_rounds: string }>(
@@ -127,9 +195,43 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) =
        FROM cash_requests`,
     ),
     pool.query<{ count: string }>("SELECT COUNT(*) AS count FROM support_conversations WHERE status='open'"),
+    pool.query<{ total_wagered: string; house_profit: string; settled_bets: string; active_bettors: string }>(
+      `${ALL_BETS_CTE}
+       SELECT COALESCE(SUM(amount_minor),0) AS total_wagered,
+              COALESCE(SUM(amount_minor - COALESCE(payout_minor,0)),0) AS house_profit,
+              COUNT(*) AS settled_bets,
+              COUNT(DISTINCT user_id) AS active_bettors
+       FROM all_bets`,
+    ),
+    pool.query<{ game_type: GameType; total_wagered: string; house_profit: string; settled_bets: string }>(
+      `${ALL_BETS_CTE}
+       SELECT gr.game_type,
+              COALESCE(SUM(ab.amount_minor),0) AS total_wagered,
+              COALESCE(SUM(ab.amount_minor - COALESCE(ab.payout_minor,0)),0) AS house_profit,
+              COUNT(*) AS settled_bets
+       FROM all_bets ab JOIN game_rooms gr ON gr.id=ab.room_id
+       GROUP BY gr.game_type ORDER BY total_wagered DESC`,
+    ),
+    pool.query<{ day: string; bets: string; wagered: string; house_profit: string }>(
+      `${ALL_BETS_CTE}
+       SELECT to_char(date_trunc('day', settled_at), 'YYYY-MM-DD') AS day,
+              COUNT(*) AS bets,
+              COALESCE(SUM(amount_minor),0) AS wagered,
+              COALESCE(SUM(amount_minor - COALESCE(payout_minor,0)),0) AS house_profit
+       FROM all_bets WHERE settled_at >= now() - interval '7 days'
+       GROUP BY 1 ORDER BY 1`,
+    ),
+    pool.query<{ total_deposits: string; total_withdrawals: string }>(
+      `SELECT COALESCE(SUM(le.amount_minor) FILTER (WHERE lt.transaction_type='DEPOSIT_APPROVED'),0) AS total_deposits,
+              COALESCE(SUM(-le.amount_minor) FILTER (WHERE lt.transaction_type='WITHDRAW_APPROVED'),0) AS total_withdrawals
+       FROM ledger_entries le
+       JOIN ledger_transactions lt ON lt.id=le.transaction_id
+       JOIN wallet_accounts wa ON wa.id=le.account_id AND wa.kind='user'
+       WHERE lt.transaction_type IN ('DEPOSIT_APPROVED','WITHDRAW_APPROVED')`,
+    ),
   ]);
 
-  const liveRooms = new Map([...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms()].map((room) => [room.id, room]));
+  const liveRooms = new Map([...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms(), ...sutdaRooms.listRooms()].map((room) => [room.id, room]));
   const adminRooms = roomRows.rows.map((room) => {
     const live = liveRooms.get(room.id);
     return {
@@ -145,14 +247,8 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) =
       paused: live?.paused ?? false,
     };
   });
-  const houseMetrics = await pool.query<{ total_wagered: string; house_profit: string; settled_wagers: string; active_bettors: string }>(
-    `SELECT COALESCE(SUM(amount_minor),0) AS total_wagered,
-            COALESCE(SUM(CASE WHEN outcome='lose' THEN amount_minor WHEN outcome='win' THEN amount_minor-COALESCE(payout_minor,0) ELSE 0 END),0) AS house_profit,
-            COUNT(*) FILTER (WHERE status='settled') AS settled_wagers,
-            COUNT(DISTINCT user_id) FILTER (WHERE status='settled') AS active_bettors
-     FROM wagers`,
-  );
-  const house = houseMetrics.rows[0]!;
+  const house = houseTotalsRows.rows[0]!;
+  const cashFlow = cashFlowRows.rows[0]!;
   res.json({
     rooms: adminRooms,
     users: userRows.rows.map((user) => ({
@@ -171,12 +267,29 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) =
     house: {
       totalWagered: coins(house.total_wagered),
       houseProfit: coins(house.house_profit),
-      settledWagers: Number(house.settled_wagers),
+      settledWagers: Number(house.settled_bets),
       activeBettors: Number(house.active_bettors),
       totalRounds: Number(roundRows.rows[0]?.total_rounds ?? 0),
       playerRounds: Number(roundRows.rows[0]?.player_rounds ?? 0),
       bankerRounds: Number(roundRows.rows[0]?.banker_rounds ?? 0),
       tieRounds: Number(roundRows.rows[0]?.tie_rounds ?? 0),
+    },
+    houseByGame: houseByGameRows.rows.map((row) => ({
+      game: row.game_type,
+      totalWagered: coins(row.total_wagered),
+      houseProfit: coins(row.house_profit),
+      settledBets: Number(row.settled_bets),
+    })),
+    recentTrend: trendRows.rows.map((row) => ({
+      date: row.day,
+      bets: Number(row.bets),
+      wagered: coins(row.wagered),
+      houseProfit: coins(row.house_profit),
+    })),
+    cashFlow: {
+      totalDeposits: coins(cashFlow.total_deposits),
+      totalWithdrawals: coins(cashFlow.total_withdrawals),
+      netFlow: coins(cashFlow.total_deposits) - coins(cashFlow.total_withdrawals),
     },
     pendingCashRequests: { count: Number(cashRows.rows[0]?.count ?? 0), amount: coins(cashRows.rows[0]?.amount_minor ?? 0) },
     openSupportConversations: Number(supportRows.rows[0]?.count ?? 0),
@@ -200,6 +313,72 @@ app.post("/api/v1/admin/users/:userId/approval", requireAuth, requireAdmin, asyn
     [admin.id, approved ? "USER_APPROVED" : "USER_SUSPENDED", userId, JSON.stringify({ approved })],
   );
   res.json({ status: approved ? "approved" : "suspended" });
+});
+
+app.delete("/api/v1/admin/users/:userId", requireAuth, requireAdmin, async (req, res) => {
+  const admin = (req as AuthRequest).user;
+  const userId = String(req.params.userId ?? "");
+  if (!z.string().uuid().safeParse(userId).success) return void res.status(400).json({ message: "사용자를 찾을 수 없습니다." });
+  if (userId === admin.id) return void res.status(400).json({ message: "현재 관리자 계정은 탈퇴 처리할 수 없습니다." });
+  // Hard-deleting the row is blocked the moment the account has any wagers, chat, or cash
+  // history (every FK into users/wallet_accounts is ON DELETE RESTRICT), which is every
+  // real account. Anonymize the login identity instead — history stays intact for audit,
+  // approved=false permanently blocks login, and the admin list filters deleted_at out.
+  const anonymized = `withdrawn_${randomBytes(5).toString("hex")}`;
+  const result = await pool.query<{ id: string }>(
+    `UPDATE users SET username=$2,nickname=$2,approved=false,deleted_at=now(),updated_at=now()
+     WHERE id=$1 AND role='user' AND deleted_at IS NULL RETURNING id`,
+    [userId, anonymized],
+  );
+  if (!result.rows[0]) return void res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  await pool.query("UPDATE refresh_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [userId]);
+  await pool.query(
+    "INSERT INTO audit_logs (actor_user_id,action,target_type,target_id,details) VALUES ($1,'USER_DELETED','user',$2,'{}'::jsonb)",
+    [admin.id, userId],
+  );
+  res.json({ status: "deleted" });
+});
+
+app.post("/api/v1/admin/users/:userId/role", requireAuth, requireAdmin, async (req, res) => {
+  const admin = (req as AuthRequest).user;
+  const userId = String(req.params.userId ?? "");
+  const role = req.body?.role;
+  if (role !== "user" && role !== "admin") return void res.status(400).json({ message: "권한 값을 확인해주세요." });
+  if (!z.string().uuid().safeParse(userId).success) return void res.status(400).json({ message: "사용자를 찾을 수 없습니다." });
+  if (userId === admin.id) return void res.status(400).json({ message: "현재 로그인한 관리자 계정의 권한은 여기서 바꿀 수 없습니다." });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const target = await client.query<{ role: "user" | "admin" }>("SELECT role FROM users WHERE id=$1 FOR UPDATE", [userId]);
+    if (!target.rows[0]) {
+      await client.query("ROLLBACK");
+      return void res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+    }
+    if (target.rows[0].role === "admin" && role === "user") {
+      // Losing the last admin would lock everyone out of /admin — including whoever needs
+      // to fix it — so refuse rather than let the panel demote its way into unreachable.
+      const adminCount = await client.query<{ count: string }>("SELECT COUNT(*) AS count FROM users WHERE role='admin'");
+      if (Number(adminCount.rows[0]?.count ?? 0) <= 1) {
+        await client.query("ROLLBACK");
+        return void res.status(400).json({ message: "마지막 관리자 계정은 권한을 해제할 수 없습니다." });
+      }
+    }
+    await client.query("UPDATE users SET role=$2,updated_at=now() WHERE id=$1", [userId, role]);
+    await client.query(
+      "INSERT INTO audit_logs (actor_user_id,action,target_type,target_id,details) VALUES ($1,'USER_ROLE_CHANGED','user',$2,$3)",
+      [admin.id, userId, JSON.stringify({ from: target.rows[0].role, to: role })],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  // The JWT bakes in `role`; force a fresh login so the change takes effect immediately
+  // instead of waiting out the old access token's remaining lifetime.
+  await pool.query("UPDATE refresh_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [userId]);
+  res.json({ status: "ok", role });
 });
 
 const passwordChangeSchema = z.object({
@@ -243,6 +422,39 @@ app.post("/api/v1/admin/users/:userId/reset-password", requireAuth, requireAdmin
   res.json({ tempPassword });
 });
 
+const adminBalanceAdjustSchema = z.object({
+  amount: z.number().int().refine((value) => value !== 0, "0코인은 조정할 수 없습니다."),
+  requestId: z.string().uuid().optional(),
+});
+
+app.post("/api/v1/admin/users/:userId/balance", requireAuth, requireAdmin, async (req, res) => {
+  const admin = (req as AuthRequest).user;
+  const userId = String(req.params.userId ?? "");
+  if (!z.string().uuid().safeParse(userId).success) return void res.status(400).json({ message: "사용자를 찾을 수 없습니다." });
+  const parsed = adminBalanceAdjustSchema.safeParse(req.body);
+  if (!parsed.success) return void res.status(400).json({ message: "조정할 코인 수를 확인해주세요." });
+  const target = await pool.query<{ role: "user" | "admin" }>("SELECT role FROM users WHERE id=$1", [userId]);
+  if (!target.rows[0] || target.rows[0].role !== "user") return void res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  const idempotencyKey = `admin-adjustment:${parsed.data.requestId ?? randomUUID()}`;
+  try {
+    const balanceMinor = await walletService.adminAdjustBalance(admin.id, userId, parsed.data.amount * COIN_SCALE, idempotencyKey);
+    await pool.query(
+      "INSERT INTO audit_logs (actor_user_id,action,target_type,target_id,details) VALUES ($1,'BALANCE_ADJUSTED','user',$2,$3)",
+      [admin.id, userId, JSON.stringify({ amount: parsed.data.amount })],
+    );
+    io.to(`support:user:${userId}`).emit("wallet.updated", { balance: coins(balanceMinor) });
+    io.to(`support:user:${userId}`).emit("notification", {
+      type: parsed.data.amount > 0 ? "success" : "info",
+      message: `관리자가 잔액을 ${parsed.data.amount > 0 ? "+" : ""}${parsed.data.amount.toLocaleString()}코인 조정했습니다.`,
+    });
+    res.json({ balance: coins(balanceMinor) });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "BALANCE_ADJUST_FAILED";
+    if (code === "INSUFFICIENT_BALANCE") return void res.status(400).json({ message: "차감할 금액이 현재 잔액보다 많습니다." });
+    throw error;
+  }
+});
+
 app.get("/api/v1/profile", requireAuth, async (req, res) => {
   const user = (req as AuthRequest).user;
   const [stats, transactions, cashRequests, recipients, wagering] = await Promise.all([
@@ -256,7 +468,7 @@ app.get("/api/v1/profile", requireAuth, async (req, res) => {
        FROM wagers WHERE user_id=$1`,
       [user.id],
     ),
-    walletTransactionsForUser(user.id, 30),
+    walletTransactionsForUser(user.id, 50),
     pool.query<{ id: string; request_type: "deposit" | "withdraw"; amount_minor: string; status: "pending" | "approved" | "rejected" | "cancelled"; created_at: string }>(
       "SELECT id,request_type,amount_minor,status,created_at FROM cash_requests WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20",
       [user.id],
@@ -423,6 +635,112 @@ async function walletTransactionsForUser(userId: string, limit: number) {
 function coins(minor: string | number): number {
   return Math.round(Number(minor) / COIN_SCALE);
 }
+
+const BACCARAT_HISTORY_CHOICE_LABEL: Record<string, string> = {
+  player: "플레이어",
+  banker: "뱅커",
+  tie: "타이",
+  player_pair: "플레이어 페어",
+  banker_pair: "뱅커 페어",
+  dragon: "드래곤",
+  tiger: "타이거",
+  suited_tie: "슈티드 타이",
+};
+
+const BLACKJACK_HISTORY_OUTCOME_TO_TALLY: Record<string, "win" | "lose" | "push"> = {
+  win: "win",
+  blackjack: "win",
+  lose: "lose",
+  surrender: "lose",
+  push: "push",
+};
+
+app.get("/api/v1/game-history", requireAuth, async (req, res) => {
+  const userId = (req as AuthRequest).user.id;
+  const limitPerGame = 80;
+
+  const [wagerRows, blackjackRows, holdemRows] = await Promise.all([
+    pool.query<{ id: string; game_type: GameType; room_name: string; choice: string; amount_minor: string; payout_minor: string | null; outcome: "win" | "lose" | "push" | null; created_at: string }>(
+      `SELECT w.id,gr.game_type,gr.name AS room_name,w.choice,w.amount_minor,w.payout_minor,w.outcome,w.settled_at AS created_at
+       FROM wagers w JOIN game_rooms gr ON gr.id=w.room_id
+       WHERE w.user_id=$1 AND w.status='settled'
+       ORDER BY w.settled_at DESC LIMIT $2`,
+      [userId, limitPerGame],
+    ),
+    pool.query<{ id: string; game_type: GameType; room_name: string; amount_minor: string; payout_minor: string | null; outcome: "win" | "lose" | "push" | "blackjack" | "surrender" | null; created_at: string }>(
+      `SELECT h.id,gr.game_type,gr.name AS room_name,h.bet_minor AS amount_minor,h.payout_minor,h.outcome,h.settled_at AS created_at
+       FROM blackjack_hands h JOIN game_rooms gr ON gr.id=h.room_id
+       WHERE h.user_id=$1 AND h.settled_at IS NOT NULL
+       ORDER BY h.settled_at DESC LIMIT $2`,
+      [userId, limitPerGame],
+    ),
+    pool.query<{ id: string; game_type: GameType; room_name: string; seat_number: number; amount_minor: string; payout_minor: string | null; outcome: "win" | "lose" | "push" | null; created_at: string }>(
+      `SELECT c.id,gr.game_type,gr.name AS room_name,c.seat_number,c.amount_minor,c.payout_minor,c.outcome,c.settled_at AS created_at
+       FROM holdem_contributions c JOIN game_rooms gr ON gr.id=c.room_id
+       WHERE c.user_id=$1 AND c.settled_at IS NOT NULL
+       ORDER BY c.settled_at DESC LIMIT $2`,
+      [userId, limitPerGame],
+    ),
+  ]);
+
+  const items = [
+    ...wagerRows.rows.map((row) => ({
+      id: row.id,
+      game: row.game_type,
+      roomName: row.room_name,
+      choiceLabel: BACCARAT_HISTORY_CHOICE_LABEL[row.choice] ?? row.choice,
+      amount: coins(row.amount_minor),
+      outcome: row.outcome,
+      net: coins(Number(row.payout_minor ?? 0) - Number(row.amount_minor)),
+      createdAt: row.created_at,
+    })),
+    ...blackjackRows.rows.map((row) => ({
+      id: row.id,
+      game: row.game_type,
+      roomName: row.room_name,
+      choiceLabel: "블랙잭",
+      amount: coins(row.amount_minor),
+      outcome: row.outcome,
+      net: coins(Number(row.payout_minor ?? 0) - Number(row.amount_minor)),
+      createdAt: row.created_at,
+    })),
+    ...holdemRows.rows.map((row) => ({
+      id: row.id,
+      game: row.game_type,
+      roomName: row.room_name,
+      choiceLabel: `홀덤 ${row.seat_number}번 좌석`,
+      amount: coins(row.amount_minor),
+      outcome: row.outcome,
+      net: coins(Number(row.payout_minor ?? 0) - Number(row.amount_minor)),
+      createdAt: row.created_at,
+    })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100);
+
+  const byGameMap = new Map<GameType, { totalWagered: number; wins: number; losses: number; pushes: number; net: number }>();
+  for (const row of [...wagerRows.rows, ...blackjackRows.rows, ...holdemRows.rows]) {
+    const tally = byGameMap.get(row.game_type) ?? { totalWagered: 0, wins: 0, losses: 0, pushes: 0, net: 0 };
+    tally.totalWagered += coins(row.amount_minor);
+    tally.net += coins(Number(row.payout_minor ?? 0) - Number(row.amount_minor));
+    const bucket = row.outcome ? (BLACKJACK_HISTORY_OUTCOME_TO_TALLY[row.outcome] ?? null) : null;
+    if (bucket === "win") tally.wins += 1;
+    else if (bucket === "lose") tally.losses += 1;
+    else if (bucket === "push") tally.pushes += 1;
+    byGameMap.set(row.game_type, tally);
+  }
+  const byGame = [...byGameMap.entries()].map(([game, tally]) => ({ game, ...tally }));
+  const overall = byGame.reduce(
+    (total, tally) => ({
+      totalWagered: total.totalWagered + tally.totalWagered,
+      wins: total.wins + tally.wins,
+      losses: total.losses + tally.losses,
+      pushes: total.pushes + tally.pushes,
+      net: total.net + tally.net,
+    }),
+    { totalWagered: 0, wins: 0, losses: 0, pushes: 0, net: 0 },
+  );
+
+  res.json({ items, overall, byGame });
+});
 
 io.use((socket, next) => {
   try {
@@ -615,16 +933,46 @@ io.on("connection", (socket) => {
       ack({ ok: false, code, error: messageFor(error) });
     }
   });
+  socket.on("sutda.join", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try { await authorizeCommand(); if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND"); ack({ ok: true, data: await sutdaRooms.join(socket, payload.roomId) }); }
+    catch (error) { ack({ ok: false, code: "ROOM_JOIN_FAILED", error: messageFor(error) }); }
+  });
+  socket.on("sutda.leave", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try { await authorizeCommand(); await sutdaRooms.leave(socket, payload.roomId); ack({ ok: true, data: undefined }); }
+    catch (error) { ack({ ok: false, code: "ROOM_LEAVE_FAILED", error: messageFor(error) }); }
+  });
+  socket.on("sutda.sit", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try { await authorizeCommand(); const parsed = sutdaSeatCommandSchema.safeParse(payload); if (!parsed.success) return ack({ ok: false, code: "INVALID_SEAT", error: "착석 요청 형식이 올바르지 않습니다." }); ack({ ok: true, data: await sutdaRooms.sit(socket.data.user.id, parsed.data) }); }
+    catch (error) { const code = error instanceof Error ? error.message : "SEAT_FAILED"; ack({ ok: false, code, error: messageFor(error) }); }
+  });
+  socket.on("sutda.standUp", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try { await authorizeCommand(); if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND"); ack({ ok: true, data: await sutdaRooms.standUp(socket.data.user.id, payload.roomId) }); }
+    catch (error) { const code = error instanceof Error ? error.message : "STAND_FAILED"; ack({ ok: false, code, error: messageFor(error) }); }
+  });
+  socket.on("sutda.ready", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try { await authorizeCommand(); const parsed = sutdaReadyCommandSchema.safeParse(payload); if (!parsed.success) return ack({ ok: false, code: "INVALID_READY", error: "준비 요청 형식이 올바르지 않습니다." }); ack({ ok: true, data: await sutdaRooms.setReady(socket.data.user.id, parsed.data.roomId, parsed.data.ready) }); }
+    catch (error) { const code = error instanceof Error ? error.message : "READY_FAILED"; ack({ ok: false, code, error: messageFor(error) }); }
+  });
+  socket.on("sutda.act", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try { await authorizeCommand(); const parsed = sutdaActionCommandSchema.safeParse(payload); if (!parsed.success) return ack({ ok: false, code: "INVALID_ACTION", error: "액션 요청 형식이 올바르지 않습니다." }); ack({ ok: true, data: await sutdaRooms.act(socket.data.user.id, parsed.data) }); }
+    catch (error) { const code = error instanceof Error ? error.message : "ACTION_FAILED"; ack({ ok: false, code, error: messageFor(error) }); }
+  });
   socket.on("room.chat.send", async (payload, ack) => {
     if (typeof ack !== "function") return;
     try {
       await authorizeCommand();
       if (!payload || typeof payload.roomId !== "string" || typeof payload.message !== "string") throw new Error("CHAT_INVALID");
-      if (!rooms.isParticipant(socket.data.user.id, payload.roomId) && !dragonTigerRooms.isParticipant(socket.data.user.id, payload.roomId) && !blackjackRooms.isParticipant(socket.data.user.id, payload.roomId) && !holdemRooms.isParticipant(socket.data.user.id, payload.roomId)) throw new Error("ROOM_JOIN_REQUIRED");
+      if (!rooms.isParticipant(socket.data.user.id, payload.roomId) && !dragonTigerRooms.isParticipant(socket.data.user.id, payload.roomId) && !blackjackRooms.isParticipant(socket.data.user.id, payload.roomId) && !holdemRooms.isParticipant(socket.data.user.id, payload.roomId) && !sutdaRooms.isParticipant(socket.data.user.id, payload.roomId)) throw new Error("ROOM_JOIN_REQUIRED");
       const message = await createRoomMessage(socket.data.user.id, payload.roomId, payload.message);
       // Baccarat and blackjack actors use different gameplay channels. The
       // union also mirrors every table message to the admin monitoring feed.
-      io.to(`room:${payload.roomId}`).to(`dt-room:${payload.roomId}`).to(`bj-room:${payload.roomId}`).to(`holdem-room:${payload.roomId}`).to("chat:admins").emit("room.chat.message", message);
+      io.to(`room:${payload.roomId}`).to(`dt-room:${payload.roomId}`).to(`bj-room:${payload.roomId}`).to(`holdem-room:${payload.roomId}`).to(`sutda-room:${payload.roomId}`).to("chat:admins").emit("room.chat.message", message);
       ack({ ok: true, data: message });
     } catch (error) {
       const code = error instanceof Error ? error.message : "CHAT_FAILED";
@@ -783,6 +1131,7 @@ io.on("connection", (socket) => {
     void dragonTigerRooms.disconnect(socket);
     void blackjackRooms.disconnect(socket);
     void holdemRooms.disconnect(socket);
+    void sutdaRooms.disconnect(socket);
   });
 });
 
@@ -824,6 +1173,7 @@ function messageFor(error: unknown): string {
 // game_rounds row globally and only knows how to refund from the `wagers` table, so it must not
 // reach a leftover Hold'em hand before holdemRooms has had a chance to refund its pot properly.
 await holdemRooms.initialize();
+await sutdaRooms.initialize();
 await rooms.initialize();
 await dragonTigerRooms.initialize();
 await blackjackRooms.initialize();

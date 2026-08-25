@@ -184,6 +184,10 @@ class BlackjackRoomActor {
     return this.participants.has(userId);
   }
 
+  participantUserIds(): string[] {
+    return [...this.participants.keys()];
+  }
+
   async claimSeat(userId: string, command: BlackjackSeatCommand): Promise<BlackjackRoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     const existingSeat = this.seatOf(userId);
@@ -799,6 +803,10 @@ export class BlackjackRoomManager {
 
   isParticipant(userId: string, roomId: string): boolean {
     return this.actors.get(roomId)?.hasParticipant(userId) ?? false;
+  }
+
+  participantUserIds(roomId: string): string[] | null {
+    return this.actors.get(roomId)?.participantUserIds() ?? null;
   }
 
   setPaused(roomId: string, paused: boolean): boolean {

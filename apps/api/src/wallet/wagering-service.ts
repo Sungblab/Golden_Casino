@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { COIN_SCALE } from "@golden/contracts";
 import { pool } from "../database/pool.js";
 
-export type WageringSourceType = "baccarat_wager" | "dragon_tiger_wager" | "blackjack_hand" | "blackjack_behind" | "blackjack_insurance" | "holdem_rake";
+export type WageringSourceType = "baccarat_wager" | "dragon_tiger_wager" | "blackjack_hand" | "blackjack_behind" | "blackjack_insurance" | "holdem_rake" | "sutda_rake";
 
 export type WageringProgressMinor = {
   requiredMinor: number;

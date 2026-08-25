@@ -20,6 +20,7 @@ import { RoomChat } from "../components/RoomChat";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
+import { playSound } from "../lib/sound";
 
 const BETTING_SECONDS = 12;
 const TIMER_RING = 163.4;
@@ -135,8 +136,9 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     previousPhase.current = phase;
     // `message` is otherwise never cleared — a rejected-bet error would sit on screen through
     // settlement and into the next round's betting window.
-    if (phase === "BETTING") setMessage("");
+    if (phase === "BETTING") { setMessage(""); playSound("chip"); }
     if (phase === "LOCKED") {
+      playSound("deal");
       const placed = Object.fromEntries(Object.entries(snapshot.myBets).filter(([, amount]) => (amount ?? 0) > 0));
       if (Object.keys(placed).length > 0) lastBets.current = placed;
     }
@@ -170,6 +172,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     roadRevealTimer.current = window.setTimeout(() => {
       setVisibleRoadHistory(roadHistory);
       setResultRevealed(true);
+      playSound(snapshot.result!);
     }, ROAD_REVEAL_DELAY_MS);
   }, [snapshot, roadHistory]);
 
@@ -187,6 +190,13 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   // Suited Tie is capped lower than the table's main limit (see bet-service.ts SIDE_BET_CHOICES) —
   // surface that cap in the odds line so a rejected bet isn't a mystery.
   const suitedTieOdds = snapshot.room.sideBetMax ? `50:1 · MAX ${snapshot.room.sideBetMax}` : "50:1";
+  // Live-table board: everyone's bets this round, not just mine — each zone's share of the
+  // total pot plus how many players are backing it.
+  const totalPot = Object.values(snapshot.betTotals).reduce((sum, total) => sum + total.amount, 0);
+  const zoneShare = (choice: DragonTigerBetChoice) => {
+    const total = snapshot.betTotals[choice];
+    return { sharePercent: total && totalPot > 0 ? Math.round((total.amount / totalPot) * 100) : undefined, players: total?.players };
+  };
 
   const place = (choice: DragonTigerBetChoice, amount = chip) => {
     if (!snapshot.roundId) return;
@@ -222,6 +232,8 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
       title={snapshot.room.name}
       subtitle={`MIN ${snapshot.room.minBet} · MAX ${snapshot.room.maxBet} · 8덱 · 남은 카드 ${snapshot.shoeRemaining}`}
       phaseLabel={snapshot.room.paused ? "일시정지" : phaseLabel(snapshot.room.phase)}
+      // The felt's own ring timer already shows the countdown during betting — showing it
+      // a second time up in the bar was redundant. Other timed phases (no ring) still show it.
       phaseSeconds={snapshot.phaseEndsAt ? seconds : null}
       balance={snapshot.walletBalance}
       onLogout={onLogout}
@@ -258,10 +270,10 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
             {/* Dragon left / Tiger right (matching the physical card positions above), with Tie and
                 Suited Tie grouped in the middle two columns — Evolution's own Dragon Tiger layout. */}
             <div className="ot-print dragon-tiger-print">
-              <BetZone className="player" label="DRAGON" odds="1:1" amount={snapshot.myBets.dragon ?? 0} disabled={!betting} onPlace={() => place("dragon")} />
-              <BetZone className="tie" label="TIE" odds="11:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} />
-              <BetZone className="pair" label="SUITED TIE" odds={suitedTieOdds} amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} />
-              <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} />
+              <BetZone className="player" label="DRAGON" odds="1:1" amount={snapshot.myBets.dragon ?? 0} disabled={!betting} onPlace={() => place("dragon")} {...zoneShare("dragon")} />
+              <BetZone className="tie" label="TIE" odds="11:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} {...zoneShare("tie")} />
+              <BetZone className="pair" label="SUITED TIE" odds={suitedTieOdds} amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} {...zoneShare("suited_tie")} />
+              <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} {...zoneShare("tiger")} />
             </div>
             <aside className="ot-road left dragon-tiger-road">
               <BigRoad history={visibleRoadHistory} compact labels={ROAD_LABELS} />

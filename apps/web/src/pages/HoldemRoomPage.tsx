@@ -175,6 +175,8 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
       title={snapshot.room.name}
       subtitle={`BLIND ${snapshot.room.minBet}/${bigBlind} · MAX ${snapshot.room.maxBet}`}
       phaseLabel={snapshot.room.paused ? "일시정지" : phaseLabel(snapshot.room.phase, snapshot.street)}
+      // The felt's own ring timer already shows the countdown on my turn — showing it a
+      // second time up in the bar was redundant. Other players' turns (no ring for me) still show it.
       phaseSeconds={snapshot.phaseEndsAt ? seconds : null}
       balance={snapshot.walletBalance}
       onLogout={onLogout}
@@ -224,8 +226,10 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
               )}
             </div>
             {message && <p className="ot-message">{message}</p>}
-          </div>
-          <footer className="ot-rail holdem-rail">
+
+            {/* Betting lives on the felt itself, like Baccarat's bet zones — not tucked in a
+                separate footer rail, which on a short mobile screen was pushing these controls
+                below the visible viewport entirely. */}
             {mySeat && myTurn && (
               <div className="holdem-actions">
                 {maxRaiseTo > snapshot.toCall + mySeat.streetContributed && (
@@ -265,8 +269,8 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                 </div>
               </div>
             )}
-            {mySeat && snapshot.room.phase === "WAITING" ? (
-              <div className="holdem-ready-dock">
+            {mySeat && snapshot.room.phase === "WAITING" && (
+              <div className="holdem-ready-dock on-felt">
                 <span className="holdem-ready-status">
                   {snapshot.seats.filter((seat) => seat.userId && seat.ready).length}/{snapshot.seats.filter((seat) => seat.userId).length}명 준비 완료
                 </span>
@@ -278,9 +282,10 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                   {mySeat.ready ? "준비 취소" : "준비 완료"}
                 </button>
               </div>
-            ) : (
-              mySeat && !myTurn && <div className="ot-money right"><small>내 좌석</small><strong>{mySeat.stack.toLocaleString()}</strong></div>
             )}
+          </div>
+          <footer className="ot-rail holdem-rail">
+            {mySeat && !myTurn && snapshot.room.phase !== "WAITING" && <div className="ot-money right"><small>내 좌석</small><strong>{mySeat.stack.toLocaleString()}</strong></div>}
             {mySeat && <button className="outline-button" onClick={standUp} disabled={!!snapshot.roundId && mySeat.totalContributed > 0 && !mySeat.folded}>자리 비우기</button>}
             <PokerHandGuide />
             <RoomChat socket={socket} roomId={roomId} token={token} />

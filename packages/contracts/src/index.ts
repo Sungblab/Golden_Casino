@@ -7,6 +7,7 @@ export const gameTypeSchema = z.enum([
   "blackjack",
   "lightning_blackjack",
   "holdem",
+  "sutda",
 ]);
 export type GameType = z.infer<typeof gameTypeSchema>;
 
@@ -32,6 +33,10 @@ export const baccaratBetChoiceSchema = z.enum([
   "banker_pair",
 ]);
 export type BaccaratBetChoice = z.infer<typeof baccaratBetChoiceSchema>;
+
+/** Live, room-wide (not just mine) view of who's backing each zone this round — amount is coins, not minor units. */
+export const betZoneTotalSchema = z.object({ amount: z.number().int().nonnegative(), players: z.number().int().nonnegative() });
+export type BetZoneTotal = z.infer<typeof betZoneTotalSchema>;
 
 export const dragonTigerBetChoiceSchema = z.enum(["dragon", "tiger", "tie", "suited_tie"]);
 export type DragonTigerBetChoice = z.infer<typeof dragonTigerBetChoiceSchema>;
@@ -135,10 +140,36 @@ export const adminHouseStatsSchema = z.object({
 });
 export type AdminHouseStats = z.infer<typeof adminHouseStatsSchema>;
 
+export const adminHouseByGameSchema = z.object({
+  game: gameTypeSchema,
+  totalWagered: z.number().int().nonnegative(),
+  houseProfit: z.number().int(),
+  settledBets: z.number().int().nonnegative(),
+});
+export type AdminHouseByGame = z.infer<typeof adminHouseByGameSchema>;
+
+export const adminTrendDaySchema = z.object({
+  date: z.string(),
+  bets: z.number().int().nonnegative(),
+  wagered: z.number().int().nonnegative(),
+  houseProfit: z.number().int(),
+});
+export type AdminTrendDay = z.infer<typeof adminTrendDaySchema>;
+
+export const adminCashFlowSchema = z.object({
+  totalDeposits: z.number().int().nonnegative(),
+  totalWithdrawals: z.number().int().nonnegative(),
+  netFlow: z.number().int(),
+});
+export type AdminCashFlow = z.infer<typeof adminCashFlowSchema>;
+
 export const adminOverviewSchema = z.object({
   rooms: z.array(gameRoomSchema),
   users: z.array(adminUserSchema),
   house: adminHouseStatsSchema,
+  houseByGame: z.array(adminHouseByGameSchema),
+  recentTrend: z.array(adminTrendDaySchema),
+  cashFlow: adminCashFlowSchema,
   pendingCashRequests: z.object({ count: z.number().int().nonnegative(), amount: z.number().int().nonnegative() }),
   openSupportConversations: z.number().int().nonnegative(),
 });
@@ -157,6 +188,7 @@ export const roomSnapshotSchema = z.object({
   playerPair: z.boolean(),
   bankerPair: z.boolean(),
   myBets: z.record(baccaratBetChoiceSchema, z.number().int().nonnegative()),
+  betTotals: z.record(baccaratBetChoiceSchema, betZoneTotalSchema),
   walletBalance: z.number().int().nonnegative(),
   recentResults: z.array(roundHistoryEntrySchema),
   shoeRemaining: z.number().int().nonnegative(),
@@ -201,6 +233,7 @@ export const dragonTigerRoomSnapshotSchema = z.object({
   result: dragonTigerResultSchema.nullable(),
   suitedTie: z.boolean(),
   myBets: z.record(dragonTigerBetChoiceSchema, z.number().int().nonnegative()),
+  betTotals: z.record(dragonTigerBetChoiceSchema, betZoneTotalSchema),
   walletBalance: z.number().int().nonnegative(),
   shoeRemaining: z.number().int().nonnegative(),
   recentResults: z.array(dragonTigerHistoryEntrySchema),
@@ -410,7 +443,8 @@ export const holdemSeatSchema = z.object({
   isTurn: z.boolean(),
   holeCards: z.array(cardSchema).length(2).nullable(),
   handCategory: pokerHandCategorySchema.nullable(),
-  /** Only meaningful pre-hand (room.phase WAITING) — cleared for everyone once a hand starts. */
+  /** Sticky across hands once set (cleared only by un-readying or standing up) — only shown
+   *  to the player pre-hand (room.phase WAITING); irrelevant once a hand is underway. */
   ready: z.boolean(),
 });
 export type HoldemSeatSnapshot = z.infer<typeof holdemSeatSchema>;
@@ -463,6 +497,65 @@ export const holdemActionCommandSchema = z.object({
   amount: z.number().int().nonnegative().optional(),
 });
 export type HoldemActionCommand = z.infer<typeof holdemActionCommandSchema>;
+
+// ---------------------------------------------------------------------------
+// Sutda: 2–6 player PvP.  The server owns both the hidden hwatu deck and every
+// betting decision; the client only receives its own cards until showdown.
+// ---------------------------------------------------------------------------
+export const hwatuKindSchema = z.enum(["hikari", "tanzaku", "tane", "kasu"]);
+export type HwatuKind = z.infer<typeof hwatuKindSchema>;
+export const hwatuCardSchema = z.object({
+  id: z.string(),
+  month: z.number().int().min(1).max(10),
+  kind: hwatuKindSchema,
+});
+export type HwatuCard = z.infer<typeof hwatuCardSchema>;
+
+export const sutdaStreetSchema = z.enum(["first", "final", "showdown"]);
+export type SutdaStreet = z.infer<typeof sutdaStreetSchema>;
+export const sutdaActionSchema = z.enum(["die", "check", "call", "half"]);
+export type SutdaAction = z.infer<typeof sutdaActionSchema>;
+export const sutdaPotSchema = z.object({ amount: z.number().int().nonnegative() });
+export type SutdaPotSnapshot = z.infer<typeof sutdaPotSchema>;
+export const sutdaSeatSchema = z.object({
+  seatNumber: z.number().int().min(1).max(6),
+  userId: z.string().uuid().nullable(),
+  username: z.string().nullable(),
+  stack: z.number().int().nonnegative(),
+  streetContributed: z.number().int().nonnegative(),
+  totalContributed: z.number().int().nonnegative(),
+  folded: z.boolean(),
+  sittingOut: z.boolean(),
+  isDealer: z.boolean(),
+  isTurn: z.boolean(),
+  cards: z.array(hwatuCardSchema).min(1).max(2).nullable(),
+  handLabel: z.string().nullable(),
+  ready: z.boolean(),
+});
+export type SutdaSeatSnapshot = z.infer<typeof sutdaSeatSchema>;
+export const sutdaWinnerSchema = z.object({ seatNumber: z.number().int().min(1).max(6), username: z.string(), amount: z.number().int().nonnegative(), handLabel: z.string() });
+export type SutdaWinnerSnapshot = z.infer<typeof sutdaWinnerSchema>;
+export const sutdaRoomSnapshotSchema = z.object({
+  room: gameRoomSchema,
+  roundId: z.string().uuid().nullable(),
+  sequence: z.number().int().nonnegative(),
+  phaseEndsAt: z.string().datetime().nullable(),
+  street: sutdaStreetSchema.nullable(),
+  pot: sutdaPotSchema,
+  seats: z.array(sutdaSeatSchema).length(6),
+  mySeatNumber: z.number().int().min(1).max(6).nullable(),
+  toCall: z.number().int().nonnegative(),
+  actingSeat: z.number().int().min(1).max(6).nullable(),
+  lastWinners: z.array(sutdaWinnerSchema),
+  walletBalance: z.number().int().nonnegative(),
+});
+export type SutdaRoomSnapshot = z.infer<typeof sutdaRoomSnapshotSchema>;
+export const sutdaSeatCommandSchema = z.object({ requestId: z.string().uuid(), roomId: z.string().uuid(), seatNumber: z.number().int().min(1).max(6) });
+export type SutdaSeatCommand = z.infer<typeof sutdaSeatCommandSchema>;
+export const sutdaReadyCommandSchema = z.object({ roomId: z.string().uuid(), ready: z.boolean() });
+export type SutdaReadyCommand = z.infer<typeof sutdaReadyCommandSchema>;
+export const sutdaActionCommandSchema = z.object({ requestId: z.string().uuid(), roomId: z.string().uuid(), roundId: z.string().uuid(), action: sutdaActionSchema });
+export type SutdaActionCommand = z.infer<typeof sutdaActionCommandSchema>;
 
 export const walletTransactionItemSchema = z.object({
   id: z.string(),
@@ -531,6 +624,36 @@ export const profileResponseSchema = z.object({
 });
 export type ProfileResponse = z.infer<typeof profileResponseSchema>;
 
+/** One settled bet/hand, normalized across baccarat/dragon tiger (wagers), blackjack
+ * (blackjack_hands), and hold'em (holdem_contributions) for the game history page. */
+export const gameHistoryItemSchema = z.object({
+  id: z.string(),
+  game: gameTypeSchema,
+  roomName: z.string(),
+  choiceLabel: z.string(),
+  amount: z.number().int().nonnegative(),
+  outcome: z.enum(["win", "lose", "push", "blackjack", "surrender"]).nullable(),
+  net: z.number().int(),
+  createdAt: z.string(),
+});
+export type GameHistoryItem = z.infer<typeof gameHistoryItemSchema>;
+
+export const gameHistoryStatsSchema = z.object({
+  totalWagered: z.number().int().nonnegative(),
+  wins: z.number().int().nonnegative(),
+  losses: z.number().int().nonnegative(),
+  pushes: z.number().int().nonnegative(),
+  net: z.number().int(),
+});
+export type GameHistoryStats = z.infer<typeof gameHistoryStatsSchema>;
+
+export const gameHistoryResponseSchema = z.object({
+  items: z.array(gameHistoryItemSchema),
+  overall: gameHistoryStatsSchema,
+  byGame: z.array(gameHistoryStatsSchema.extend({ game: gameTypeSchema })),
+});
+export type GameHistoryResponse = z.infer<typeof gameHistoryResponseSchema>;
+
 export const cashRequestCreateSchema = z.object({
   type: cashRequestTypeSchema,
   amount: z.number().int().positive(),
@@ -584,6 +707,20 @@ export const winnerFeedEntrySchema = z.object({
 });
 export type WinnerFeedEntry = z.infer<typeof winnerFeedEntrySchema>;
 
+export const siteAnnouncementSchema = z.object({
+  id: z.string(),
+  message: z.string(),
+  createdAt: z.string(),
+});
+export type SiteAnnouncement = z.infer<typeof siteAnnouncementSchema>;
+
+export const adminBroadcastSchema = z.object({
+  scope: z.enum(["all", "room"]),
+  roomId: z.string().uuid().optional(),
+  message: z.string().min(1).max(200),
+});
+export type AdminBroadcast = z.infer<typeof adminBroadcastSchema>;
+
 export type SocketAck<T = undefined> =
   | { ok: true; data: T }
   | { ok: false; error: string; code: string };
@@ -593,6 +730,7 @@ export interface ServerToClientEvents {
   "room.presence": (payload: { roomId: string; playerCount: number }) => void;
   "room.chat.message": (message: ChatMessage) => void;
   "room.winners": (payload: { entries: WinnerFeedEntry[] }) => void;
+  "site.announcement": (payload: SiteAnnouncement) => void;
   "support.message": (message: ChatMessage) => void;
   "cash.request.created": (payload: { id: string; type: CashRequestType; amount: number; username: string; createdAt: string }) => void;
   "wallet.updated": (payload: { balance: number }) => void;
@@ -600,6 +738,7 @@ export interface ServerToClientEvents {
   "blackjack.snapshot": (snapshot: BlackjackRoomSnapshot) => void;
   "dragonTiger.snapshot": (snapshot: DragonTigerRoomSnapshot) => void;
   "holdem.snapshot": (snapshot: HoldemRoomSnapshot) => void;
+  "sutda.snapshot": (snapshot: SutdaRoomSnapshot) => void;
 }
 
 export interface ClientToServerEvents {
@@ -630,6 +769,12 @@ export interface ClientToServerEvents {
   "holdem.ready": (payload: HoldemReadyCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
   "holdem.standUp": (payload: { roomId: string }, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
   "holdem.act": (payload: HoldemActionCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
+  "sutda.join": (payload: { roomId: string }, ack: (response: SocketAck<SutdaRoomSnapshot>) => void) => void;
+  "sutda.leave": (payload: { roomId: string }, ack: (response: SocketAck) => void) => void;
+  "sutda.sit": (payload: SutdaSeatCommand, ack: (response: SocketAck<SutdaRoomSnapshot>) => void) => void;
+  "sutda.standUp": (payload: { roomId: string }, ack: (response: SocketAck<SutdaRoomSnapshot>) => void) => void;
+  "sutda.ready": (payload: SutdaReadyCommand, ack: (response: SocketAck<SutdaRoomSnapshot>) => void) => void;
+  "sutda.act": (payload: SutdaActionCommand, ack: (response: SocketAck<SutdaRoomSnapshot>) => void) => void;
 }
 
 export const COIN_SCALE = 100;

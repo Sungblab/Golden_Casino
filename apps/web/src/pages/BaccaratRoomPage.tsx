@@ -27,13 +27,13 @@ import { CHIP_TIER_COLORS, chipTier, chipValuesForRoom, maximumAdditionalBet } f
  * draws — so budget against that:
  *
  *   5 × DEAL_STEP_MS + DEAL_LEAD_MS + THIRD_CARD_PAUSE_MS  ≤  DEALING_MS
- *   5 × 430          + 140          + 520                  =  2_810ms  ≤ 3_400ms
+ *   5 × 600          + 200          + 650                  =  3_850ms  ≤ 4_400ms
  */
-const DEAL_STEP_MS = 430;
+const DEAL_STEP_MS = 600;
 /** Beat before the first card lands, so the deal reads as deliberate rather than instant. */
-const DEAL_LEAD_MS = 140;
+const DEAL_LEAD_MS = 200;
 /** A natural-table pause before either side receives a third card. */
-const THIRD_CARD_PAUSE_MS = 520;
+const THIRD_CARD_PAUSE_MS = 650;
 /** Beat between the last card landing and the road/stats updating, so the scoreboard never
  * appears to know the outcome before the cards have finished being shown. */
 const ROAD_REVEAL_DELAY_MS = 450;
@@ -42,9 +42,9 @@ const BET_CHOICES: BaccaratBetChoice[] = ["player_pair", "player", "tie", "banke
 const BETTING_SECONDS = 12;
 /**
  * How long the settlement notice stays up. Must be shorter than the server's RESULT phase
- * (RESULT_MS, 4_000ms) or a win notice is still on screen during the next round's betting.
+ * (RESULT_MS, 5_500ms) or a win notice is still on screen during the next round's betting.
  */
-const RESULT_NOTICE_MS = 2_600;
+const RESULT_NOTICE_MS = 3_800;
 /** Circumference of the countdown ring's r=26 circle (2πr), used for its stroke-dashoffset animation. */
 const TIMER_RING = 163.4;
 
@@ -428,12 +428,21 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   // Pair bets are capped lower than the table's main limit (see bet-service.ts SIDE_BET_CHOICES) —
   // surface that cap in the odds line so a rejected bet isn't a mystery.
   const sideOdds = snapshot.room.sideBetMax ? `11:1 · MAX ${snapshot.room.sideBetMax}` : "11:1";
+  // Live-table board: everyone's bets this round, not just mine — each zone's share of the
+  // total pot plus how many players are backing it.
+  const totalPot = Object.values(snapshot.betTotals).reduce((sum, total) => sum + total.amount, 0);
+  const zoneShare = (choice: BaccaratBetChoice) => {
+    const total = snapshot.betTotals[choice];
+    return { sharePercent: total && totalPot > 0 ? Math.round((total.amount / totalPot) * 100) : undefined, players: total?.players };
+  };
 
   return (
     <GameShell
       title={snapshot.room.name}
       subtitle={`MIN ${snapshot.room.minBet} · MAX ${snapshot.room.maxBet} · 남은 카드 ${snapshot.shoeRemaining}`}
       phaseLabel={snapshot.room.paused ? "일시정지" : phaseLabel(snapshot.room.phase)}
+      // The felt's own ring timer already shows the countdown during betting — showing it
+      // a second time up in the bar was redundant. Other timed phases (no ring) still show it.
       phaseSeconds={snapshot.phaseEndsAt ? seconds : null}
       balance={snapshot.walletBalance}
       onLogout={onLogout}
@@ -472,7 +481,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
                 <div className="ot-cards">
                   {visiblePlayerCards.length === 0 && <span className="ot-card-slot">P</span>}
                   {visiblePlayerCards.map((card, index) => (
-                    <PlayingCard key={`p-${index}`} card={card} />
+                    <PlayingCard key={`p-${index}`} card={card} sideways={index === 2} />
                   ))}
                 </div>
               </div>
@@ -483,7 +492,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
                 <div className="ot-cards">
                   {visibleBankerCards.length === 0 && <span className="ot-card-slot">B</span>}
                   {visibleBankerCards.map((card, index) => (
-                    <PlayingCard key={`b-${index}`} card={card} />
+                    <PlayingCard key={`b-${index}`} card={card} sideways={index === 2} />
                   ))}
                 </div>
               </div>
@@ -504,11 +513,11 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             <RoundResultNotice notice={resultNotice} />
 
             <div className="ot-print">
-              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds={sideOdds} amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.player = el; }} className="player" label="PLAYER" odds="1:1" amount={snapshot.myBets.player ?? 0} disabled={!betting} onPlace={() => place("player")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.tie = el; }} className="tie" label="TIE" odds="8:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.banker = el; }} className="banker" label="BANKER" odds="0.95:1" amount={snapshot.myBets.banker ?? 0} disabled={!betting} onPlace={() => place("banker")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds={sideOdds} amount={snapshot.myBets.banker_pair ?? 0} disabled={!betting} onPlace={() => place("banker_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds={sideOdds} amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} {...zoneShare("player_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.player = el; }} className="player" label="PLAYER" odds="1:1" amount={snapshot.myBets.player ?? 0} disabled={!betting} onPlace={() => place("player")} {...zoneShare("player")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.tie = el; }} className="tie" label="TIE" odds="8:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} {...zoneShare("tie")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.banker = el; }} className="banker" label="BANKER" odds="0.95:1" amount={snapshot.myBets.banker ?? 0} disabled={!betting} onPlace={() => place("banker")} {...zoneShare("banker")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds={sideOdds} amount={snapshot.myBets.banker_pair ?? 0} disabled={!betting} onPlace={() => place("banker_pair")} {...zoneShare("banker_pair")} />
             </div>
 
             <aside className="ot-road left">

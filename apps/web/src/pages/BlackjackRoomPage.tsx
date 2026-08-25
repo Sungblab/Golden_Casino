@@ -205,9 +205,15 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   };
   const placeMainBet = () => {
     if (!snapshot.roundId) return;
+    // Betting is additive — each click stakes another `chip` on top of whatever's already down,
+    // not a fresh total. Say so explicitly once a bet already exists, and report the actual
+    // running total from the ack, not just this click's chip value — otherwise a second 10-coin
+    // top-up after an existing 40 reads as "10코인 본 베팅 완료", which looks like the whole bet
+    // just got overwritten down to 10 instead of the true total (50).
+    const wasFirstBet = !snapshot.myHand;
     if (snapshot.mySeat) setSelectedSeat(snapshot.mySeat);
     socket.emit("blackjack.bet", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, amount: chip }, (ack) => {
-      if (ack.ok) accept(ack.data, `${chip}코인 본 베팅 완료`);
+      if (ack.ok) accept(ack.data, wasFirstBet ? `${chip}코인 본 베팅 완료` : `${chip}코인 추가 · 총 ${ack.data.myHand?.bet ?? chip}코인`);
       else setMessage(ack.error);
     });
   };
@@ -284,6 +290,8 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
       title={snapshot.room.name}
       subtitle={`MIN ${snapshot.room.minBet} · MAX ${snapshot.room.maxBet} · 남은 카드 ${snapshot.shoeRemaining}`}
       phaseLabel={snapshot.room.paused ? "일시정지" : blackjackPhaseLabel(snapshot.room.phase)}
+      // The felt's own ring timer already shows the countdown during betting — showing it
+      // a second time up in the bar was redundant. Other timed phases (no ring) still show it.
       phaseSeconds={snapshot.phaseEndsAt ? seconds : null}
       balance={snapshot.walletBalance}
       onLogout={onLogout}
@@ -334,7 +342,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
             </div>
             {betting ? (
               <div className="bj-bet-dock">
-                {canRepeat && <div className="bj-dock-side"><button type="button" className="icon-action" onClick={repeatBet} aria-label="이전 베팅 반복" title="이전 베팅 반복"><Repeat2 size={17} /></button><span>REPEAT</span></div>}
+                {canRepeat && <div className="ot-acts bj-dock-side"><button type="button" className="outline-button icon-action" onClick={repeatBet} aria-label="이전 베팅 반복" title="이전 베팅 반복"><Repeat2 size={17} /></button></div>}
                 <div className="ot-tray">{chipValues.map((value) => <button key={value} className={`chip chip-option chip-tier-${chipTier(value)} ${chip === value ? "active" : ""}`} onClick={() => setChip(value)}>{value}</button>)}{!chipValues.includes(maxAdditional) && <button type="button" className={`chip chip-option chip-max ${chip === maxAdditional ? "active" : ""}`} disabled={maxAdditional <= 0 || (selectedBet === 0 && maxAdditional < snapshot.room.minBet)} onClick={() => setChip(maxAdditional)} title={`가능한 최대 금액 ${maxAdditional}코인`}>{maxAdditional}</button>}<button type="button" className={`chip-picker-trigger chip-tier-${chipTier(chip)}`} aria-label="칩 단위 선택" aria-expanded={chipMenuOpen} onClick={() => setChipMenuOpen((open) => !open)}>{chip}</button>{chipMenuOpen && <div className="chip-picker-menu" role="menu">{[...chipValues, ...(!chipValues.includes(maxAdditional) && maxAdditional > 0 ? [maxAdditional] : [])].map((value) => <button type="button" role="menuitem" key={value} className={`chip-tier-${chipTier(value)} ${chip === value ? "selected" : ""}`} onClick={() => { setChip(value); setChipMenuOpen(false); }}>{value}</button>)}</div>}</div>
                 {selectedCanFollow ? <button type="button" className="bet-confirm-button follow" disabled={chip > maxAdditional} onClick={() => placeBehind(selected!.seatNumber)}>{selected!.seatNumber}번 +{chip}</button>
                   : canMainBet && (!selected || selectedIsMine) ? <button type="button" className="bet-confirm-button" disabled={chip > maxAdditional} onClick={placeMainBet}>{chip}코인 {snapshot.myHand ? "추가 베팅" : "베팅"}</button>
@@ -391,7 +399,7 @@ function BlackjackSeat({ seat, isMine, isSelected, canClaim, onClaim, onSelect }
       <span className={`bj-seat-cards ${cardCount === 3 ? "three-cards" : cardCount >= 4 ? "many-cards" : ""}`} data-card-count={cardCount}>
         {seat.hand?.cards.length ? (
           <>
-            {seat.hand.cards.map((card, index) => <PlayingCard key={`${seat.seatNumber}-${index}`} card={card} animate={isMine || isSelected} />)}
+            {seat.hand.cards.map((card, index) => <PlayingCard key={`${seat.seatNumber}-${index}`} card={card} animate={isMine || isSelected} sideways={seat.hand!.status === "doubled" && index === cardCount - 1 && cardCount > 2} />)}
             <span className="bj-seat-total">{total}</span>
           </>
         ) : (

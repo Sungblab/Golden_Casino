@@ -102,8 +102,11 @@ export function RoomChat({
           <div className="room-chat-list" ref={listRef}>
             {messages.length === 0 && <p className="room-chat-empty">아직 대화가 없습니다. 첫 메시지를 남겨보세요!</p>}
             {messages.map((message) => (
-              <div key={message.id} className={`room-chat-message ${message.userId === myUserId.current ? "is-mine" : ""}`}>
-                <span className="room-chat-author">{message.username}</span>
+              <div
+                key={message.id}
+                className={`room-chat-message ${message.userId === myUserId.current ? "is-mine" : ""} ${message.role === "admin" ? "is-admin" : ""}`}
+              >
+                <span className="room-chat-author">{message.role === "admin" ? "관리자" : message.username}</span>
                 <span className="room-chat-text">{message.message}</span>
               </div>
             ))}

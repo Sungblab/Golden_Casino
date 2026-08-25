@@ -43,7 +43,12 @@ function AdminShell({ token, onLogout, children }: { token: string; onLogout: ()
 
   const pendingCash = cashRequests.filter((request) => request.status === "pending").length;
   return (
-    <AppShell balance={0} onLogout={onLogout} showAdminLink={false} showBalance={false} headerCenter={<AdminNavigation cashCount={pendingCash} supportCount={overview?.openSupportConversations ?? 0} />}>
+    <AppShell balance={0} onLogout={onLogout} showAdminLink={false} showBalance={false} headerCenter={
+      <div className="admin-header-center">
+        <Link className="lobby-return-button admin-lobby-link" to="/lobby"><span aria-hidden="true">←</span> 로비로</Link>
+        <AdminNavigation cashCount={pendingCash} supportCount={overview?.openSupportConversations ?? 0} />
+      </div>
+    }>
       {overview === null ? <div className="loading-screen"><p>{loading ? "관리자 정보를 불러오는 중…" : error || "관리자 정보를 불러오지 못했습니다."}</p></div> : children}
       {toast && <div className="admin-toast" role="status" aria-live="assertive"><div><strong>{toast.title}</strong><span>{toast.detail}</span></div><Link to={toast.href} onClick={() => setToast(null)}>바로 보기</Link><button type="button" aria-label="알림 닫기" onClick={() => setToast(null)}>×</button></div>}
     </AppShell>

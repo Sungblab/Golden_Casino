@@ -11,13 +11,21 @@ describe("rakeFor", () => {
     expect(rakeFor(999, 1000 * COIN_SCALE)).toBe(49);
   });
 
-  it("caps at three coins even on a huge pot", () => {
-    expect(rakeFor(1_000_000, 1000 * COIN_SCALE)).toBe(3 * COIN_SCALE);
+  it("caps rake at 3% of the table's own max bet, not a flat amount", () => {
+    // Standard tier (max bet 1,000 coins): cap is 30 coins, not the old flat 3-coin cap that
+    // ignored table tier entirely.
+    expect(rakeFor(1_000_000, 1000 * COIN_SCALE)).toBe(30 * COIN_SCALE);
+    // High Roller tier (max bet 5,000 coins, shared by Hold'em and Sutda): cap scales up to
+    // 150 coins instead of staying pinned at the same 3-coin cap as Rookie.
+    expect(rakeFor(1_000_000, 5000 * COIN_SCALE)).toBe(150 * COIN_SCALE);
+    // Rookie tier (max bet 100 coins) reproduces the original 3-coin cap this percentage was
+    // derived from.
+    expect(rakeFor(1_000_000, 100 * COIN_SCALE)).toBe(3 * COIN_SCALE);
   });
 
   it("never rakes more than the table's own max-bet-derived cap", () => {
-    // A 1-coin-max-bet table's cap is 1 coin, not the usual 3-coin cap.
-    expect(rakeFor(1_000_000, 1 * COIN_SCALE)).toBe(1 * COIN_SCALE);
+    // A 1-coin-max-bet table's cap is 3% of 1 coin (100 minor units) = 3 minor units.
+    expect(rakeFor(1_000_000, 1 * COIN_SCALE)).toBe(3);
   });
 
   it("takes nothing from an empty pot", () => {

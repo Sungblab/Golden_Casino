@@ -6,4 +6,5 @@ export * from "./dragon-tiger.js";
 export * from "./lightning.js";
 export * from "./holdem.js";
 export * from "./shoe.js";
+export * from "./sutda.js";
 

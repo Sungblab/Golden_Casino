@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { UserRound } from "lucide-react";
+import { History, LogOut, MessageCircle, UserRound, Wallet } from "lucide-react";
 
-/** Shared profile dropdown (내 프로필 / 게임 기록 / 로그아웃), used in both the site header and the in-game bar. */
+/** Shared profile dropdown (내 프로필 / 게임 기록 / 지갑 / 로그아웃), used in both the site header and the in-game bar. */
 export function ProfileMenu({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -39,10 +39,11 @@ export function ProfileMenu({ onLogout }: { onLogout: () => void }) {
       </button>
       {open && (
         <div className="profile-dropdown" role="menu">
-          <Link to="/profile" onClick={() => setOpen(false)}>내 프로필</Link>
-          <Link to="/wallet" onClick={() => setOpen(false)}>게임 기록</Link>
-          <Link to={isAdmin ? "/admin/support" : "/support"} onClick={() => setOpen(false)}>{isAdmin ? "문의 관리" : "1:1 문의"}</Link>
-          <button type="button" onClick={onLogout}>로그아웃</button>
+          <Link to="/profile" onClick={() => setOpen(false)}><UserRound size={15} /> 내 프로필</Link>
+          <Link to="/game-history" onClick={() => setOpen(false)}><History size={15} /> 게임 기록</Link>
+          <Link to="/wallet" onClick={() => setOpen(false)}><Wallet size={15} /> 지갑</Link>
+          <Link to={isAdmin ? "/admin/support" : "/support"} onClick={() => setOpen(false)}><MessageCircle size={15} /> {isAdmin ? "문의 관리" : "1:1 문의"}</Link>
+          <button type="button" onClick={onLogout}><LogOut size={15} /> 로그아웃</button>
         </div>
       )}
     </div>

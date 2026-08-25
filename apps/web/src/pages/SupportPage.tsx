@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
-import { Headphones } from "lucide-react";
 import type { ChatMessage, ClientToServerEvents, ProfileResponse, ServerToClientEvents } from "@golden/contracts";
 import { API_URL, getProfile, getSupportMessages } from "../api";
 import { AppShell } from "../components/AppShell";
@@ -85,7 +84,6 @@ export function SupportPage({ token, onLogout }: { token: string; onLogout: () =
 
       <section className="support-card" aria-label="관리자 1대1 문의">
         <header className="support-card-head">
-          <span className="support-agent-icon"><Headphones size={21} /></span>
           <div><strong>Golden Casino 고객센터</strong><small><i className={connected ? "is-online" : ""} />{connected ? "실시간 연결됨" : "연결 중"}</small></div>
         </header>
         <ChatThread messages={messages} currentUserId={profile?.user.id} emptyText="궁금한 점이나 도움이 필요한 내용을 남겨주세요. 관리자가 확인 후 답변해드립니다." />

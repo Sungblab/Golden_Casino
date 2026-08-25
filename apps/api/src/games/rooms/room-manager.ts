@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import {
   COIN_SCALE,
   type BaccaratBetChoice,
+  type BetZoneTotal,
   type CancelBetCommand,
   type ClientToServerEvents,
   type GameRoom,
@@ -52,14 +53,16 @@ function delay(milliseconds: number): Promise<void> {
  *
  * DEALING_MS is the one value that is not free to pick: the web client reveals the round's
  * cards one at a time (see DEAL_STEP_MS in BaccaratRoomPage.tsx) and a six-card round takes
- * ~2.8s to finish that animation. Anything shorter here and the table settles while the
+ * ~3.85s to finish that animation. Anything shorter here and the table settles while the
  * player is still watching cards land, so the result banner flashes past.
  */
 const BETTING_MS = 12_000;
 const LOCKED_MS = 700;
-const DEALING_MS = 3_400;
+const DEALING_MS = 4_400;
 const SETTLING_MS = 1_000;
-const RESULT_MS = 4_000;
+/** Long enough that RESULT_NOTICE_MS (client's win banner, BaccaratRoomPage.tsx) finishes
+ * with room to spare before the table moves on and the next round's betting starts. */
+const RESULT_MS = 5_500;
 
 class AutomaticBaccaratRoomActor {
   private phase: RoomPhase = "WAITING";
@@ -95,6 +98,15 @@ class AutomaticBaccaratRoomActor {
   setPaused(paused: boolean): void {
     this.paused = paused;
     if (!paused && this.phase === "WAITING" && this.playerCount > 0) this.launchCycle();
+  }
+
+  /** Admin "clear the scoreboard" — wipes the visible road now, and durably (see resetRoad in
+   * bet-service.ts) so it stays clear across a restart too, without touching round/wager history. */
+  async resetRoad(): Promise<void> {
+    await baccaratBetService.resetRoad(this.room.id);
+    this.recentResults = [];
+    this.sequence += 1;
+    await this.emitSnapshots();
   }
 
   get playerCount(): number {
@@ -149,6 +161,10 @@ class AutomaticBaccaratRoomActor {
     return this.participants.has(userId);
   }
 
+  participantUserIds(): string[] {
+    return [...this.participants.keys()];
+  }
+
   async placeBet(userId: string, command: PlaceBetCommand): Promise<RoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
@@ -167,7 +183,7 @@ class AutomaticBaccaratRoomActor {
     return this.snapshot(userId);
   }
 
-  async snapshot(userId: string): Promise<RoomSnapshot> {
+  async snapshot(userId: string, betTotals?: Record<string, BetZoneTotal>): Promise<RoomSnapshot> {
     const myBets = { player: 0, banker: 0, tie: 0, player_pair: 0, banker_pair: 0 };
     if (this.roundId) {
       const wagers = await pool.query<{ choice: keyof typeof myBets; total: string }>(
@@ -189,6 +205,11 @@ class AutomaticBaccaratRoomActor {
       playerPair: this.result?.playerPair ?? false,
       bankerPair: this.result?.bankerPair ?? false,
       myBets,
+      // Live "who's backing this zone" board, room-wide across every bettor. emitSnapshots()
+      // fetches this once per broadcast and reuses it for every participant's snapshot; the
+      // few call sites that return a snapshot directly (join/placeBet/cancelBet) fetch their
+      // own since they're one-off and only need it for the acting player anyway.
+      betTotals: betTotals ?? (this.roundId ? await baccaratBetService.roundBetTotals(this.roundId) : {}),
       walletBalance: await walletService.getUserBalance(userId),
       recentResults: this.recentResults,
       shoeRemaining: this.shoe.remaining,
@@ -226,8 +247,9 @@ class AutomaticBaccaratRoomActor {
   }
 
   private async emitSnapshots(): Promise<void> {
+    const betTotals = this.roundId ? await baccaratBetService.roundBetTotals(this.roundId) : {};
     for (const [userId, sockets] of this.participants) {
-      const snapshot = await this.snapshot(userId);
+      const snapshot = await this.snapshot(userId, betTotals);
       for (const socketId of sockets) this.io.to(socketId).emit("room.snapshot", snapshot);
     }
   }
@@ -400,10 +422,22 @@ export class RoomManager {
     return this.actors.get(roomId)?.hasParticipant(userId) ?? false;
   }
 
+  /** null when this manager doesn't own roomId at all — lets admin broadcast chain across managers like setPaused does. */
+  participantUserIds(roomId: string): string[] | null {
+    return this.actors.get(roomId)?.participantUserIds() ?? null;
+  }
+
   setPaused(roomId: string, paused: boolean): boolean {
     const actor = this.actors.get(roomId);
     if (!actor) return false;
     actor.setPaused(paused);
+    return true;
+  }
+
+  async resetRoad(roomId: string): Promise<boolean> {
+    const actor = this.actors.get(roomId);
+    if (!actor) return false;
+    await actor.resetRoad();
     return true;
   }
 }
