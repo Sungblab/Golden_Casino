@@ -227,6 +227,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     const phase = snapshot.room.phase;
     if (phase === previousPhase.current) return;
     previousPhase.current = phase;
+    if (phase === "BETTING") playSound("chip");
     if (phase === "LOCKED") {
       const placed = Object.fromEntries(Object.entries(snapshot.myBets).filter(([, amount]) => amount > 0));
       roundBetsRef.current = placed;
@@ -345,7 +346,6 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
         setSnapshot((current) => (!current || ack.data.sequence >= current.sequence ? ack.data : current));
         const total = ack.data.myBets[choice] ?? amount;
         setMessage(`${choiceLabel(choice)} ${total}코인 베팅 완료`);
-        playSound("chip");
         spawnFlyingChip(choice, amount, chip);
       } else {
         setMessage(ack.error);
@@ -474,11 +474,11 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             <RoundResultNotice notice={resultNotice} />
 
             <div className="ot-print">
-              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds="11:1" amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} onCancel={() => cancel("player_pair")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.player = el; }} className="player" label="PLAYER" odds="1:1" amount={snapshot.myBets.player ?? 0} disabled={!betting} onPlace={() => place("player")} onCancel={() => cancel("player")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.tie = el; }} className="tie" label="TIE" odds="8:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} onCancel={() => cancel("tie")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.banker = el; }} className="banker" label="BANKER" odds="0.95:1" amount={snapshot.myBets.banker ?? 0} disabled={!betting} onPlace={() => place("banker")} onCancel={() => cancel("banker")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds="11:1" amount={snapshot.myBets.banker_pair ?? 0} disabled={!betting} onPlace={() => place("banker_pair")} onCancel={() => cancel("banker_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds="11:1" amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.player = el; }} className="player" label="PLAYER" odds="1:1" amount={snapshot.myBets.player ?? 0} disabled={!betting} onPlace={() => place("player")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.tie = el; }} className="tie" label="TIE" odds="8:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.banker = el; }} className="banker" label="BANKER" odds="0.95:1" amount={snapshot.myBets.banker ?? 0} disabled={!betting} onPlace={() => place("banker")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds="11:1" amount={snapshot.myBets.banker_pair ?? 0} disabled={!betting} onPlace={() => place("banker_pair")} />
             </div>
 
             <aside className="ot-road left">

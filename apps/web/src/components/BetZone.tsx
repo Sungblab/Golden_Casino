@@ -17,7 +17,6 @@ export function BetZone({
   amount,
   disabled,
   onPlace,
-  onCancel,
   buttonRef,
 }: {
   className: string;
@@ -26,7 +25,6 @@ export function BetZone({
   amount: number;
   disabled: boolean;
   onPlace: () => void;
-  onCancel: () => void;
   buttonRef?: (el: HTMLButtonElement | null) => void;
 }) {
   const layers = chipLayerCount(amount);
@@ -38,16 +36,13 @@ export function BetZone({
         <small>{odds}</small>
       </button>
       {amount > 0 && (
+        // No per-chip cancel here — the rail's "전체 베팅 되돌리기" (undo) button already
+        // covers clearing a bet, and a redundant X on every chip stack was clutter.
         <span className="chip-stack" style={stackStyle} aria-label={`${label} 베팅 ${amount}코인`}>
           {Array.from({ length: Math.max(0, layers - 1) }).map((_, index) => (
             <span key={index} className="chip-stack-layer" style={{ bottom: index * 3 }} />
           ))}
           <span className="chip-stack-top">{amount}</span>
-          {!disabled && (
-            <button type="button" className="chip-cancel" title="이 베팅 취소" onClick={onCancel}>
-              ×
-            </button>
-          )}
         </span>
       )}
     </div>

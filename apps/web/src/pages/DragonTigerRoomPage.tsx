@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { Repeat2, Undo2 } from "lucide-react";
 import { io, type Socket } from "socket.io-client";
 import type {
   ClientToServerEvents,
@@ -24,18 +25,22 @@ const BETTING_SECONDS = 12;
 const TIMER_RING = 163.4;
 const RESULT_NOTICE_MS = 2_600;
 const ROAD_LABELS = { player: "D", banker: "T" } as const;
+const BET_CHOICES: DragonTigerBetChoice[] = ["dragon", "tie", "suited_tie", "tiger"];
 
 export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const { roomId = "" } = useParams();
   const [snapshot, setSnapshot] = useState<DragonTigerRoomSnapshot | null>(null);
   const [message, setMessage] = useState("");
   const [chip, setChip] = useState(1);
+  const [chipMenuOpen, setChipMenuOpen] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [resultNotice, setResultNotice] = useState<RoundResultNoticeData | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const noticeRoundRef = useRef<string | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
+  const previousPhase = useRef<DragonTigerRoomSnapshot["room"]["phase"] | null>(null);
+  const lastBets = useRef<Partial<DragonTigerRoomSnapshot["myBets"]>>({});
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
     () => io(API_URL, { auth: { token }, autoConnect: false }),
     [token],
@@ -110,6 +115,18 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     setResultNotice(null);
   }, [snapshot?.roundId]);
 
+  // Snapshot this round's bets so "repeat bet" has something to replay next round.
+  useEffect(() => {
+    if (!snapshot) return;
+    const phase = snapshot.room.phase;
+    if (phase === previousPhase.current) return;
+    previousPhase.current = phase;
+    if (phase === "LOCKED") {
+      const placed = Object.fromEntries(Object.entries(snapshot.myBets).filter(([, amount]) => (amount ?? 0) > 0));
+      if (Object.keys(placed).length > 0) lastBets.current = placed;
+    }
+  }, [snapshot]);
+
   const roadHistory: RoundHistoryEntry[] = useMemo(
     () => (snapshot?.recentResults ?? []).map((entry) => ({
       result: entry.result === "dragon" ? "player" : entry.result === "tiger" ? "banker" : "tie",
@@ -143,6 +160,18 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
       else setMessage(ack.error);
     });
   };
+  const clearAllBets = () => {
+    BET_CHOICES.forEach((choice) => {
+      if ((snapshot.myBets[choice] ?? 0) > 0) cancel(choice);
+    });
+  };
+  const hasCurrentBets = Object.values(snapshot.myBets).some((amount) => (amount ?? 0) > 0);
+  const canRepeat = Object.keys(lastBets.current).length > 0;
+  const repeatBet = () => {
+    for (const [choice, amount] of Object.entries(lastBets.current)) {
+      if (amount) place(choice as DragonTigerBetChoice, amount);
+    }
+  };
 
   return (
     <GameShell
@@ -158,7 +187,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     >
       <div className="room-shell">
         <section className="ot-stage">
-          <div className="ot-felt dragon-tiger-felt">
+          <div className="ot-felt baccarat dragon-tiger-felt">
             <div className="ot-feed"><WinnerFeed socket={socket} /></div>
             <div className="ot-hands dragon-tiger-hands">
               <div className={`ot-hand player ${snapshot.result === "dragon" ? "won" : ""}`}>
@@ -185,10 +214,10 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
             {/* Dragon left / Tiger right (matching the physical card positions above), with Tie and
                 Suited Tie grouped in the middle two columns — Evolution's own Dragon Tiger layout. */}
             <div className="ot-print dragon-tiger-print">
-              <BetZone className="player" label="DRAGON" odds="1:1" amount={snapshot.myBets.dragon ?? 0} disabled={!betting} onPlace={() => place("dragon")} onCancel={() => cancel("dragon")} />
-              <BetZone className="tie" label="TIE" odds="11:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} onCancel={() => cancel("tie")} />
-              <BetZone className="pair" label="SUITED TIE" odds="50:1" amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} onCancel={() => cancel("suited_tie")} />
-              <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} onCancel={() => cancel("tiger")} />
+              <BetZone className="player" label="DRAGON" odds="1:1" amount={snapshot.myBets.dragon ?? 0} disabled={!betting} onPlace={() => place("dragon")} />
+              <BetZone className="tie" label="TIE" odds="11:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} />
+              <BetZone className="pair" label="SUITED TIE" odds="50:1" amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} />
+              <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} />
             </div>
             <aside className="ot-road left dragon-tiger-road">
               <BigRoad history={roadHistory} compact labels={ROAD_LABELS} />
@@ -196,9 +225,27 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
             {message && <p className="ot-message">{message}</p>}
           </div>
           <footer className="ot-rail">
-            <div className="ot-tray">{chips.map((value) => <button key={value} className={`chip chip-option chip-tier-${chipTier(value)} ${chip === value ? "active" : ""}`} onClick={() => setChip(value)}>{value}</button>)}</div>
+            <div className="ot-tray">
+              {chips.map((value) => <button key={value} className={`chip chip-option chip-tier-${chipTier(value)} ${chip === value ? "active" : ""}`} onClick={() => setChip(value)}>{value}</button>)}
+              {maxAdditional > 0 && !chips.includes(maxAdditional) && <button
+                type="button"
+                className={`chip chip-option chip-max ${chip === maxAdditional ? "active" : ""}`}
+                disabled={!betting}
+                onClick={() => setChip(maxAdditional)}
+                title={`가능한 최대 금액 ${maxAdditional}코인`}
+              >{maxAdditional}</button>}
+              <button type="button" className={`chip-picker-trigger chip-tier-${chipTier(chip)}`} aria-label="칩 단위 선택" aria-expanded={chipMenuOpen} onClick={() => setChipMenuOpen((open) => !open)}>{chip}</button>
+              {chipMenuOpen && <div className="chip-picker-menu" role="menu">{[...chips, ...(maxAdditional > 0 && !chips.includes(maxAdditional) ? [maxAdditional] : [])].map((value) => <button type="button" role="menuitem" key={value} className={`chip-tier-${chipTier(value)} ${chip === value ? "selected" : ""}`} onClick={() => { setChip(value); setChipMenuOpen(false); }}>{value}</button>)}</div>}
+            </div>
+            <div className="ot-acts">
+              <button type="button" className="outline-button icon-action" aria-label="전체 베팅 되돌리기" title="전체 베팅 되돌리기" disabled={!betting || !hasCurrentBets} onClick={clearAllBets}>
+                <Undo2 size={17} />
+              </button>
+              <button type="button" className="outline-button icon-action" aria-label="이전 베팅 반복" title="이전 베팅 반복" disabled={!betting || hasCurrentBets || !canRepeat} onClick={repeatBet}>
+                <Repeat2 size={17} />
+              </button>
+            </div>
             <div className="ot-money right"><small>총 베팅</small><strong>{currentBet.toLocaleString()}</strong></div>
-            {maxAdditional > 0 && !chips.includes(maxAdditional) && <button className="outline-button" disabled={!betting} onClick={() => setChip(maxAdditional)}>MAX {maxAdditional}</button>}
             <RoomChat socket={socket} roomId={roomId} token={token} />
           </footer>
         </section>
