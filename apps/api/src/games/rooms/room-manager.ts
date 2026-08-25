@@ -38,6 +38,7 @@ interface RoomRow {
   name: string;
   min_bet: number;
   max_bet: number;
+  side_bet_max: number | null;
   enabled: boolean;
 }
 
@@ -106,6 +107,7 @@ class AutomaticBaccaratRoomActor {
       name: this.room.name,
       minBet: this.room.min_bet,
       maxBet: this.room.max_bet,
+      sideBetMax: this.room.side_bet_max,
       playerCount: this.playerCount,
       phase: this.phase,
       enabled: this.room.enabled,
@@ -148,7 +150,7 @@ class AutomaticBaccaratRoomActor {
   async placeBet(userId: string, command: PlaceBetCommand): Promise<RoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
-    await baccaratBetService.place(userId, command, this.room.min_bet, this.room.max_bet, this.isLightning ? 20 : 0);
+    await baccaratBetService.place(userId, command, this.room.min_bet, this.room.max_bet, this.isLightning ? 20 : 0, this.room.side_bet_max);
     this.sequence += 1;
     await this.emitSnapshots();
     return this.snapshot(userId);
@@ -353,7 +355,7 @@ export class RoomManager {
   async initialize(): Promise<void> {
     const recovered = await baccaratBetService.recoverInterruptedRounds();
     if (recovered > 0) console.warn(`Recovered ${recovered} interrupted baccarat rounds`);
-    const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms ORDER BY min_bet");
+    const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,side_bet_max,enabled FROM game_rooms WHERE game_type IN ('baccarat','lightning_baccarat') ORDER BY min_bet");
     for (const row of result.rows) {
       if (row.game_type !== "baccarat" && row.game_type !== "lightning_baccarat") continue;
       const actor = new AutomaticBaccaratRoomActor(this.io, row);

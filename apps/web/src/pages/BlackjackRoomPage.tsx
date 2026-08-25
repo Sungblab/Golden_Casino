@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Armchair, Flame, LogOut, Users } from "lucide-react";
+import { Armchair, Flame, LogOut, Repeat2, Undo2, Users } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import type {
@@ -44,7 +44,14 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [resultNotice, setResultNotice] = useState<RoundResultNoticeData | null>(null);
+  // Purely local: not taking insurance is already the no-op default server-side, so declining
+  // just swaps the offer for a status line — nothing to tell the server.
+  const [insuranceDeclined, setInsuranceDeclined] = useState(false);
   const lastPhaseSoundRef = useRef<string | null>(null);
+  // Last round's main bet amount, so "반복 베팅" can replay it — same convention as
+  // Baccarat/Dragon Tiger's repeat-bet button.
+  const lastBetAmount = useRef<number | null>(null);
+  const previousPhaseRef = useRef<BlackjackRoomSnapshot["room"]["phase"] | null>(null);
   const noticeRoundRef = useRef<string | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -110,6 +117,19 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   useEffect(() => {
     if (snapshot?.room.phase === "LOCKED") setMessage("");
   }, [snapshot?.room.phase, snapshot?.roundId]);
+
+  useEffect(() => {
+    setInsuranceDeclined(false);
+  }, [snapshot?.roundId]);
+
+  // Snapshot this round's main bet so "반복 베팅" has something to replay next round.
+  useEffect(() => {
+    if (!snapshot) return;
+    const phase = snapshot.room.phase;
+    if (phase === previousPhaseRef.current) return;
+    previousPhaseRef.current = phase;
+    if (phase === "LOCKED" && snapshot.myHand) lastBetAmount.current = snapshot.myHand.bet;
+  }, [snapshot]);
 
   useEffect(() => {
     if (!snapshot?.mySeat) return;
@@ -194,6 +214,27 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
       else setMessage(ack.error);
     });
   };
+  const cancelMainBet = () => {
+    if (!snapshot.roundId) return;
+    socket.emit("blackjack.cancelBet", { roomId, roundId: snapshot.roundId }, (ack) => {
+      if (ack.ok) accept(ack.data, "본 베팅을 취소했습니다.");
+      else setMessage(ack.error);
+    });
+  };
+  const cancelBehindBet = (targetSeat: number) => {
+    if (!snapshot.roundId) return;
+    socket.emit("blackjack.cancelBehind", { roomId, roundId: snapshot.roundId, targetSeat }, (ack) => {
+      if (ack.ok) accept(ack.data, `${targetSeat}번 좌석 따라 베팅을 취소했습니다.`);
+      else setMessage(ack.error);
+    });
+  };
+  const repeatBet = () => {
+    if (!snapshot.roundId || !lastBetAmount.current) return;
+    socket.emit("blackjack.bet", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, amount: lastBetAmount.current }, (ack) => {
+      if (ack.ok) accept(ack.data, `${lastBetAmount.current}코인 본 베팅 완료`);
+      else setMessage(ack.error);
+    });
+  };
   const act = (action: BlackjackAction) => {
     if (!snapshot.roundId || !snapshot.myHand) return;
     socket.emit("blackjack.action", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, handId: snapshot.myHand.handId, action }, (ack) => {
@@ -221,11 +262,16 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   const affordableWallet = snapshot.lightningFeePercent === 100 && !selectedCanFollow ? Math.floor(snapshot.walletBalance / 2) : snapshot.walletBalance;
   const maxAdditional = maximumAdditionalBet(affordableWallet, selectedBet, snapshot.room.maxBet);
   const dealerLiveScore = snapshot.dealerCards.length > 0 ? handValue(snapshot.dealerCards).total : null;
+  // Dealer blackjack skips PLAYER_TURN entirely on the server (see blackjack-room-manager.ts) —
+  // a revealed two-card 21 is the only way that happens, so it doubles as the detection for
+  // "why did my hit/stand buttons never show up" and clears itself once dealerCards resets.
+  const dealerBlackjackEnd = !snapshot.dealerHoleHidden && snapshot.dealerCards.length === 2 && dealerLiveScore === 21;
   const canDouble = Boolean(myTurn && snapshot.myHand?.cards.length === 2 && !snapshot.myHand.fromSplit && snapshot.walletBalance >= snapshot.myHand.bet);
   const canSplit = Boolean(myTurn && snapshot.myHand && snapshot.myHands.length < 4 && !snapshot.myHand.splitAces && snapshot.myHand.cards.length === 2 && cardPoint(snapshot.myHand.cards[0]!) === cardPoint(snapshot.myHand.cards[1]!) && snapshot.walletBalance >= snapshot.myHand.bet);
   const canSurrender = Boolean(myTurn && snapshot.myHand?.cards.length === 2 && !snapshot.myHand.fromSplit && snapshot.myHands.length === 1 && snapshot.myHand.bet % 2 === 0);
   const insuranceAmount = snapshot.myHand ? Math.floor(snapshot.myHand.bet / 2) : 0;
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / BETTING_SECONDS));
+  const canRepeat = Boolean(betting && snapshot.mySeat && !snapshot.myHand && lastBetAmount.current);
   const lightningFeeTotal = snapshot.lightningFeePercent === 100 ? (snapshot.myHands[0]?.bet ?? 0) : 0;
   const totalRisk = snapshot.myHands.reduce((sum, hand) => sum + hand.bet, 0) + snapshot.behindBets.reduce((sum, bet) => sum + bet.amount, 0) + (snapshot.myInsurance?.amount ?? 0) + lightningFeeTotal;
 
@@ -269,6 +315,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
                 <span className="ot-timer-num">{seconds}</span>
               </div>
             )}
+            {dealerBlackjackEnd && <div className="ot-banner blackjack">딜러 블랙잭 · 라운드 즉시 종료</div>}
             <RoundResultNotice notice={resultNotice} />
             <div className="bj-seat-grid" aria-label="블랙잭 좌석">
               {snapshot.seats.map((seat) => <BlackjackSeat key={seat.seatNumber} seat={seat} isMine={seat.seatNumber === snapshot.mySeat} isSelected={seat.seatNumber === selectedSeat} canClaim={!snapshot.mySeat} onClaim={() => claimSeat(seat.seatNumber)} onSelect={() => setSelectedSeat(seat.seatNumber)} />)}
@@ -279,18 +326,31 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
           <footer className="ot-rail bj-rail">
             <div className="bj-seat-control">
               {snapshot.mySeat ? <><span><strong>{snapshot.mySeat}</strong>번 좌석</span><button type="button" className="icon-action" onClick={leaveSeat} aria-label="좌석 나가기" disabled={snapshot.myHands.length > 0}><LogOut size={17} /></button></> : <span className="bj-spectator-label"><Armchair size={17} /> 빈 좌석을 선택하세요</span>}
+              {canRepeat && <button type="button" className="icon-action" onClick={repeatBet} aria-label="이전 베팅 반복" title="이전 베팅 반복"><Repeat2 size={17} /></button>}
             </div>
             {betting ? (
               <div className="bj-bet-dock">
                 <div className="ot-tray">{chipValues.map((value) => <button key={value} className={`chip chip-option chip-tier-${chipTier(value)} ${chip === value ? "active" : ""}`} onClick={() => setChip(value)}>{value}</button>)}{!chipValues.includes(maxAdditional) && <button type="button" className={`chip chip-option chip-max ${chip === maxAdditional ? "active" : ""}`} disabled={maxAdditional <= 0 || (selectedBet === 0 && maxAdditional < snapshot.room.minBet)} onClick={() => setChip(maxAdditional)} title={`가능한 최대 금액 ${maxAdditional}코인`}>{maxAdditional}</button>}<button type="button" className={`chip-picker-trigger chip-tier-${chipTier(chip)}`} aria-label="칩 단위 선택" aria-expanded={chipMenuOpen} onClick={() => setChipMenuOpen((open) => !open)}>{chip}</button>{chipMenuOpen && <div className="chip-picker-menu" role="menu">{[...chipValues, ...(!chipValues.includes(maxAdditional) && maxAdditional > 0 ? [maxAdditional] : [])].map((value) => <button type="button" role="menuitem" key={value} className={`chip-tier-${chipTier(value)} ${chip === value ? "selected" : ""}`} onClick={() => { setChip(value); setChipMenuOpen(false); }}>{value}</button>)}</div>}</div>
                 {selectedCanFollow ? <button type="button" className="bet-confirm-button follow" disabled={chip > maxAdditional} onClick={() => placeBehind(selected!.seatNumber)}>{selected!.seatNumber}번 +{chip}</button>
                   : canMainBet && (!selected || selectedIsMine) ? <button type="button" className="bet-confirm-button" disabled={chip > maxAdditional} onClick={placeMainBet}>{chip}코인 {snapshot.myHand ? "추가 베팅" : "베팅"}</button>
-                    : selected?.myBehindBet ? <span className="bj-dock-status">{selected.seatNumber}번 · {selected.myBehindBet}코인 완료</span>
-                      : snapshot.myHand ? <span className="bj-dock-status">본 베팅 {snapshot.myHand.bet}코인 · 다른 좌석을 눌러 따라 베팅</span>
+                    : selected?.myBehindBet ? <><span className="bj-dock-status">{selected.seatNumber}번 · {selected.myBehindBet}코인 완료</span><button type="button" className="bj-dock-cancel" onClick={() => cancelBehindBet(selected.seatNumber)} aria-label="따라 베팅 취소" title="따라 베팅 취소"><Undo2 size={13} /></button></>
+                      : snapshot.myHand ? <><span className="bj-dock-status">본 베팅 {snapshot.myHand.bet}코인 · 다른 좌석을 눌러 따라 베팅</span><button type="button" className="bj-dock-cancel" onClick={cancelMainBet} aria-label="본 베팅 취소" title="본 베팅 취소"><Undo2 size={13} /></button></>
                         : <span className="bj-dock-status">{selected?.userId ? "본 베팅을 기다리는 좌석입니다" : "빈 좌석 또는 플레이어를 선택하세요"}</span>}
               </div>
             ) : insurancePhase ? (
-              <div className="bj-insurance-dock"><span>딜러 A · 보험은 본 베팅의 절반(정수 코인)</span>{snapshot.myInsurance ? <strong>보험 {snapshot.myInsurance.amount}코인 완료</strong> : snapshot.myHand ? <button type="button" className="bet-confirm-button insurance" disabled={insuranceAmount < 1 || snapshot.walletBalance < insuranceAmount} onClick={takeInsurance}>{insuranceAmount < 1 ? "보험 이용 불가" : `보험 ${insuranceAmount}코인`}</button> : null}</div>
+              <div className="bj-insurance-dock">
+                <span>딜러 A · 보험은 본 베팅의 절반(정수 코인)</span>
+                {snapshot.myInsurance ? (
+                  <strong>보험 {snapshot.myInsurance.amount}코인 완료</strong>
+                ) : insuranceDeclined ? (
+                  <span className="bj-dock-status">보험 거부함 · 결과 대기 중</span>
+                ) : snapshot.myHand ? (
+                  <>
+                    <button type="button" className="bet-confirm-button insurance" disabled={insuranceAmount < 1 || snapshot.walletBalance < insuranceAmount} onClick={takeInsurance}>{insuranceAmount < 1 ? "보험 이용 불가" : `보험 ${insuranceAmount}코인`}</button>
+                    {insuranceAmount >= 1 && <button type="button" className="outline-button" onClick={() => setInsuranceDeclined(true)}>보험 안 함</button>}
+                  </>
+                ) : null}
+              </div>
             ) : myTurn ? (
               <div className="ot-acts bj-actions" aria-label="블랙잭 액션"><span className="bj-live-total">{snapshot.myHands.length > 1 ? `패 ${snapshot.myHand!.handIndex + 1}` : "합계"} <strong>{handValue(snapshot.myHand!.cards).total}</strong></span><button type="button" className="outline-button primary" onClick={() => act("hit")}>히트</button><button type="button" className="outline-button" onClick={() => act("stand")}>스탠드</button><button type="button" className="outline-button" disabled={!canDouble} onClick={() => act("double")}>더블</button><button type="button" className="outline-button" disabled={!canSplit} onClick={() => act("split")}>스플릿</button><button type="button" className="outline-button danger" disabled={!canSurrender} onClick={() => act("surrender")}>서렌더</button></div>
             ) : <div className="bj-phase-guide">{phaseGuide(snapshot, selected)}</div>}

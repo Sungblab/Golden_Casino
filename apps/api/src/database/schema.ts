@@ -30,9 +30,18 @@ CREATE TABLE IF NOT EXISTS game_rooms (
   name varchar(80) NOT NULL,
   min_bet integer NOT NULL CHECK (min_bet > 0),
   max_bet integer NOT NULL CHECK (max_bet >= min_bet),
+  -- Separate, lower cap for high-payout proposition bets (Baccarat Player/Banker Pair at 11:1,
+  -- Dragon Tiger Suited Tie at 50:1). NULL means the room has no side bets, or none narrower than
+  -- max_bet — every real casino caps these far below the main table limit precisely because the
+  -- payout multiplier turns an ordinary-looking max bet into disproportionate house exposure.
+  side_bet_max integer CHECK (side_bet_max IS NULL OR (side_bet_max > 0 AND side_bet_max <= max_bet)),
   enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS side_bet_max integer;
+ALTER TABLE game_rooms DROP CONSTRAINT IF EXISTS game_rooms_side_bet_max_check;
+ALTER TABLE game_rooms ADD CONSTRAINT game_rooms_side_bet_max_check
+  CHECK (side_bet_max IS NULL OR (side_bet_max > 0 AND side_bet_max <= max_bet));
 
 CREATE TABLE IF NOT EXISTS wallet_accounts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

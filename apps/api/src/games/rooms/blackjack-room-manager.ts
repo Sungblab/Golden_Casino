@@ -5,6 +5,8 @@ import {
   type BlackjackBehindBetCommand,
   type BlackjackBehindBetSnapshot,
   type BlackjackBetCommand,
+  type BlackjackCancelBehindCommand,
+  type BlackjackCancelBetCommand,
   type BlackjackHandStatus,
   type BlackjackInsuranceCommand,
   type BlackjackOutcome,
@@ -254,6 +256,32 @@ class BlackjackRoomActor {
       amount: placed.totalBet,
       outcome: null,
     });
+    this.sequence += 1;
+    await this.emitSnapshots();
+    return this.snapshot(userId);
+  }
+
+  async cancelBet(userId: string, command: BlackjackCancelBetCommand): Promise<BlackjackRoomSnapshot> {
+    if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
+    if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
+    const hand = this.userHands(userId)[0];
+    if (!hand) throw new Error("BET_NOT_FOUND");
+    await blackjackHandService.cancelBet(userId, this.room.id, this.roundId!);
+    this.hands.delete(hand.handId);
+    // Any follower riding on this hand was refunded and deleted server-side along with it.
+    for (const [key, bet] of this.behindBets) if (bet.targetHandId === hand.handId) this.behindBets.delete(key);
+    this.sequence += 1;
+    await this.emitSnapshots();
+    return this.snapshot(userId);
+  }
+
+  async cancelBehind(userId: string, command: BlackjackCancelBehindCommand): Promise<BlackjackRoomSnapshot> {
+    if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
+    if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
+    const key = this.behindKey(userId, command.targetSeat);
+    if (!this.behindBets.has(key)) throw new Error("BET_NOT_FOUND");
+    await blackjackHandService.cancelBehind(userId, this.room.id, this.roundId!, command.targetSeat);
+    this.behindBets.delete(key);
     this.sequence += 1;
     await this.emitSnapshots();
     return this.snapshot(userId);
@@ -725,6 +753,18 @@ export class BlackjackRoomManager {
     const actor = this.actors.get(command.roomId);
     if (!actor) throw new Error("ROOM_NOT_FOUND");
     return actor.placeBet(userId, command);
+  }
+
+  async cancelBet(userId: string, command: BlackjackCancelBetCommand): Promise<BlackjackRoomSnapshot> {
+    const actor = this.actors.get(command.roomId);
+    if (!actor) throw new Error("ROOM_NOT_FOUND");
+    return actor.cancelBet(userId, command);
+  }
+
+  async cancelBehind(userId: string, command: BlackjackCancelBehindCommand): Promise<BlackjackRoomSnapshot> {
+    const actor = this.actors.get(command.roomId);
+    if (!actor) throw new Error("ROOM_NOT_FOUND");
+    return actor.cancelBehind(userId, command);
   }
 
   async claimSeat(userId: string, command: BlackjackSeatCommand): Promise<BlackjackRoomSnapshot> {

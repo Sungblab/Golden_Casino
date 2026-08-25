@@ -170,6 +170,9 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   const maxAdditional = maximumAdditionalBet(snapshot.walletBalance, currentBet, snapshot.room.maxBet);
   const chips = chipValuesForRoom(snapshot.room.minBet, snapshot.room.maxBet);
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / BETTING_SECONDS));
+  // Suited Tie is capped lower than the table's main limit (see bet-service.ts SIDE_BET_CHOICES) —
+  // surface that cap in the odds line so a rejected bet isn't a mystery.
+  const suitedTieOdds = snapshot.room.sideBetMax ? `50:1 · MAX ${snapshot.room.sideBetMax}` : "50:1";
 
   const place = (choice: DragonTigerBetChoice, amount = chip) => {
     if (!snapshot.roundId) return;
@@ -243,7 +246,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
             <div className="ot-print dragon-tiger-print">
               <BetZone className="player" label="DRAGON" odds="1:1" amount={snapshot.myBets.dragon ?? 0} disabled={!betting} onPlace={() => place("dragon")} />
               <BetZone className="tie" label="TIE" odds="11:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} />
-              <BetZone className="pair" label="SUITED TIE" odds="50:1" amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} />
+              <BetZone className="pair" label="SUITED TIE" odds={suitedTieOdds} amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} />
               <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} />
             </div>
             <aside className="ot-road left dragon-tiger-road">

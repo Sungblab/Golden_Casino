@@ -30,9 +30,19 @@ export interface AutomaticTableWin {
 }
 export type BaccaratWin = AutomaticTableWin;
 
+/**
+ * Proposition bets whose payout multiplier (11:1 pairs, 50:1 Suited Tie) turns an ordinary-looking
+ * stake into disproportionate house exposure — these are capped by the room's side_bet_max instead
+ * of its main max_bet, same as a real casino's side-bet limits. Tie is deliberately excluded even
+ * though its 8:1/11:1 payout is also elevated: it's treated as a third main outcome (Player/Banker/Tie),
+ * not a side bet, matching standard table convention.
+ */
+const SIDE_BET_CHOICES: ReadonlySet<AutomaticBetChoice> = new Set(["player_pair", "banker_pair", "suited_tie"]);
+
 export class BaccaratBetService {
-  async place(userId: string, command: AutomaticBetCommand, minBet: number, maxBet: number, feePercent: 0 | 20 = 0): Promise<{ duplicate: boolean; balance: number }> {
-    if (!Number.isInteger(command.amount) || command.amount <= 0 || command.amount > maxBet) throw new Error("BET_LIMIT");
+  async place(userId: string, command: AutomaticBetCommand, minBet: number, maxBet: number, feePercent: 0 | 20 = 0, sideBetMax: number | null = null): Promise<{ duplicate: boolean; balance: number }> {
+    const effectiveMax = sideBetMax !== null && SIDE_BET_CHOICES.has(command.choice) ? sideBetMax : maxBet;
+    if (!Number.isInteger(command.amount) || command.amount <= 0 || command.amount > effectiveMax) throw new Error("BET_LIMIT");
     const amountMinor = command.amount * COIN_SCALE;
     const feeMinor = lightningFee(amountMinor, feePercent, COIN_SCALE);
     const client = await pool.connect();
@@ -55,13 +65,22 @@ export class BaccaratBetService {
         await client.query("COMMIT");
         return { duplicate: true, balance: await walletService.getUserBalance(userId) };
       }
+      // Scoped to this choice, not the round: a real table's limit applies per betting spot, so a
+      // player at the room max on Player can still separately bet up to the (lower) side-bet cap
+      // on Player Pair. This was previously summed across every choice in the round, which meant
+      // *any* two simultaneous bets together could trip the room limit even though neither alone
+      // came close — invisible at the old wide limits, but immediate once side_bet_max made the
+      // combination realistic (e.g. Rookie's 20-coin main bet + a 5-coin pair bet already exceeds a
+      // round-wide 20-coin sum).
       const accumulated = await client.query<{ total: string }>(
-        "SELECT COALESCE(SUM(amount_minor),0) AS total FROM wagers WHERE round_id=$1 AND user_id=$2 AND status='accepted'",
-        [command.roundId, userId],
+        "SELECT COALESCE(SUM(amount_minor),0) AS total FROM wagers WHERE round_id=$1 AND user_id=$2 AND choice=$3 AND status='accepted'",
+        [command.roundId, userId, command.choice],
       );
       const accumulatedMinor = Number(accumulated.rows[0]!.total);
+      // The room minimum only gates the first chip on a choice — side bets keep the same floor
+      // as the main table (no separate side_bet_min), only their ceiling is lower.
       if (accumulatedMinor === 0 && command.amount < minBet) throw new Error("BET_LIMIT");
-      if (accumulatedMinor + amountMinor > maxBet * COIN_SCALE) throw new Error("BET_LIMIT");
+      if (accumulatedMinor + amountMinor > effectiveMax * COIN_SCALE) throw new Error("BET_LIMIT");
       const accounts = await walletService.accountIds(client, userId, command.roomId);
       await walletService.postTransaction(client, {
         type: "BET_RESERVED",

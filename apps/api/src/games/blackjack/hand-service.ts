@@ -228,6 +228,110 @@ export class BlackjackHandService {
     }
   }
 
+  /**
+   * Fully withdraws a not-yet-dealt main bet during BETTING, matching Baccarat/Dragon Tiger's
+   * `bet.cancel`. Deletes the hand row rather than zeroing it out — blackjack_hands.bet_minor has
+   * a CHECK(> 0), and leaving a zero-bet row behind would block placing a fresh bet on the same
+   * seat this round (place() keys a user's hand on round_id+user_id+hand_index=0). Any behind bet
+   * riding on this hand is refunded and deleted first, or its target_hand_id FK would block the
+   * hand row's own deletion.
+   */
+  async cancelBet(userId: string, roomId: string, roundId: string): Promise<{ balance: number; cancelledMinor: number }> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const round = await client.query<{ phase: string; room_id: string }>("SELECT phase,room_id FROM blackjack_rounds WHERE id=$1 FOR UPDATE", [roundId]);
+      if (round.rows[0]?.phase !== "BETTING" || round.rows[0]?.room_id !== roomId) throw new Error("BETTING_CLOSED");
+      const hand = await client.query<{ id: string; bet_minor: string; lightning_fee_minor: string }>(
+        "SELECT id,bet_minor,lightning_fee_minor FROM blackjack_hands WHERE round_id=$1 AND user_id=$2 AND hand_index=0 FOR UPDATE",
+        [roundId, userId],
+      );
+      if (!hand.rows[0]) throw new Error("BET_NOT_FOUND");
+      const followers = await client.query<{ id: string; user_id: string; amount_minor: string }>(
+        "SELECT id,user_id,amount_minor FROM blackjack_behind_bets WHERE target_hand_id=$1 AND settled_at IS NULL FOR UPDATE",
+        [hand.rows[0].id],
+      );
+      for (const follower of followers.rows) {
+        const followerAmount = Number(follower.amount_minor);
+        const followerAccounts = await walletService.accountIds(client, follower.user_id, roomId);
+        await walletService.postTransaction(client, {
+          type: "BJ_BEHIND_CANCELLED",
+          idempotencyKey: `bj-behind-cancel:${follower.id}`,
+          referenceType: "blackjack_behind_bet",
+          referenceId: follower.id,
+          entries: [
+            { accountId: followerAccounts.room, amountMinor: -followerAmount },
+            { accountId: followerAccounts.user, amountMinor: followerAmount },
+          ],
+          metadata: { reason: "target_hand_cancelled" },
+        });
+        await client.query("DELETE FROM blackjack_behind_bet_increments WHERE bet_id=$1", [follower.id]);
+        await client.query("DELETE FROM blackjack_behind_bets WHERE id=$1", [follower.id]);
+      }
+      const betMinor = Number(hand.rows[0].bet_minor);
+      const feeMinor = Number(hand.rows[0].lightning_fee_minor);
+      const accounts = await walletService.accountIds(client, userId, roomId);
+      await walletService.postTransaction(client, {
+        type: "BJ_BET_CANCELLED",
+        idempotencyKey: `bj-bet-cancel:${hand.rows[0].id}`,
+        referenceType: "blackjack_hand",
+        referenceId: hand.rows[0].id,
+        entries: [
+          { accountId: accounts.room, amountMinor: -betMinor },
+          ...(feeMinor > 0 ? [{ accountId: accounts.house, amountMinor: -feeMinor }] : []),
+          { accountId: accounts.user, amountMinor: betMinor + feeMinor },
+        ],
+        metadata: { roundId },
+      });
+      await client.query("DELETE FROM blackjack_bet_increments WHERE hand_id=$1", [hand.rows[0].id]);
+      await client.query("DELETE FROM blackjack_hands WHERE id=$1", [hand.rows[0].id]);
+      await client.query("COMMIT");
+      return { balance: await walletService.getUserBalance(userId), cancelledMinor: betMinor + feeMinor };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Fully withdraws a not-yet-dealt behind bet during BETTING. Same delete-not-zero reasoning as cancelBet. */
+  async cancelBehind(userId: string, roomId: string, roundId: string, targetSeat: number): Promise<{ balance: number; cancelledMinor: number }> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const round = await client.query<{ phase: string; room_id: string }>("SELECT phase,room_id FROM blackjack_rounds WHERE id=$1 FOR UPDATE", [roundId]);
+      if (round.rows[0]?.phase !== "BETTING" || round.rows[0]?.room_id !== roomId) throw new Error("BETTING_CLOSED");
+      const bet = await client.query<{ id: string; amount_minor: string }>(
+        "SELECT id,amount_minor FROM blackjack_behind_bets WHERE round_id=$1 AND user_id=$2 AND target_seat=$3 AND settled_at IS NULL FOR UPDATE",
+        [roundId, userId, targetSeat],
+      );
+      if (!bet.rows[0]) throw new Error("BET_NOT_FOUND");
+      const amountMinor = Number(bet.rows[0].amount_minor);
+      const accounts = await walletService.accountIds(client, userId, roomId);
+      await walletService.postTransaction(client, {
+        type: "BJ_BEHIND_CANCELLED",
+        idempotencyKey: `bj-behind-cancel:${bet.rows[0].id}`,
+        referenceType: "blackjack_behind_bet",
+        referenceId: bet.rows[0].id,
+        entries: [
+          { accountId: accounts.room, amountMinor: -amountMinor },
+          { accountId: accounts.user, amountMinor },
+        ],
+        metadata: { roundId, targetSeat },
+      });
+      await client.query("DELETE FROM blackjack_behind_bet_increments WHERE bet_id=$1", [bet.rows[0].id]);
+      await client.query("DELETE FROM blackjack_behind_bets WHERE id=$1", [bet.rows[0].id]);
+      await client.query("COMMIT");
+      return { balance: await walletService.getUserBalance(userId), cancelledMinor: amountMinor };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   /** Doubles down once and leaves retries idempotent at both the ledger and hand row. */
   async placeDouble(userId: string, roomId: string, roundId: string, handId: string, betMinor: number): Promise<{ duplicate: boolean }> {
     const client = await pool.connect();

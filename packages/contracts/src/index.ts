@@ -66,6 +66,9 @@ export const gameRoomSchema = z.object({
   name: z.string(),
   minBet: z.number().int().positive(),
   maxBet: z.number().int().positive(),
+  /** Lower cap for high-payout proposition bets (Player/Banker Pair, Suited Tie). Null if the
+   * room has no side bets, or none narrower than maxBet. */
+  sideBetMax: z.number().int().positive().nullable().optional(),
   playerCount: z.number().int().nonnegative(),
   phase: roomPhaseSchema,
   enabled: z.boolean(),
@@ -344,6 +347,21 @@ export const blackjackBehindBetCommandSchema = z.object({
 });
 export type BlackjackBehindBetCommand = z.infer<typeof blackjackBehindBetCommandSchema>;
 
+/** Withdraws the caller's own not-yet-dealt main bet during BETTING. Same one-shot cancel as Baccarat/Dragon Tiger's bet.cancel. */
+export const blackjackCancelBetCommandSchema = z.object({
+  roomId: z.string().uuid(),
+  roundId: z.string().uuid(),
+});
+export type BlackjackCancelBetCommand = z.infer<typeof blackjackCancelBetCommandSchema>;
+
+/** Withdraws the caller's own not-yet-dealt behind bet on targetSeat during BETTING. */
+export const blackjackCancelBehindCommandSchema = z.object({
+  roomId: z.string().uuid(),
+  roundId: z.string().uuid(),
+  targetSeat: z.number().int().min(1).max(7),
+});
+export type BlackjackCancelBehindCommand = z.infer<typeof blackjackCancelBehindCommandSchema>;
+
 // ---------------------------------------------------------------------------
 // Hold'em: 6-max No-Limit Texas Hold'em. Unlike the automatic tables above,
 // the house is never the counterparty — the pot is escrowed in the room's
@@ -590,6 +608,8 @@ export interface ClientToServerEvents {
   "blackjack.seat.claim": (payload: BlackjackSeatCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.seat.leave": (payload: { roomId: string }, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.betBehind": (payload: BlackjackBehindBetCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
+  "blackjack.cancelBet": (payload: BlackjackCancelBetCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
+  "blackjack.cancelBehind": (payload: BlackjackCancelBehindCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.insurance": (payload: BlackjackInsuranceCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "blackjack.action": (payload: BlackjackActionCommand, ack: (response: SocketAck<BlackjackRoomSnapshot>) => void) => void;
   "dragonTiger.join": (payload: { roomId: string }, ack: (response: SocketAck<DragonTigerRoomSnapshot>) => void) => void;

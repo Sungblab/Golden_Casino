@@ -413,6 +413,9 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const affordableWallet = snapshot.lightningFeePercent === 20 ? Math.floor(snapshot.walletBalance / 1.2) : snapshot.walletBalance;
   const maxAdditional = maximumAdditionalBet(affordableWallet, currentBet, snapshot.room.maxBet);
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / BETTING_SECONDS));
+  // Pair bets are capped lower than the table's main limit (see bet-service.ts SIDE_BET_CHOICES) —
+  // surface that cap in the odds line so a rejected bet isn't a mystery.
+  const sideOdds = snapshot.room.sideBetMax ? `11:1 · MAX ${snapshot.room.sideBetMax}` : "11:1";
 
   return (
     <GameShell
@@ -489,11 +492,11 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             <RoundResultNotice notice={resultNotice} />
 
             <div className="ot-print">
-              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds="11:1" amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds={sideOdds} amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} />
               <BetZone buttonRef={(el) => { zoneRefs.current.player = el; }} className="player" label="PLAYER" odds="1:1" amount={snapshot.myBets.player ?? 0} disabled={!betting} onPlace={() => place("player")} />
               <BetZone buttonRef={(el) => { zoneRefs.current.tie = el; }} className="tie" label="TIE" odds="8:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} />
               <BetZone buttonRef={(el) => { zoneRefs.current.banker = el; }} className="banker" label="BANKER" odds="0.95:1" amount={snapshot.myBets.banker ?? 0} disabled={!betting} onPlace={() => place("banker")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds="11:1" amount={snapshot.myBets.banker_pair ?? 0} disabled={!betting} onPlace={() => place("banker_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds={sideOdds} amount={snapshot.myBets.banker_pair ?? 0} disabled={!betting} onPlace={() => place("banker_pair")} />
             </div>
 
             <aside className="ot-road left">

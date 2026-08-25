@@ -30,6 +30,7 @@ interface RoomRow {
   name: string;
   min_bet: number;
   max_bet: number;
+  side_bet_max: number | null;
   enabled: boolean;
 }
 
@@ -87,6 +88,7 @@ class DragonTigerRoomActor {
       name: this.room.name,
       minBet: this.room.min_bet,
       maxBet: this.room.max_bet,
+      sideBetMax: this.room.side_bet_max,
       playerCount: this.playerCount,
       phase: this.phase,
       enabled: this.room.enabled,
@@ -139,7 +141,7 @@ class DragonTigerRoomActor {
   async placeBet(userId: string, command: DragonTigerBetCommand): Promise<DragonTigerRoomSnapshot> {
     if (!this.hasParticipant(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
-    await baccaratBetService.place(userId, command, this.room.min_bet, this.room.max_bet);
+    await baccaratBetService.place(userId, command, this.room.min_bet, this.room.max_bet, 0, this.room.side_bet_max);
     this.sequence += 1;
     await this.emitSnapshots();
     return this.snapshot(userId);
@@ -299,7 +301,7 @@ export class DragonTigerRoomManager {
   constructor(private readonly io: GoldenServer) {}
 
   async initialize(): Promise<void> {
-    const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms WHERE game_type='dragon_tiger' ORDER BY min_bet");
+    const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,side_bet_max,enabled FROM game_rooms WHERE game_type='dragon_tiger' ORDER BY min_bet");
     for (const row of result.rows) {
       const actor = new DragonTigerRoomActor(this.io, row);
       await actor.loadHistory();

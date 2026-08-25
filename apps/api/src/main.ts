@@ -9,6 +9,8 @@ import {
   blackjackActionCommandSchema,
   blackjackBehindBetCommandSchema,
   blackjackBetCommandSchema,
+  blackjackCancelBehindCommandSchema,
+  blackjackCancelBetCommandSchema,
   blackjackInsuranceCommandSchema,
   blackjackSeatCommandSchema,
   cancelBetCommandSchema,
@@ -711,6 +713,30 @@ io.on("connection", (socket) => {
       ack({ ok: true, data: await blackjackRooms.placeBehind(socket.data.user.id, parsed.data) });
     } catch (error) {
       const code = error instanceof Error ? error.message : "BET_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("blackjack.cancelBet", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = blackjackCancelBetCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_CANCEL", error: "베팅 취소 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await blackjackRooms.cancelBet(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "BET_CANCEL_FAILED";
+      ack({ ok: false, code, error: messageFor(error) });
+    }
+  });
+  socket.on("blackjack.cancelBehind", async (payload, ack) => {
+    if (typeof ack !== "function") return;
+    try {
+      await authorizeCommand();
+      const parsed = blackjackCancelBehindCommandSchema.safeParse(payload);
+      if (!parsed.success) return ack({ ok: false, code: "INVALID_CANCEL", error: "따라 베팅 취소 요청 형식이 올바르지 않습니다." });
+      ack({ ok: true, data: await blackjackRooms.cancelBehind(socket.data.user.id, parsed.data) });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "BET_CANCEL_FAILED";
       ack({ ok: false, code, error: messageFor(error) });
     }
   });
