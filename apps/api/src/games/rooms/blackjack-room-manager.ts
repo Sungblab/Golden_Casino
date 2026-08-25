@@ -113,11 +113,17 @@ class BlackjackRoomActor {
   private playerTurnEarlyResolve: (() => void) | null = null;
   private actionRequests = new Set<string>();
   private nextLightningAwards = new Map<string, number>();
+  /** Dev table rig only: force the next deal to give every seated hand a splittable pair. */
+  private rigPairsNextRound = false;
 
   constructor(private readonly io: GoldenServer, readonly room: RoomRow) {}
 
   private get isLightning(): boolean {
     return this.room.game_type === "lightning_blackjack";
+  }
+
+  rigPairs(): void {
+    this.rigPairsNextRound = true;
   }
 
   setPaused(paused: boolean): void {
@@ -627,6 +633,12 @@ class BlackjackRoomActor {
     // Deal in the same visible order as a live seven-seat table. Every step emits a
     // snapshot so all clients see the same alternating card timeline.
     const orderedHands = [...this.hands.values()].sort((a, b) => a.seatNumber - b.seatNumber);
+    if (this.rigPairsNextRound) {
+      this.rigPairsNextRound = false;
+      // draw() reshuffles a nearly spent shoe, which would throw the rig away mid-deal.
+      if (this.shoe.remaining < 40) this.shoe = new Shoe(6);
+      this.shoe.stack(riggedPairShoe(orderedHands.length));
+    }
     const dealDuration = Math.max(1_800, (orderedHands.length + 1) * 2 * DEAL_STEP_MS + 500);
     await this.setPhase("DEALING", dealDuration);
     this.dealerCards = [];
@@ -815,4 +827,31 @@ export class BlackjackRoomManager {
     actor.setPaused(paused);
     return true;
   }
+
+  /** Dev table rig only — see config.devTableRig. */
+  rigPairs(roomId: string): boolean {
+    const actor = this.actors.get(roomId);
+    if (!actor) return false;
+    actor.rigPairs();
+    return true;
+  }
+}
+
+/**
+ * The card sequence that makes the next deal give every seated hand a pair, laid out in
+ * the exact order `runCycle` draws it: one card per hand in seat order, dealer upcard,
+ * then the same again for the hole card. Each seat gets a different rank so hands stay
+ * telling apart on screen, and the dealer gets 7/9 - no ace, no blackjack, so the deal
+ * runs straight into PLAYER_TURN without an insurance detour.
+ */
+function riggedPairShoe(handCount: number): Card[] {
+  const ranks: Card["rank"][] = ["8", "9", "7", "6", "4", "3", "2"];
+  const first: Card[] = [];
+  const second: Card[] = [];
+  for (let index = 0; index < handCount; index += 1) {
+    const rank = ranks[index % ranks.length]!;
+    first.push({ rank, suit: "S" });
+    second.push({ rank, suit: "H" });
+  }
+  return [...first, { rank: "7", suit: "D" }, ...second, { rank: "9", suit: "C" }];
 }

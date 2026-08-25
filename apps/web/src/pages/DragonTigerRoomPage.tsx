@@ -13,6 +13,7 @@ import { payoutForDragonTigerBet } from "@golden/game-core/dragon-tiger";
 import { API_URL } from "../api";
 import { Brand } from "../components/Brand";
 import { BetZone } from "../components/BetZone";
+import { useOptimisticBets } from "../lib/useOptimisticBets";
 import { BigRoad } from "../components/BigRoad";
 import { GameShell } from "../components/GameShell";
 import { PlayingCard } from "../components/PlayingCard";
@@ -53,6 +54,8 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   const roadRevealTimer = useRef<number | null>(null);
   const roadRevealedRoundRef = useRef<string | null>(null);
   const previousPhase = useRef<DragonTigerRoomSnapshot["room"]["phase"] | null>(null);
+  // Chips land on the felt on tap, not after the server round trip. See useOptimisticBets.
+  const optimisticBets = useOptimisticBets<DragonTigerBetChoice>(snapshot?.roundId ?? null);
   const lastBets = useRef<Partial<DragonTigerRoomSnapshot["myBets"]>>({});
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
     () => io(API_URL, { auth: { token }, autoConnect: false }),
@@ -200,7 +203,9 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
 
   const place = (choice: DragonTigerBetChoice, amount = chip) => {
     if (!snapshot.roundId) return;
+    const ticket = optimisticBets.stage(choice, snapshot.myBets[choice] ?? 0, amount);
     socket.emit("dragonTiger.bet", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, choice, amount }, (ack) => {
+      optimisticBets.settle(ticket);
       if (ack.ok) {
         setSnapshot(ack.data);
         setMessage(`${label(choice)} ${amount}코인 베팅 완료`);
@@ -210,8 +215,10 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   const cancel = (choice: DragonTigerBetChoice) => {
     if (!snapshot.roundId) return;
     socket.emit("dragonTiger.cancel", { roomId, roundId: snapshot.roundId, choice }, (ack) => {
-      if (ack.ok) setSnapshot(ack.data);
-      else setMessage(ack.error);
+      if (ack.ok) {
+        optimisticBets.clear(choice);
+        setSnapshot(ack.data);
+      } else setMessage(ack.error);
     });
   };
   const clearAllBets = () => {
@@ -270,10 +277,10 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
             {/* Dragon left / Tiger right (matching the physical card positions above), with Tie and
                 Suited Tie grouped in the middle two columns — Evolution's own Dragon Tiger layout. */}
             <div className="ot-print dragon-tiger-print">
-              <BetZone className="player" label="DRAGON" odds="1:1" amount={snapshot.myBets.dragon ?? 0} disabled={!betting} onPlace={() => place("dragon")} {...zoneShare("dragon")} />
-              <BetZone className="tie" label="TIE" odds="11:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} {...zoneShare("tie")} />
-              <BetZone className="pair" label="SUITED TIE" odds={suitedTieOdds} amount={snapshot.myBets.suited_tie ?? 0} disabled={!betting} onPlace={() => place("suited_tie")} {...zoneShare("suited_tie")} />
-              <BetZone className="banker" label="TIGER" odds="1:1" amount={snapshot.myBets.tiger ?? 0} disabled={!betting} onPlace={() => place("tiger")} {...zoneShare("tiger")} />
+              <BetZone className="player" label="DRAGON" odds="1:1" amount={optimisticBets.amountFor("dragon", snapshot.myBets.dragon ?? 0)} disabled={!betting} onPlace={() => place("dragon")} {...zoneShare("dragon")} />
+              <BetZone className="tie" label="TIE" odds="11:1" amount={optimisticBets.amountFor("tie", snapshot.myBets.tie ?? 0)} disabled={!betting} onPlace={() => place("tie")} {...zoneShare("tie")} />
+              <BetZone className="pair" label="SUITED TIE" odds={suitedTieOdds} amount={optimisticBets.amountFor("suited_tie", snapshot.myBets.suited_tie ?? 0)} disabled={!betting} onPlace={() => place("suited_tie")} {...zoneShare("suited_tie")} />
+              <BetZone className="banker" label="TIGER" odds="1:1" amount={optimisticBets.amountFor("tiger", snapshot.myBets.tiger ?? 0)} disabled={!betting} onPlace={() => place("tiger")} {...zoneShare("tiger")} />
             </div>
             <aside className="ot-road left dragon-tiger-road">
               <BigRoad history={visibleRoadHistory} compact labels={ROAD_LABELS} />

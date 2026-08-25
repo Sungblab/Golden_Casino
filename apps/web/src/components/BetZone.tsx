@@ -1,15 +1,5 @@
-import type { CSSProperties } from "react";
 import { Users } from "lucide-react";
-import { chipColorForAmount } from "../lib/betting";
-
-/** How many chips to draw in the stack, purely for visual weight (capped so it never overflows the zone). */
-function chipLayerCount(amount: number): number {
-  if (amount <= 0) return 0;
-  if (amount < 5) return 1;
-  if (amount < 25) return 2;
-  if (amount < 100) return 3;
-  return 4;
-}
+import { ChipStack } from "./ChipStack";
 
 export function BetZone({
   className,
@@ -34,8 +24,6 @@ export function BetZone({
   /** Room-wide count of distinct players with a live bet on this zone right now. */
   players?: number;
 }) {
-  const layers = chipLayerCount(amount);
-  const stackStyle = { "--chip-tier": chipColorForAmount(amount) } as CSSProperties;
   return (
     <div className={`bet-zone ${className} ${amount > 0 ? "has-bet" : ""}`}>
       {typeof sharePercent === "number" && typeof players === "number" && players > 0 && (
@@ -48,16 +36,9 @@ export function BetZone({
         <strong>{label}</strong>
         <small>{odds}</small>
       </button>
-      {amount > 0 && (
-        // No per-chip cancel here — the rail's "전체 베팅 되돌리기" (undo) button already
-        // covers clearing a bet, and a redundant X on every chip stack was clutter.
-        <span className="chip-stack" style={stackStyle} aria-label={`${label} 베팅 ${amount}코인`}>
-          {Array.from({ length: Math.max(0, layers - 1) }).map((_, index) => (
-            <span key={index} className="chip-stack-layer" style={{ bottom: index * 3 }} />
-          ))}
-          <span className="chip-stack-top">{amount}</span>
-        </span>
-      )}
+      {/* No per-chip cancel here — the rail's "전체 베팅 되돌리기" (undo) button already
+          covers clearing a bet, and a redundant X on every chip stack was clutter. */}
+      <ChipStack amount={amount} label={`${label} 베팅`} />
     </div>
   );
 }

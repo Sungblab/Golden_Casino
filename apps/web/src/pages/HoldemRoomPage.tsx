@@ -11,6 +11,7 @@ import type {
 import { evaluateBestHoldemHand } from "@golden/game-core/holdem";
 import { API_URL } from "../api";
 import { Brand } from "../components/Brand";
+import { ChipStack } from "../components/ChipStack";
 import { GameShell } from "../components/GameShell";
 import { OrientationGate } from "../components/OrientationGate";
 import { PlayingCard } from "../components/PlayingCard";
@@ -174,7 +175,13 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
     <GameShell
       title={snapshot.room.name}
       subtitle={`BLIND ${snapshot.room.minBet}/${bigBlind} · MAX ${snapshot.room.maxBet}`}
-      phaseLabel={snapshot.room.paused ? "일시정지" : phaseLabel(snapshot.room.phase, snapshot.street)}
+      phaseLabel={snapshot.room.paused
+        ? "일시정지"
+        // WAITING *with* a deadline is the between-hands break the server holds open so a player
+        // can stand up; without one it's the ordinary "nobody is ready yet" idle.
+        : snapshot.room.phase === "WAITING" && snapshot.phaseEndsAt
+          ? "다음 핸드까지"
+          : phaseLabel(snapshot.room.phase, snapshot.street)}
       // The felt's own ring timer already shows the countdown on my turn — showing it a
       // second time up in the bar was redundant. Other players' turns (no ring for me) still show it.
       phaseSeconds={snapshot.phaseEndsAt ? seconds : null}
@@ -191,6 +198,16 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
             <div className="ot-feed"><WinnerFeed socket={socket} /></div>
             <RoundResultNotice notice={resultNotice} />
             <div className="holdem-table">
+              {/* Decorative table rail — purely visual, drawn once behind the live board/seats.
+                  A plain CSS ellipse (border-radius: 50% on a box sized to match the seats' own
+                  radius/0.72 squish), so it lines up with them at any viewport. An earlier version
+                  also drew a spoke line from dead-center to every seat — with 6 seats that's 6
+                  lines converging on one point, which reads as a cluttered asterisk instead of
+                  table wedges, so it's gone; the inner action-line ellipse below reads as "a table"
+                  on its own without needing spokes at all. */}
+              <div className="holdem-table-rail" aria-hidden="true" />
+              <div className="holdem-action-line" aria-hidden="true" />
+              <div className="holdem-table-brand" aria-hidden="true">TEXAS HOLD&apos;EM</div>
               <div className="holdem-board">
                 <div className="holdem-pot">{potTotal > 0 && <span>POT {potTotal.toLocaleString()}</span>}</div>
                 <div className="holdem-board-cards">
@@ -284,12 +301,23 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
               </div>
             )}
           </div>
-          <footer className="ot-rail holdem-rail">
-            {mySeat && !myTurn && snapshot.room.phase !== "WAITING" && <div className="ot-money right"><small>내 좌석</small><strong>{mySeat.stack.toLocaleString()}</strong></div>}
-            {mySeat && <button className="outline-button" onClick={standUp} disabled={!!snapshot.roundId && mySeat.totalContributed > 0 && !mySeat.folded}>자리 비우기</button>}
-            <PokerHandGuide />
-            <RoomChat socket={socket} roomId={roomId} token={token} />
-          </footer>
+          {/* Secondary controls float over the felt instead of a footer rail — the rail was
+              pure overhead once the actual actions moved on-felt (see the "Hold'em betting
+              surface v3" comment in styles.css), so it's gone entirely now. Siblings of the
+              felt, not nested inside it, same as RoomChat always was — .ot-felt clips overflow,
+              and while position:fixed escapes that, there's no reason to tempt it. */}
+          {mySeat && (
+            <button
+              type="button"
+              className="outline-button game-fab fab-slot-2"
+              onClick={standUp}
+              disabled={!!snapshot.roundId && mySeat.totalContributed > 0 && !mySeat.folded}
+            >
+              자리 비우기
+            </button>
+          )}
+          <PokerHandGuide className="game-fab fab-slot-1" />
+          <RoomChat socket={socket} roomId={roomId} token={token} />
         </section>
       </div>
     </GameShell>
@@ -302,9 +330,17 @@ function orderedSeats(seats: HoldemSeatSnapshot[], mySeatNumber: number | null):
 }
 
 function SeatView({ seat, angle, onSit, canSit, liveHandLabel, showReady }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; liveHandLabel?: string | null; showReady: boolean }) {
-  const radius = 42;
-  const x = 50 + radius * Math.cos((angle * Math.PI) / 180);
-  const y = 50 + radius * Math.sin((angle * Math.PI) / 180) * 0.72;
+  // Separate x/y radii (rather than one radius with a squish factor) because the table box now
+  // fills the game screen instead of holding a fixed aspect ratio: the seats have to reach the
+  // rail on both axes, and the rail's own inset is what these are tuned against — see
+  // .holdem-table-rail in styles.css. Percentages of the table box, so they track any viewport.
+  const x = 50 + 45 * Math.cos((angle * Math.PI) / 180);
+  // The y radius is deliberately well short of the x radius. A seat is centred on its point, so
+  // half of it sits beyond the point — and an occupied seat (cards + name + stack + status line)
+  // is ~115px tall against a table only ~500px high. At 40% the top and bottom seats hung 8px and
+  // 25px outside the rail; 31% keeps even the tallest seat state (long nickname + a showdown hand
+  // label) inside it with room to spare.
+  const y = 50 + 31 * Math.sin((angle * Math.PI) / 180);
   const style = { left: `${x}%`, top: `${y}%` };
   if (!seat.userId) {
     return canSit ? (
@@ -322,11 +358,14 @@ function SeatView({ seat, angle, onSit, canSit, liveHandLabel, showReady }: { se
       </div>
       <div className="holdem-seat-name">
         {seat.isButton && <span className="holdem-button-chip">D</span>}
-        {seat.username}
+        {/* The nickname needs its own element: `text-overflow: ellipsis` has no effect on a flex
+            container, so as a bare text node it was hard-clipped mid-character and pushed the
+            dealer chip / ready dot out of the seat entirely. */}
+        <span className="holdem-seat-nick" title={seat.username ?? undefined}>{seat.username}</span>
         {showReady && <span className={`holdem-ready-dot ${seat.ready ? "is-ready" : ""}`} title={seat.ready ? "준비 완료" : "준비 대기"} />}
       </div>
       <div className="holdem-seat-stack">{seat.stack.toLocaleString()}</div>
-      {seat.streetContributed > 0 && <div className="holdem-seat-bet">{seat.streetContributed.toLocaleString()}</div>}
+      <ChipStack amount={seat.streetContributed} label="베팅" />
       {seat.folded && <div className="holdem-seat-status fold">폴드</div>}
       {seat.allIn && !seat.folded && <div className="holdem-seat-status allin">올인</div>}
       {!seat.folded && (liveHandLabel ?? (seat.handCategory ? HAND_LABEL[seat.handCategory] : null)) && (

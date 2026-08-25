@@ -48,6 +48,10 @@ interface SeatState {
 
 const SEAT_COUNT = 6;
 const BETWEEN_HANDS_MS = 4_000;
+/** Idle window held open after a hand fully settles, before the next is dealt. This is the only
+ *  point at which a seated player can stand up or un-ready, so it needs to be long enough to
+ *  notice and click in — not just long enough to read the result. */
+const HAND_BREAK_MS = 6_000;
 const ACTION_MS = 20_000;
 const REVEAL_STEP_MS = 900;
 const SHOWDOWN_MS = 5_000;
@@ -155,12 +159,26 @@ class HoldemRoomActor {
     sockets?.delete(socket.id);
     if (sockets?.size === 0) {
       this.participants.delete(userId);
-      // A disconnected seat keeps its chips in the current hand (it folds when its turn
-      // comes, same as an AFK player) but is released once the hand is over.
-      this.sittingOut.add(userId);
+      const index = this.seats.findIndex((seat) => seat?.userId === userId);
+      if (index !== -1) {
+        const seat = this.seats[index]!;
+        // Mid-hand with live chips: keep the seat marked sitting-out so it folds when its
+        // turn comes and only clears once the hand settles (resetHandState), same as an AFK
+        // player. Otherwise nothing is at stake, so free the seat immediately — waiting for
+        // the next hand cycle to reap it could strand it forever if too few players remain
+        // seated for a hand to ever start.
+        if (this.roundId && seat.totalContributed > 0 && !seat.folded) {
+          this.sittingOut.add(userId);
+        } else {
+          this.seats[index] = null;
+          this.ready.delete(userId);
+        }
+        this.sequence += 1;
+      }
     }
     await socket.leave(this.channel);
     this.emitPresence();
+    await this.emitSnapshots();
   }
 
   async sit(userId: string, command: HoldemSeatCommand): Promise<HoldemRoomSnapshot> {
@@ -328,7 +346,14 @@ class HoldemRoomActor {
         isBigBlind: seatNumber === this.bigBlindSeat,
         isTurn: seatNumber === this.actingSeat,
         holeCards: mine || (showCards && !seat.folded) ? (seat.holeCards.length ? seat.holeCards : null) : null,
-        handCategory: showCards && seat.holeCards.length === 2 && !seat.folded ? evaluateBestHoldemHand([...seat.holeCards, ...this.board]).category : null,
+        // Needs the >= 5 card guard, not just "has hole cards": when everyone folds preflop the
+        // hand reaches showdown with an empty board, so this evaluated 2 cards and threw. That
+        // exception escaped through emitSnapshots into the cycle's catch, which refunded the pot
+        // and immediately re-dealt — so a seated player saw hands restart in a loop and could
+        // never reach the between-hands window where standing up is allowed.
+        handCategory: showCards && !seat.folded && seat.holeCards.length + this.board.length >= 5
+          ? evaluateBestHoldemHand([...seat.holeCards, ...this.board]).category
+          : null,
         ready: this.ready.has(seat.userId),
       };
     }));
@@ -547,6 +572,17 @@ class HoldemRoomActor {
     if (token !== this.cycleToken) return;
     await delay(this.contenderSeats().length > 1 || this.board.length === 5 ? SHOWDOWN_MS : BETWEEN_HANDS_MS);
     this.resetHandState();
+    // An explicit idle window between hands. Without it the next hand was dealt on the same tick
+    // the previous one settled, so `roundId` was never null while a player was looking at the
+    // table — and standing up (or un-readying) is only allowed when no hand is in flight, which
+    // made a seated player unable to ever leave: cards just kept coming. phaseEndsAt gives the
+    // client a visible countdown to the next deal rather than a dead pause.
+    this.phaseEndsAt = new Date(Date.now() + HAND_BREAK_MS).toISOString();
+    this.sequence += 1;
+    await this.emitSnapshots();
+    await delay(HAND_BREAK_MS);
+    if (token !== this.cycleToken) return;
+    this.phaseEndsAt = null;
     this.sequence += 1;
     await this.emitSnapshots();
     this.launchCycle();

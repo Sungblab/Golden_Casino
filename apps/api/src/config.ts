@@ -31,6 +31,13 @@ export const config = {
   port: Number(process.env.API_PORT ?? 5100),
   webOrigin,
   webOrigins: withLocalhostAlias(webOrigin),
+  /**
+   * Development-only table rigs (forcing a specific deal so a UI state can be reproduced
+   * on demand). Hard-off under NODE_ENV=production and additionally opt-in, because a
+   * "make the next deal be X" switch must never be one misconfigured env var away from a
+   * real money table.
+   */
+  devTableRig: process.env.NODE_ENV !== "production" && process.env.DEV_TABLE_RIG === "1",
 };
 
 if (process.env.NODE_ENV === "production" && (config.jwtSecret.startsWith("development") || config.jwtSecret.length < 32)) {

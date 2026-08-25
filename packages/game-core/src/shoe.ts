@@ -21,6 +21,15 @@ export class Shoe {
     return this.cards.length;
   }
 
+  /**
+   * Put `cards` on top of the shoe so they come out in the order given. Used by the
+   * development-only table rig to make a specific deal (a splittable pair, say)
+   * reproducible instead of waiting for one to come around.
+   */
+  stack(cards: Card[]): void {
+    for (let index = cards.length - 1; index >= 0; index -= 1) this.cards.push(cards[index]!);
+  }
+
   private createShuffledCards(deckCount: number): Card[] {
     const cards: Card[] = [];
     for (let deck = 0; deck < deckCount; deck += 1) {

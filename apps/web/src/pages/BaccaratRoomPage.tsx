@@ -12,6 +12,7 @@ import { Brand } from "../components/Brand";
 import { PlayingCard } from "../components/PlayingCard";
 import { CardFace } from "../components/CardFace";
 import { BetZone } from "../components/BetZone";
+import { useOptimisticBets } from "../lib/useOptimisticBets";
 import { BigRoad } from "../components/BigRoad";
 import { DerivedRoads } from "../components/DerivedRoads";
 import { RoomChat } from "../components/RoomChat";
@@ -119,6 +120,8 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const [resultRevealed, setResultRevealed] = useState(false);
   const roadRevealTimer = useRef<number | null>(null);
   const previousPhase = useRef<RoomSnapshot["room"]["phase"] | null>(null);
+  // Chips land on the felt on tap, not after the server round trip. See useOptimisticBets.
+  const optimisticBets = useOptimisticBets<BaccaratBetChoice>(snapshot?.roundId ?? null);
   const lastBets = useRef<Partial<RoomSnapshot["myBets"]>>({});
   const roundBetsRef = useRef<Partial<RoomSnapshot["myBets"]>>({});
   const dealtRoundRef = useRef<string | null>(null);
@@ -369,12 +372,16 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
 
   const place = (choice: keyof RoomSnapshot["myBets"], amount = chip) => {
     if (!snapshot?.roundId) return;
+    const ticket = optimisticBets.stage(choice, snapshot.myBets[choice] ?? 0, amount);
+    // The chip flies on tap for the same reason the stack appears on tap: waiting for the
+    // acknowledgement made the whole gesture feel like it had not registered.
+    spawnFlyingChip(choice, amount, chip);
     socket.emit("bet.place", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, choice, amount }, (ack) => {
+      optimisticBets.settle(ticket);
       if (ack.ok) {
         setSnapshot((current) => (!current || ack.data.sequence >= current.sequence ? ack.data : current));
         const total = ack.data.myBets[choice] ?? amount;
         setMessage(`${choiceLabel(choice)} ${total}코인 베팅 완료`);
-        spawnFlyingChip(choice, amount, chip);
       } else {
         setMessage(ack.error);
       }
@@ -393,6 +400,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     if (!snapshot?.roundId) return;
     socket.emit("bet.cancel", { roomId, roundId: snapshot.roundId, choice }, (ack) => {
       if (ack.ok) {
+        optimisticBets.clear(choice);
         setSnapshot((current) => (!current || ack.data.sequence >= current.sequence ? ack.data : current));
         setMessage(`${choiceLabel(choice)} 베팅을 취소했습니다.`);
       } else {
@@ -513,11 +521,11 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             <RoundResultNotice notice={resultNotice} />
 
             <div className="ot-print">
-              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds={sideOdds} amount={snapshot.myBets.player_pair ?? 0} disabled={!betting} onPlace={() => place("player_pair")} {...zoneShare("player_pair")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.player = el; }} className="player" label="PLAYER" odds="1:1" amount={snapshot.myBets.player ?? 0} disabled={!betting} onPlace={() => place("player")} {...zoneShare("player")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.tie = el; }} className="tie" label="TIE" odds="8:1" amount={snapshot.myBets.tie ?? 0} disabled={!betting} onPlace={() => place("tie")} {...zoneShare("tie")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.banker = el; }} className="banker" label="BANKER" odds="0.95:1" amount={snapshot.myBets.banker ?? 0} disabled={!betting} onPlace={() => place("banker")} {...zoneShare("banker")} />
-              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds={sideOdds} amount={snapshot.myBets.banker_pair ?? 0} disabled={!betting} onPlace={() => place("banker_pair")} {...zoneShare("banker_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.player_pair = el; }} className="pair" label="P PAIR" odds={sideOdds} amount={optimisticBets.amountFor("player_pair", snapshot.myBets.player_pair ?? 0)} disabled={!betting} onPlace={() => place("player_pair")} {...zoneShare("player_pair")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.player = el; }} className="player" label="PLAYER" odds="1:1" amount={optimisticBets.amountFor("player", snapshot.myBets.player ?? 0)} disabled={!betting} onPlace={() => place("player")} {...zoneShare("player")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.tie = el; }} className="tie" label="TIE" odds="8:1" amount={optimisticBets.amountFor("tie", snapshot.myBets.tie ?? 0)} disabled={!betting} onPlace={() => place("tie")} {...zoneShare("tie")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.banker = el; }} className="banker" label="BANKER" odds="0.95:1" amount={optimisticBets.amountFor("banker", snapshot.myBets.banker ?? 0)} disabled={!betting} onPlace={() => place("banker")} {...zoneShare("banker")} />
+              <BetZone buttonRef={(el) => { zoneRefs.current.banker_pair = el; }} className="pair" label="B PAIR" odds={sideOdds} amount={optimisticBets.amountFor("banker_pair", snapshot.myBets.banker_pair ?? 0)} disabled={!betting} onPlace={() => place("banker_pair")} {...zoneShare("banker_pair")} />
             </div>
 
             <aside className="ot-road left">

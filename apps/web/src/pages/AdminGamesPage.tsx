@@ -12,6 +12,7 @@ const GAME_TYPE_LABEL: Record<GameRoom["gameType"], string> = {
   lightning_blackjack: "라이트닝 블랙잭",
   dragon_tiger: "드래곤타이거",
   holdem: "홀덤",
+  casino_holdem: "카지노 홀덤",
   sutda: "섯다",
 };
 

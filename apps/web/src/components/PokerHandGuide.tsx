@@ -15,35 +15,42 @@ const HAND_RANKINGS = [
   { rank: 10, name: "하이카드", en: "High Card", example: "A J 8 5 2", note: "위 조합이 없으면 가장 높은 카드로 승부." },
 ] as const;
 
-/** Compact "족보" (hand ranking) reference — toggled from the room rail, doesn't block play underneath. */
-export function PokerHandGuide() {
+/**
+ * Compact "족보" (hand ranking) reference — anchored above its own trigger like the room chat
+ * panel, not a centered modal, so checking it mid-hand never hides your cards or the board.
+ */
+export function PokerHandGuide({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="outline-button poker-guide-trigger" onClick={() => setOpen(true)} aria-haspopup="dialog">
+      <button
+        type="button"
+        className={`outline-button poker-guide-trigger${className ? ` ${className}` : ""}`}
+        onClick={() => setOpen((current) => !current)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
         <Info size={14} /> 족보
       </button>
       {open && (
-        <div className="poker-guide-overlay" role="dialog" aria-modal="true" aria-label="포커 족보" onClick={() => setOpen(false)}>
-          <div className="poker-guide-panel" onClick={(event) => event.stopPropagation()}>
-            <header>
-              <h2>포커 족보 (강한 순서)</h2>
-              <button type="button" className="poker-guide-close" onClick={() => setOpen(false)} aria-label="닫기"><X size={16} /></button>
-            </header>
-            <ol className="poker-guide-list">
-              {HAND_RANKINGS.map((hand) => (
-                <li key={hand.rank}>
-                  <span className="poker-guide-rank">{hand.rank}</span>
-                  <span className="poker-guide-name">
-                    {hand.name}<small>{hand.en}</small>
-                  </span>
-                  <span className="poker-guide-example">{hand.example}</span>
-                  <span className="poker-guide-note">{hand.note}</span>
-                </li>
-              ))}
-            </ol>
-            <p className="poker-guide-footnote">동점이면 더 높은 조합을 만든 카드(키커) 순으로 비교하며, 그래도 같으면 팟을 나눠 갖습니다.</p>
-          </div>
+        <div className="poker-guide-panel" role="dialog" aria-label="포커 족보">
+          <header>
+            <h2>포커 족보 (강한 순서)</h2>
+            <button type="button" className="poker-guide-close" onClick={() => setOpen(false)} aria-label="닫기"><X size={16} /></button>
+          </header>
+          <ol className="poker-guide-list">
+            {HAND_RANKINGS.map((hand) => (
+              <li key={hand.rank}>
+                <span className="poker-guide-rank">{hand.rank}</span>
+                <span className="poker-guide-name">
+                  {hand.name}<small>{hand.en}</small>
+                </span>
+                <span className="poker-guide-example">{hand.example}</span>
+                <span className="poker-guide-note">{hand.note}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="poker-guide-footnote">동점이면 더 높은 조합을 만든 카드(키커) 순으로 비교하며, 그래도 같으면 팟을 나눠 갖습니다.</p>
         </div>
       )}
     </>

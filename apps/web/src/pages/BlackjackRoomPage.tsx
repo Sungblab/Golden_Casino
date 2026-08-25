@@ -385,9 +385,8 @@ function BlackjackSeat({ seat, isMine, isSelected, canClaim, onClaim, onSelect }
       </button>
     );
   }
-  const total = seat.hand?.cards.length ? handValue(seat.hand.cards).total : 0;
-  const cardCount = seat.hand?.cards.length ?? 0;
   const totalBet = seat.hands.reduce((sum, hand) => sum + hand.bet, 0);
+  const split = seat.hands.length > 1;
   return (
     <button type="button" className={`bj-seat occupied ${isMine ? "mine" : ""} ${isSelected ? "selected" : ""} ${seat.hand?.status ?? ""}`} onClick={onSelect} aria-pressed={isSelected} aria-label={`${seat.seatNumber}번 좌석 ${seat.username}${isMine ? ", 내 좌석" : ", 따라 베팅 선택"}`}>
       <span className="bj-seat-number">{seat.seatNumber}</span>
@@ -395,20 +394,39 @@ function BlackjackSeat({ seat, isMine, isSelected, canClaim, onClaim, onSelect }
         <strong>{isMine ? "MY HAND" : seat.username}</strong>
         {seat.winStreak >= 2 && <span className="bj-hot"><Flame size={10} /> {seat.winStreak}</span>}
       </span>
-      {seat.hands.length > 1 && <span className="bj-hand-tabs">{seat.hands.map((hand) => <span key={hand.handId} className={hand.handId === seat.hand?.handId ? "active" : ""}>{hand.handIndex + 1}<b>{hand.cards.length ? handValue(hand.cards).total : "–"}</b></span>)}</span>}
-      <span className={`bj-seat-cards ${cardCount === 3 ? "three-cards" : cardCount >= 4 ? "many-cards" : ""}`} data-card-count={cardCount}>
-        {seat.hand?.cards.length ? (
-          <>
-            {seat.hand.cards.map((card, index) => <PlayingCard key={`${seat.seatNumber}-${index}`} card={card} animate={isMine || isSelected} sideways={seat.hand!.status === "doubled" && index === cardCount - 1 && cardCount > 2} />)}
-            <span className="bj-seat-total">{total}</span>
-          </>
-        ) : (
-          <span className="bj-waiting-hand">베팅 대기</span>
-        )}
+      {/* Split hands are stacked, not tabbed: every hand stays on the felt, fanned upward
+          with the one being played raised to the front. A tab strip hid the other hands
+          behind a click and sat on top of the cards it was describing. */}
+      <span className={`bj-seat-hands ${split ? "is-split" : ""}`} data-hands={seat.hands.length}>
+        {seat.hands.length === 0 ? (
+          <span className="bj-seat-cards"><span className="bj-waiting-hand">베팅 대기</span></span>
+        ) : seat.hands.map((hand) => {
+          const count = hand.cards.length;
+          const active = hand.handId === seat.hand?.handId;
+          return (
+            <span
+              key={hand.handId}
+              className={`bj-seat-cards ${count === 3 ? "three-cards" : count >= 4 ? "many-cards" : ""} ${active ? "is-active" : ""}`}
+              data-card-count={count}
+            >
+              {hand.cards.map((card, index) => (
+                <PlayingCard
+                  key={index}
+                  card={card}
+                  animate={isMine || isSelected}
+                  sideways={hand.status === "doubled" && index === count - 1 && count > 2}
+                />
+              ))}
+              {count > 0 && <span className="bj-seat-total">{handValue(hand.cards).total}</span>}
+              {split && <span className="bj-hand-index">{hand.handIndex + 1}</span>}
+              {split && hand.outcome && <span className={`bj-outcome bj-hand-outcome ${hand.outcome}`}>{OUTCOME_LABEL[hand.outcome]}</span>}
+            </span>
+          );
+        })}
       </span>
       <span className="bj-seat-footer">
         {seat.hand && <span className={`bj-chip-stack chip-tier-${chipTier(seat.hand.bet)}`} aria-label={`본 베팅 ${totalBet}코인`}><i /><strong>{totalBet}</strong></span>}
-        {seat.hand?.outcome && <span className={`bj-outcome ${seat.hand.outcome}`}>{OUTCOME_LABEL[seat.hand.outcome]}</span>}
+        {!split && seat.hand?.outcome && <span className={`bj-outcome ${seat.hand.outcome}`}>{OUTCOME_LABEL[seat.hand.outcome]}</span>}
         {seat.behindBetCount > 0 && <span className="bj-followers"><Users size={10} /> {seat.behindBetCount} · {seat.behindBetTotal}C</span>}
         {seat.myBehindBet > 0 && <span className="bj-my-follow">+{seat.myBehindBet}C</span>}
       </span>
