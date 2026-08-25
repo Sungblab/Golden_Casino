@@ -90,7 +90,8 @@ export class WalletService {
     }
   }
 
-  async decideCashRequest(requestId: string, adminId: string, decision: "approved" | "rejected"): Promise<void> {
+  /** Returns who to notify, or null if the request was already decided (nothing changed, no notification needed). */
+  async decideCashRequest(requestId: string, adminId: string, decision: "approved" | "rejected"): Promise<{ userId: string; requestType: "deposit" | "withdraw" } | null> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -102,7 +103,7 @@ export class WalletService {
       if (!row) throw new Error("CASH_REQUEST_NOT_FOUND");
       if (row.status !== "pending") {
         await client.query("COMMIT");
-        return;
+        return null;
       }
       if (decision === "approved") {
         const accounts = await client.query<{ id: string; kind: string }>(
@@ -128,6 +129,7 @@ export class WalletService {
       }
       await client.query("UPDATE cash_requests SET status=$2,reviewed_by=$3,reviewed_at=now() WHERE id=$1", [requestId, decision, adminId]);
       await client.query("COMMIT");
+      return { userId: row.user_id, requestType: row.request_type };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

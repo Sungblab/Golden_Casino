@@ -1,13 +1,15 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
-import type { CashRequest, ProfileResponse } from "@golden/contracts";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { io, type Socket } from "socket.io-client";
+import type { CashRequest, ClientToServerEvents, ProfileResponse, ServerToClientEvents } from "@golden/contracts";
 import { AppShell } from "../components/AppShell";
-import { createCashRequest, createTransfer, getProfile } from "../api";
+import { API_URL, changePassword, createCashRequest, createTransfer, getProfile } from "../api";
 import { TRANSACTION_LABEL } from "../lib/transactionLabels";
 
 type Action = "deposit" | "withdraw" | "transfer" | null;
 
 export function ProfilePage({ token, onLogout }: { token: string; onLogout: () => void }) {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [action, setAction] = useState<Action>(null);
   const [amount, setAmount] = useState("");
@@ -16,8 +18,50 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
+
   const reload = () => getProfile(token).then(setProfile).catch((caught) => setError(caught instanceof Error ? caught.message : "프로필을 불러오지 못했습니다."));
   useEffect(() => { void reload(); }, [token]);
+
+  // Admin decisions on cash requests (deposit/withdraw approval) happen out of band, so
+  // this page needs a live push to reflect the new balance/status without a manual reload.
+  const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(() => io(API_URL, { auth: { token }, autoConnect: false }), [token]);
+  useEffect(() => {
+    const onWalletUpdated = () => void reload();
+    const onNotification = (payload: { type: "success" | "error" | "info"; message: string }) => {
+      if (payload.type === "error") setError(payload.message); else setMessage(payload.message);
+    };
+    socket.on("wallet.updated", onWalletUpdated);
+    socket.on("notification", onNotification);
+    socket.connect();
+    return () => {
+      socket.off("wallet.updated", onWalletUpdated);
+      socket.off("notification", onNotification);
+      socket.disconnect();
+    };
+  }, [socket]);
+
+  const submitPasswordChange = async (event: FormEvent) => {
+    event.preventDefault();
+    setPasswordError("");
+    if (newPassword.length < 8) return setPasswordError("새 비밀번호는 8자 이상 입력해주세요.");
+    if (newPassword !== newPasswordConfirm) return setPasswordError("새 비밀번호가 일치하지 않습니다.");
+    setPasswordBusy(true);
+    try {
+      await changePassword(token, currentPassword, newPassword);
+      onLogout();
+      navigate("/login", { replace: true, state: { notice: "비밀번호가 변경되었습니다. 새 비밀번호로 다시 로그인해주세요." } });
+    } catch (caught) {
+      setPasswordError(caught instanceof Error ? caught.message : "비밀번호 변경에 실패했습니다.");
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -90,6 +134,22 @@ export function ProfilePage({ token, onLogout }: { token: string; onLogout: () =
         )}
         {message && <p className="success-message">{message}</p>}
         {error && <p className="error-message">{error}</p>}
+      </section>
+
+      <section className="profile-panel profile-actions-panel">
+        <div className="profile-panel-heading"><h2>계정 관리</h2></div>
+        <div className="profile-actions">
+          <ActionButton active={showPasswordForm} onClick={() => setShowPasswordForm((value) => !value)} title="비밀번호 변경" description="현재 비밀번호 확인 후 변경" />
+        </div>
+        {showPasswordForm && (
+          <form className="profile-form password" onSubmit={submitPasswordChange}>
+            <label>현재 비밀번호<input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" /></label>
+            <label>새 비밀번호<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" /></label>
+            <label>새 비밀번호 확인<input type="password" value={newPasswordConfirm} onChange={(event) => setNewPasswordConfirm(event.target.value)} autoComplete="new-password" /></label>
+            {passwordError && <p className="error-message">{passwordError}</p>}
+            <button className="gold-button" disabled={passwordBusy}>{passwordBusy ? "변경 중…" : "비밀번호 변경"}</button>
+          </form>
+        )}
       </section>
 
       <div className="profile-columns">

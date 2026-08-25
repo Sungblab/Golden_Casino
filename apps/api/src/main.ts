@@ -1,6 +1,8 @@
+import bcrypt from "bcryptjs";
 import cors from "cors";
 import express from "express";
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import { Server } from "socket.io";
 import { z } from "zod";
 import {
@@ -23,7 +25,7 @@ import {
   type ServerToClientEvents,
 } from "@golden/contracts";
 import { authRouter } from "./auth/routes.js";
-import { requireAdmin, requireAuth, verifyToken, type AuthRequest, type AuthUser } from "./auth/auth.js";
+import { clearRefreshCookie, requireAdmin, requireAuth, verifyToken, type AuthRequest, type AuthUser } from "./auth/auth.js";
 import { config } from "./config.js";
 import { pool } from "./database/pool.js";
 import { RoomManager } from "./games/rooms/room-manager.js";
@@ -197,6 +199,47 @@ app.post("/api/v1/admin/users/:userId/approval", requireAuth, requireAdmin, asyn
   res.json({ status: approved ? "approved" : "suspended" });
 });
 
+const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1).max(100),
+  newPassword: z.string().min(8).max(100),
+});
+
+app.post("/api/v1/profile/password", requireAuth, async (req, res) => {
+  const parsed = passwordChangeSchema.safeParse(req.body);
+  if (!parsed.success) return void res.status(400).json({ message: "비밀번호를 확인해주세요." });
+  const requester = (req as AuthRequest).user;
+  const current = await pool.query<{ password_hash: string }>("SELECT password_hash FROM users WHERE id=$1", [requester.id]);
+  const passwordHash = current.rows[0]?.password_hash;
+  if (!passwordHash || !(await bcrypt.compare(parsed.data.currentPassword, passwordHash))) {
+    return void res.status(401).json({ message: "현재 비밀번호가 올바르지 않습니다." });
+  }
+  const nextHash = await bcrypt.hash(parsed.data.newPassword, 10);
+  await pool.query("UPDATE users SET password_hash=$2,updated_at=now() WHERE id=$1", [requester.id, nextHash]);
+  // Revoke every outstanding session so a leaked old password stops working immediately.
+  await pool.query("UPDATE refresh_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [requester.id]);
+  clearRefreshCookie(res);
+  res.json({ status: "changed" });
+});
+
+app.post("/api/v1/admin/users/:userId/reset-password", requireAuth, requireAdmin, async (req, res) => {
+  const admin = (req as AuthRequest).user;
+  const userId = String(req.params.userId ?? "");
+  if (!z.string().uuid().safeParse(userId).success) return void res.status(400).json({ message: "사용자를 찾을 수 없습니다." });
+  const tempPassword = randomBytes(9).toString("base64url");
+  const tempHash = await bcrypt.hash(tempPassword, 10);
+  const result = await pool.query<{ id: string }>(
+    "UPDATE users SET password_hash=$2,updated_at=now() WHERE id=$1 AND role='user' RETURNING id",
+    [userId, tempHash],
+  );
+  if (!result.rows[0]) return void res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  await pool.query("UPDATE refresh_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [userId]);
+  await pool.query(
+    "INSERT INTO audit_logs (actor_user_id,action,target_type,target_id,details) VALUES ($1,'PASSWORD_RESET','user',$2,'{}'::jsonb)",
+    [admin.id, userId],
+  );
+  res.json({ tempPassword });
+});
+
 app.get("/api/v1/profile", requireAuth, async (req, res) => {
   const user = (req as AuthRequest).user;
   const [stats, transactions, cashRequests, recipients, wagering] = await Promise.all([
@@ -305,7 +348,15 @@ app.post("/api/v1/admin/wallet/cash-requests/:requestId/decision", requireAuth, 
   const decision = req.body?.decision;
   if (decision !== "approved" && decision !== "rejected") return res.status(400).json({ message: "처리 결과를 확인해주세요." });
   try {
-    await walletService.decideCashRequest(String(req.params.requestId ?? ""), (req as AuthRequest).user.id, decision);
+    const outcome = await walletService.decideCashRequest(String(req.params.requestId ?? ""), (req as AuthRequest).user.id, decision);
+    if (outcome) {
+      const typeLabel = outcome.requestType === "deposit" ? "충전" : "환전";
+      io.to(`support:user:${outcome.userId}`).emit("wallet.updated", { balance: await walletService.getUserBalance(outcome.userId) });
+      io.to(`support:user:${outcome.userId}`).emit("notification", {
+        type: decision === "approved" ? "success" : "error",
+        message: decision === "approved" ? `${typeLabel} 신청이 승인되었습니다.` : `${typeLabel} 신청이 거절되었습니다.`,
+      });
+    }
     res.json({ status: decision });
   } catch (error) {
     const code = error instanceof Error ? error.message : "CASH_REQUEST_FAILED";

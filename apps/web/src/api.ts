@@ -53,6 +53,14 @@ export async function setAdminUserApproval(token: string, userId: string, approv
   await request(`/api/v1/admin/users/${userId}/approval`, { method: "POST", body: JSON.stringify({ approved }) }, token);
 }
 
+export async function changePassword(token: string, currentPassword: string, newPassword: string): Promise<void> {
+  await request("/api/v1/profile/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }, token);
+}
+
+export async function adminResetPassword(token: string, userId: string): Promise<{ tempPassword: string }> {
+  return await request(`/api/v1/admin/users/${userId}/reset-password`, { method: "POST" }, token) as { tempPassword: string };
+}
+
 export async function getAdminCashRequests(token: string): Promise<AdminCashRequest[]> {
   const body = await request("/api/v1/admin/wallet/cash-requests", {}, token) as { items: unknown[] };
   return body.items.map((item) => adminCashRequestSchema.parse(item));
