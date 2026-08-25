@@ -188,7 +188,7 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
 .playing-card { display: block; position: relative; width: 61px; height: 88px; margin-left: -16px; animation: card-enter .3s ease-out var(--card-enter-delay, 0ms) backwards; }
 .playing-card-inner { display: block; position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .5s cubic-bezier(.34,1.56,.64,1); }
 .playing-card-inner.is-revealed { transform: rotateY(180deg); }
-.playing-card-back, .playing-card-face { position: absolute; inset: 0; overflow: hidden; border-radius: 2px; background: #fff; backface-visibility: hidden; filter: drop-shadow(0 8px 14px rgba(0,0,0,.5)); }
+.playing-card-back, .playing-card-face { position: absolute; inset: 0; overflow: hidden; border-radius: 2px; background: #0b4a32; backface-visibility: hidden; filter: drop-shadow(0 8px 14px rgba(0,0,0,.5)); }
 .playing-card-face { transform: rotateY(180deg); }
 .card-face-svg { display: block; width: 100%; height: 100%; }
 .card-face-image { border-radius: 2px; object-fit: contain; pointer-events: none; user-select: none; }
