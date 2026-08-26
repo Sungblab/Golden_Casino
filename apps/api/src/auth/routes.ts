@@ -5,6 +5,7 @@ import { registerRequestSchema } from "@golden/contracts";
 import { pool } from "../database/pool.js";
 import {
   REFRESH_COOKIE,
+  REFRESH_REUSE_GRACE_MS,
   REFRESH_TOKEN_TTL_MS,
   clearRefreshCookie,
   createRefreshToken,
@@ -94,7 +95,11 @@ authRouter.post("/refresh", async (req, res) => {
       [jti],
     );
     const current = row.rows[0];
-    if (!current || current.revoked_at || new Date(current.expires_at).getTime() <= Date.now()) {
+    // See REFRESH_REUSE_GRACE_MS: a token revoked moments ago (by a request that won a race
+    // against this one) is tolerated rather than treated as reuse — only a revocation older than
+    // the grace window, or a genuinely unknown/expired token, ends the session.
+    const reusedJustNow = current?.revoked_at != null && Date.now() - new Date(current.revoked_at).getTime() <= REFRESH_REUSE_GRACE_MS;
+    if (!current || (current.revoked_at && !reusedJustNow) || new Date(current.expires_at).getTime() <= Date.now()) {
       await client.query("COMMIT");
       clearRefreshCookie(res);
       return res.status(401).json({ message: "세션이 만료되었습니다. 다시 로그인해주세요." });
@@ -110,7 +115,13 @@ authRouter.post("/refresh", async (req, res) => {
     }
     const next = createRefreshToken();
     await client.query("INSERT INTO refresh_tokens (id,user_id,expires_at) VALUES ($1,$2,now()+$3::interval)", [next.jti, current.user_id, `${REFRESH_TOKEN_TTL_MS} milliseconds`]);
-    await client.query("UPDATE refresh_tokens SET revoked_at=now(),replaced_by=$2 WHERE id=$1", [jti, next.jti]);
+    // Only link the rotation the first time this token is used. A grace-window reuse already has
+    // a replaced_by pointer set by whichever request won the original race — overwriting it here
+    // would sever that earlier link for no reason, and would let an unbounded number of siblings
+    // keep re-pointing the same parent as long as they all land inside the grace window.
+    if (!current.revoked_at) {
+      await client.query("UPDATE refresh_tokens SET revoked_at=now(),replaced_by=$2 WHERE id=$1", [jti, next.jti]);
+    }
     await client.query("COMMIT");
     setRefreshCookie(res, next.token);
     const publicUser = { id: user.rows[0].id, username: user.rows[0].username, nickname: user.rows[0].nickname, role: user.rows[0].role };

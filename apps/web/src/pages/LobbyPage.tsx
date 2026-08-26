@@ -7,12 +7,22 @@ import { Dropdown } from "../components/Dropdown";
 import { getLobby, pauseRoom, resumeRoom } from "../api";
 
 const POLL_INTERVAL_MS = 5_000;
+const LOBBY_SELECTED_GAME_KEY = "golden-casino:lobby:selected-game";
+
+type LobbyGame = "all" | "baccarat" | "blackjack" | "dragon_tiger" | "holdem" | "sutda";
+const LOBBY_GAMES: ReadonlySet<LobbyGame> = new Set(["all", "baccarat", "blackjack", "dragon_tiger", "holdem", "sutda"]);
+
+function loadSelectedGame(): LobbyGame {
+  if (typeof window === "undefined") return "all";
+  const saved = window.localStorage.getItem(LOBBY_SELECTED_GAME_KEY);
+  return saved && LOBBY_GAMES.has(saved as LobbyGame) ? (saved as LobbyGame) : "all";
+}
 
 export function LobbyPage({ token, user, onLogout }: { token: string; user: PublicAuthUser | null; onLogout: () => void }) {
   const navigate = useNavigate();
   const [rooms, setRooms] = useState<GameRoom[]>([]);
   const [balance, setBalance] = useState(0);
-  const [selectedGame, setSelectedGame] = useState<"all" | "baccarat" | "blackjack" | "dragon_tiger" | "holdem" | "sutda">("all");
+  const [selectedGame, setSelectedGame] = useState<LobbyGame>(loadSelectedGame);
   const [error, setError] = useState("");
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
 
@@ -27,6 +37,10 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
   }, [token]);
 
   useEffect(() => reload(), [reload]);
+
+  useEffect(() => {
+    window.localStorage.setItem(LOBBY_SELECTED_GAME_KEY, selectedGame);
+  }, [selectedGame]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -108,7 +122,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
           className="game-switcher-mobile"
           ariaLabel="게임 선택"
           value={selectedGame}
-          onChange={(next) => setSelectedGame(next as typeof selectedGame)}
+          onChange={(next) => setSelectedGame(next as LobbyGame)}
           options={[
             { value: "all", label: `전체 (${rooms.length})` },
             { value: "baccarat", label: `바카라 (${baccaratRooms.length})` },

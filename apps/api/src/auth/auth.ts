@@ -17,6 +17,17 @@ export interface AuthRequest extends Request {
 
 export const REFRESH_COOKIE = "golden_rt";
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
+/**
+ * How long a just-rotated refresh token is still honoured after being replaced. Refresh tokens
+ * rotate on every use, so two requests racing on the SAME pre-rotation cookie — two tabs open at
+ * once, or the 20-minute background timer firing a beat before/after a 401-triggered retry — is
+ * routine, not an attack. Without this window the loser gets treated as token reuse and its whole
+ * session (all 30 days of it) gets torn down, which was the biggest source of players getting
+ * logged out "for no reason". The tradeoff: a stolen token replayed within this exact window
+ * would also slip through undetected — real theft replay happening within milliseconds of the
+ * legitimate rotation is the unlikely case, so this narrow window is worth it.
+ */
+export const REFRESH_REUSE_GRACE_MS = 15_000;
 
 export function createToken(user: AuthUser): string {
   return jwt.sign(user, config.jwtSecret, { expiresIn: "30m", issuer: "golden-casino" });

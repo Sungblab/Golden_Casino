@@ -1,4 +1,4 @@
-import { adminOverviewSchema, adminCashRequestSchema, cashRequestSchema, chatHistoryResponseSchema, gameHistoryResponseSchema, lobbyResponseSchema, loginResponseSchema, profileResponseSchema, registerResponseSchema, supportConversationListSchema, walletTransactionsResponseSchema, type AdminCashRequest, type AdminOverview, type CashRequest, type ChatHistoryResponse, type GameHistoryResponse, type LobbyResponse, type LoginResponse, type ProfileResponse, type SupportConversationList, type WalletTransactionsResponse } from "@golden/contracts";
+import { adminOverviewSchema, adminCashRequestSchema, cashRequestSchema, chatHistoryResponseSchema, gameHistoryResponseSchema, gameRoomSchema, lobbyResponseSchema, loginResponseSchema, profileResponseSchema, registerResponseSchema, supportConversationListSchema, walletTransactionsResponseSchema, type AdminCashRequest, type AdminOverview, type CashRequest, type ChatHistoryResponse, type GameHistoryResponse, type LobbyResponse, type LoginResponse, type ProfileResponse, type SupportConversationList, type WalletTransactionsResponse } from "@golden/contracts";
 import { randomRequestId } from "./lib/requestId";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "";
@@ -29,9 +29,23 @@ export async function register(username: string, nickname: string, password: str
   registerResponseSchema.parse(await request("/api/v1/auth/register", { method: "POST", body: JSON.stringify({ username, nickname, password }) }));
 }
 
-/** Rotates the httpOnly refresh cookie and returns a fresh short-lived access token. */
-export async function refreshAccessToken(): Promise<LoginResponse> {
-  return loginResponseSchema.parse(await request("/api/v1/auth/refresh", { method: "POST" }));
+let refreshInFlight: Promise<LoginResponse> | null = null;
+
+/**
+ * Rotates the httpOnly refresh cookie and returns a fresh short-lived access token.
+ *
+ * Concurrent callers share one in-flight request instead of each firing their own: the periodic
+ * 20-minute timer, a 401-triggered retry, and the initial mount-time restore can all want a
+ * refresh within the same instant, and the refresh token rotates on every use — two overlapping
+ * calls from this same tab would race each other for nothing (the server tolerates that race too,
+ * see REFRESH_REUSE_GRACE_MS, but avoiding it here is free and avoids depending on that window).
+ */
+export function refreshAccessToken(): Promise<LoginResponse> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => loginResponseSchema.parse(await request("/api/v1/auth/refresh", { method: "POST" })))()
+      .finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
 }
 
 export async function logoutServer(): Promise<void> {
@@ -98,7 +112,22 @@ export async function decideAdminCashRequest(token: string, requestId: string, d
 }
 
 export async function getLobby(token: string): Promise<LobbyResponse> {
-  return lobbyResponseSchema.parse(await request("/api/v1/lobby", {}, token));
+  const body = await request("/api/v1/lobby", {}, token) as { rooms?: unknown[]; walletBalance?: unknown };
+  // Validate each room independently and drop the ones that don't parse, instead of failing the
+  // whole response the instant one doesn't match — a strict `z.array(gameRoomSchema).parse(...)`
+  // rejects the ENTIRE list over a single bad item, which is exactly what happened when the API
+  // started serving a game type this client build didn't know about yet (API deployed a beat
+  // ahead of the web bundle): the whole lobby went blank and threw the raw Zod error onto the
+  // page. One unrecognized room now just doesn't show up instead of taking the page down with it.
+  const rooms = (body.rooms ?? []).flatMap((room) => {
+    const parsed = gameRoomSchema.safeParse(room);
+    if (!parsed.success) {
+      console.warn("Skipping a lobby room this client build can't parse", parsed.error.issues);
+      return [];
+    }
+    return [parsed.data];
+  });
+  return lobbyResponseSchema.parse({ rooms, walletBalance: body.walletBalance });
 }
 
 export async function getWalletTransactions(token: string): Promise<WalletTransactionsResponse> {

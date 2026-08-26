@@ -60,10 +60,22 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const handleSessionExpired = () => logout();
+    // An access token going stale is usually entirely recoverable, not a real logout: the tab
+    // was backgrounded past its 30-minute lifetime and the 20-minute refresh timer never got a
+    // chance to run (mobile browsers throttle/suspend timers in background tabs), or a request
+    // simply raced the timer by a beat. Try a silent refresh on the still-good 30-day cookie
+    // first; only fall back to a full, server-revoking logout if that ALSO fails, meaning the
+    // session is actually gone. Going straight to logout() here — which calls logoutServer() and
+    // revokes the refresh chain — was turning routine staleness into a forced re-login, the main
+    // reason players saw the session "풀리는" far more often than the 30-day cookie should allow.
+    const handleSessionExpired = () => {
+      refreshAccessToken()
+        .then((result) => authenticate(result.token, result.user))
+        .catch(() => logout());
+    };
     window.addEventListener("golden:session-expired", handleSessionExpired);
     return () => window.removeEventListener("golden:session-expired", handleSessionExpired);
-  }, [logout]);
+  }, [authenticate, logout]);
 
   // Restore a session after a reload or browser restart using the 30-day httpOnly
   // refresh cookie. Without this, sessionStorage being empty looks like a logout.
