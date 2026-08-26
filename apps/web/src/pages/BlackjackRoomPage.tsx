@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Armchair, Flame, LogOut, Repeat2, Undo2, Users } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
@@ -17,11 +17,13 @@ import { GameShell } from "../components/GameShell";
 import { OrientationGate } from "../components/OrientationGate";
 import { Brand } from "../components/Brand";
 import { CardBackFace } from "../components/CardFace";
+import { DeckShoe } from "../components/DeckShoe";
 import { PlayingCard } from "../components/PlayingCard";
 import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { playSound } from "../lib/sound";
+import { applyShoeFlight } from "../lib/shoeFlight";
 import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
 import { randomRequestId } from "../lib/requestId";
 
@@ -305,6 +307,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
         <section className="ot-stage bj-stage">
           <div className={`ot-felt bj bj-phase-${snapshot.room.phase.toLowerCase()}`}>
             <div className="ot-feed bj-feed"><WinnerFeed socket={socket} /></div>
+            <DeckShoe remaining={snapshot.shoeRemaining} />
             <div className="bj-table-meta"><span><Users size={14} /> 좌석 {snapshot.room.playerCount}/7</span><span>관전 {snapshot.spectatorCount}</span></div>
             {snapshot.room.gameType === "lightning_blackjack" && <div className="bj-lightning-status">
               <strong>LIGHTNING BLACKJACK</strong>
@@ -318,7 +321,10 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
                 <div className="ot-cards">
                   {snapshot.dealerCards.length === 0 && <span className="ot-card-slot">D</span>}
                   {snapshot.dealerCards.map((cardEntry, index) => <PlayingCard key={`dealer-${index}`} card={cardEntry} />)}
-                  {snapshot.dealerHoleHidden && snapshot.dealerCards.length > 0 && <span className="playing-card"><span className="playing-card-inner"><span className="playing-card-back"><CardBackFace /></span></span></span>}
+                  {/* The hole card is a bare back (no PlayingCard — there is nothing to flip), so it
+                      takes its shoe flight from the same helper, a beat behind the up card it
+                      mounts alongside. */}
+                  {snapshot.dealerHoleHidden && snapshot.dealerCards.length > 0 && <span className="playing-card" ref={(el) => void applyShoeFlight(el)} style={{ "--card-enter-delay": "200ms" } as CSSProperties}><span className="playing-card-inner"><span className="playing-card-back"><CardBackFace /></span></span></span>}
                 </div>
               </div>
             </div>

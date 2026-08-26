@@ -1,0 +1,74 @@
+/* =============================================================================
+   BACCARAT — its own table identity.
+
+   Additive only: these rules layer on top of the site's shared .ot-felt /
+   .ot-hands / .ot-print primitives (styles.css) rather than replacing them, and
+   the desktop block is gated to `min-width: 901px` so it can't collide with the
+   carefully-tuned portrait layout that section still owns at 900px and below.
+
+   Everything here is deliberately flat and rectangular. Earlier revisions bowed
+   the felt's bottom rail, fanned the bet zones along it and curved this paytable
+   into an arch; all three read as skewed rather than as a pit table, so the felt
+   is a plain rectangle, the five bet zones sit in one straight row, and the
+   paytable is set in a straight line — the way a real table prints it.
+   ============================================================================= */
+@media (min-width: 901px) {
+  /* Paytable, silk-screened flat across the felt just under the dealer's edge. */
+  .bac-rule {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    z-index: 1;
+    width: min(78%, 520px);
+    margin: 0;
+    transform: translateX(-50%);
+    color: var(--gold-light);
+    font-family: var(--ui-font);
+    font-size: clamp(9px, .82vw, 12px);
+    font-weight: 800;
+    letter-spacing: .2em;
+    text-align: center;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .5);
+    opacity: .5;
+    pointer-events: none;
+    user-select: none;
+  }
+  /* The rule sits above the hands, which otherwise start at the felt's top edge. */
+  .bac-felt .ot-hands { top: 46px; }
+
+  /*
+   * Bigger cards than the shared table default. Baccarat deals at most three per side and
+   * has the whole upper half of the felt to itself — measured on a 1440x900 window, the
+   * hands finish ~196px down and the countdown ring doesn't begin until ~323px, so the
+   * stock 74px cap was leaving that band empty. 92px wide (129px tall) uses it without
+   * crowding the ring.
+   *
+   * The 11vh term is what keeps short desktop windows honest: the ring sits at 46% of the
+   * felt, so on a 600px-tall window a height-independent size would grow the cards down
+   * into it. It costs nothing on a normal monitor — 1440x900 and up are capped at 92
+   * either way — and only takes effect where the felt genuinely runs out of room.
+   */
+  .game-shell .bac-felt .ot-cards { --card-w: clamp(44px, min(9vw, 11vh), 92px); }
+
+  /*
+   * Anchored to the felt rather than offset up from the bet zones. The shared rule places
+   * this at `bottom: 106px`, which the zones now reach into — they grew when the badge and
+   * chip strips became permanently reserved. A fixed offset above the block would need
+   * re-tuning every time that block's height changes; this band in the middle of the felt
+   * is empty at every felt height (it sits below the countdown ring and above the zones).
+   */
+  .bac-felt .ot-message {
+    top: 56%;
+    bottom: auto;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(3, 20, 13, .66);
+  }
+}
+
+/* The paytable is a brand-new element with no mobile-tuned position of its own —
+   simplest and safest is to drop it below the breakpoint where the felt gets
+   tight, rather than fight the existing portrait layout for the space. */
+@media (max-width: 900px) {
+  .bac-rule { display: none; }
+}

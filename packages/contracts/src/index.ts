@@ -442,6 +442,11 @@ export const holdemSeatSchema = z.object({
   isBigBlind: z.boolean(),
   isTurn: z.boolean(),
   holeCards: z.array(cardSchema).length(2).nullable(),
+  /** True for seats that were dealt into the current hand. `holeCards` alone can't tell a
+   *  viewer this: opponades' cards are null while hidden, which looks identical to a seat
+   *  that sat down mid-hand and was never dealt — and the table has to draw card backs for
+   *  one and an empty slot for the other. */
+  dealtIn: z.boolean(),
   handCategory: pokerHandCategorySchema.nullable(),
   /** Sticky across hands once set (cleared only by un-readying or standing up) — only shown
    *  to the player pre-hand (room.phase WAITING); irrelevant once a hand is underway. */

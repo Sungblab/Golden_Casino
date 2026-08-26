@@ -327,7 +327,7 @@ class HoldemRoomActor {
         return {
           seatNumber, userId: null, username: null, stack: 0, streetContributed: 0, totalContributed: 0,
           folded: false, allIn: false, sittingOut: false, isButton: false, isSmallBlind: false, isBigBlind: false,
-          isTurn: false, holeCards: null, handCategory: null, ready: false,
+          isTurn: false, holeCards: null, dealtIn: false, handCategory: null, ready: false,
         };
       }
       const mine = seat.userId === userId;
@@ -346,6 +346,9 @@ class HoldemRoomActor {
         isBigBlind: seatNumber === this.bigBlindSeat,
         isTurn: seatNumber === this.actingSeat,
         holeCards: mine || (showCards && !seat.folded) ? (seat.holeCards.length ? seat.holeCards : null) : null,
+        // Lets the table draw card backs for hidden opponents actually in the hand — their
+        // holeCards are null above, which alone is indistinguishable from an undealt seat.
+        dealtIn: seat.holeCards.length > 0,
         // Needs the >= 5 card guard, not just "has hole cards": when everyone folds preflop the
         // hand reaches showdown with an empty board, so this evaluated 2 cards and threw. That
         // exception escaped through emitSnapshots into the cycle's catch, which refunded the pot

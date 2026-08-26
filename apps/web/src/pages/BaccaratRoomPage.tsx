@@ -9,6 +9,7 @@ import { lightningFee, payoutForLightningBaccaratBet } from "@golden/game-core/l
 import { API_URL } from "../api";
 import { GameShell } from "../components/GameShell";
 import { Brand } from "../components/Brand";
+import { DeckShoe } from "../components/DeckShoe";
 import { PlayingCard } from "../components/PlayingCard";
 import { CardFace } from "../components/CardFace";
 import { BetZone } from "../components/BetZone";
@@ -37,8 +38,11 @@ const DEAL_LEAD_MS = 200;
 /** A natural-table pause before either side receives a third card. */
 const THIRD_CARD_PAUSE_MS = 650;
 /** Beat between the last card landing and the road/stats updating, so the scoreboard never
- * appears to know the outcome before the cards have finished being shown. */
-const ROAD_REVEAL_DELAY_MS = 450;
+ * appears to know the outcome before the cards have finished being shown. Sized against the
+ * shoe flight: the last card mounts, flies for up to FLIGHT_MAX (420ms, shoeFlight.ts), and
+ * only flips as it lands — 600ms keeps the announcement inside that flip, matching the
+ * pre-shoe relationship the original 450ms had to the instant flip. */
+const ROAD_REVEAL_DELAY_MS = 600;
 const BET_CHOICES: BaccaratBetChoice[] = ["player_pair", "player", "tie", "banker", "banker_pair"];
 /** Must match room-manager.ts's BETTING_MS (12_000ms) — drives the countdown ring. */
 const BETTING_SECONDS = 12;
@@ -472,10 +476,13 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     >
       <div className="room-shell">
         <section className="ot-stage">
-          <div className={`ot-felt baccarat ${snapshot.room.gameType === "lightning_baccarat" ? "lightning" : ""}`}>
+          <div className={`ot-felt baccarat bac-felt ${snapshot.room.gameType === "lightning_baccarat" ? "lightning" : ""}`}>
             <div className="ot-feed">
               <WinnerFeed socket={socket} />
             </div>
+            <DeckShoe remaining={snapshot.shoeRemaining} />
+            {/* Paytable silk-screened flat across the felt, the way a real table prints it. */}
+            <p className="bac-rule">BANKER PAYS 0.95 TO 1 · TIE PAYS 8 TO 1</p>
 
             {snapshot.room.gameType === "lightning_baccarat" && (
               <div className="lightning-panel" aria-label="이번 라운드 라이트닝 카드">

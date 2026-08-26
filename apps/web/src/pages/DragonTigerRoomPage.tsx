@@ -15,6 +15,7 @@ import { Brand } from "../components/Brand";
 import { BetZone } from "../components/BetZone";
 import { useOptimisticBets } from "../lib/useOptimisticBets";
 import { BigRoad } from "../components/BigRoad";
+import { DeckShoe } from "../components/DeckShoe";
 import { GameShell } from "../components/GameShell";
 import { PlayingCard } from "../components/PlayingCard";
 import { RoomChat } from "../components/RoomChat";
@@ -31,8 +32,13 @@ const ROAD_LABELS = { player: "D", banker: "T" } as const;
 const BET_CHOICES: DragonTigerBetChoice[] = ["dragon", "tie", "suited_tie", "tiger"];
 /** Beat after both cards finish their flip animation before the road updates, same reasoning
  * as Baccarat's ROAD_REVEAL_DELAY_MS — the scoreboard shouldn't know the outcome before the
- * cards have visibly finished revealing. */
-const ROAD_REVEAL_DELAY_MS = 450;
+ * cards have visibly finished revealing. Sized against the shoe flight plus the Tiger card's
+ * TIGER_DEAL_DELAY_MS stagger; must stay inside the server's DEALING_MS (1,800ms,
+ * dragon-tiger-room-manager.ts) so the WIN banner still lands during the reveal phase. */
+const ROAD_REVEAL_DELAY_MS = 850;
+/** The two cards leave the same shoe, so the Tiger card follows a beat behind the Dragon
+ * card instead of both launching from one spot on the same frame. */
+const TIGER_DEAL_DELAY_MS = 240;
 
 export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const { roomId = "" } = useParams();
@@ -259,27 +265,35 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
     >
       <div className="room-shell">
         <section className="ot-stage">
-          <div className="ot-felt baccarat dragon-tiger-felt">
+          <div className="ot-felt baccarat dragon-tiger-felt dt-felt">
             <div className="ot-feed"><WinnerFeed socket={socket} /></div>
+            <DeckShoe remaining={snapshot.shoeRemaining} />
             <div className="ot-hands dragon-tiger-hands">
               <div className={`ot-hand player ${snapshot.result === "dragon" ? "won" : ""}`}>
                 <div className="ot-hand-head">DRAGON</div>
                 <div className="ot-cards">{snapshot.dragonCard ? <PlayingCard card={snapshot.dragonCard} /> : <span className="ot-card-slot">D</span>}</div>
               </div>
+              {/* The countdown lives *inside* the VS medallion rather than in the shared
+                  centre-of-felt ring the other tables use: Dragon Tiger's centre column is
+                  already occupied by this medallion, so a separate ring landed on top of it. */}
               <div className="dragon-tiger-center">
                 <span className="dragon-tiger-center-odds">TIE 11:1</span>
-                <span className="dragon-tiger-center-badge">VS</span>
+                <span className={`dragon-tiger-center-badge dt-medallion ${betting ? "is-counting" : ""} ${betting && seconds <= 4 ? "closing" : ""}`}>
+                  {betting && (
+                    <svg className="dt-medallion-ring" viewBox="0 0 60 60" aria-hidden="true">
+                      <circle className="ot-timer-track" cx="30" cy="30" r="26" />
+                      <circle className="ot-timer-ring" cx="30" cy="30" r="26" style={{ strokeDashoffset: timerOffset }} />
+                    </svg>
+                  )}
+                  <b>{betting ? seconds : "VS"}</b>
+                </span>
                 <span className="dragon-tiger-center-odds">SUITED 50:1</span>
               </div>
               <div className={`ot-hand banker ${snapshot.result === "tiger" ? "won" : ""}`}>
                 <div className="ot-hand-head">TIGER</div>
-                <div className="ot-cards">{snapshot.tigerCard ? <PlayingCard card={snapshot.tigerCard} /> : <span className="ot-card-slot">T</span>}</div>
+                <div className="ot-cards">{snapshot.tigerCard ? <PlayingCard card={snapshot.tigerCard} delayMs={TIGER_DEAL_DELAY_MS} /> : <span className="ot-card-slot">T</span>}</div>
               </div>
             </div>
-            {betting && <div className={`ot-timer ${seconds <= 4 ? "closing" : ""}`}>
-              <svg viewBox="0 0 60 60"><circle className="ot-timer-track" cx="30" cy="30" r="26" /><circle className="ot-timer-ring" cx="30" cy="30" r="26" style={{ strokeDashoffset: timerOffset }} /></svg>
-              <span className="ot-timer-num">{seconds}</span>
-            </div>}
             {snapshot.room.phase === "LOCKED" && <div className="ot-banner lock">베팅 마감</div>}
             {snapshot.result && resultRevealed && <div className={`ot-banner ${snapshot.result}`}>{snapshot.suitedTie ? "SUITED TIE" : snapshot.result.toUpperCase()} WIN</div>}
             <RoundResultNotice notice={resultNotice} />
