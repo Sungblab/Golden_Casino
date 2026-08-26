@@ -31,6 +31,7 @@ export function PlayingCard({
   sideways = false,
   highlighted = false,
   lightningMultiplier,
+  onRevealed,
 }: {
   card: Card;
   animate?: boolean;
@@ -38,11 +39,15 @@ export function PlayingCard({
   sideways?: boolean;
   highlighted?: boolean;
   lightningMultiplier?: number;
+  /** Called at the exact moment the card starts turning face-up. */
+  onRevealed?: () => void;
 }) {
   const [revealed, setRevealed] = useState(!animate);
   const rootRef = useRef<HTMLSpanElement>(null);
   /** Read by the reveal effect below — layout effects always run before it. */
   const flightMsRef = useRef(0);
+  const onRevealedRef = useRef(onRevealed);
+  useEffect(() => { onRevealedRef.current = onRevealed; }, [onRevealed]);
   useEffect(() => { preloadDeck(); }, []);
   // On a shoe table the card launches from the shoe's real position, and the
   // flip below waits for touchdown; elsewhere flight is 0 and nothing changes.
@@ -68,7 +73,10 @@ export function PlayingCard({
       ? delayMs + flightMsRef.current + SHOE_REVEAL_HOLD_MS
       : delayMs;
     const reveal = () => {
-      if (!cancelled) timer = window.setTimeout(() => setRevealed(true), revealDelay);
+      if (!cancelled) timer = window.setTimeout(() => {
+        setRevealed(true);
+        onRevealedRef.current?.();
+      }, revealDelay);
     };
     // A warmed deck starts the flip on this frame instead of after a network
     // round trip, so a dealt row reveals in dealing order rather than load order.

@@ -33,8 +33,6 @@ import { randomRequestId } from "../lib/requestId";
  *   Its longer shoe flight and flip finish during the following SETTLING window.
  */
 const DEAL_STEP_MS = 850;
-/** Score labels follow the card's completed shoe flight + flip, never its mount. */
-const SCORE_REVEAL_DELAY_MS = 1_700;
 /** Beat before the first card lands, so the deal reads as deliberate rather than instant. */
 const DEAL_LEAD_MS = 200;
 /** A natural-table pause before either side receives a third card. */
@@ -134,7 +132,6 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const roundBetsRef = useRef<Partial<RoomSnapshot["myBets"]>>({});
   const dealtRoundRef = useRef<string | null>(null);
   const dealTimers = useRef<number[]>([]);
-  const scoreTimers = useRef<number[]>([]);
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(() => io(API_URL, { auth: { token }, autoConnect: false }), [token]);
 
   const shellRef = useRef<HTMLDivElement>(null);
@@ -229,7 +226,6 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
       socket.off("connect_error", handleConnectError);
       socket.disconnect();
       for (const timer of dealTimers.current) window.clearTimeout(timer);
-      for (const timer of scoreTimers.current) window.clearTimeout(timer);
       if (roadRevealTimer.current !== null) window.clearTimeout(roadRevealTimer.current);
     };
   }, [roomId, socket]);
@@ -324,8 +320,6 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
       setVisibleRecentResults(snapshot.recentResults);
       if (dealtRoundRef.current !== roundId) {
         dealtRoundRef.current = null;
-        for (const timer of scoreTimers.current) window.clearTimeout(timer);
-        scoreTimers.current = [];
         setVisiblePlayerCards([]);
         setVisibleBankerCards([]);
         setRevealedPlayerCards([]);
@@ -342,8 +336,6 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     setRevealedBankerCards([]);
     for (const timer of dealTimers.current) window.clearTimeout(timer);
     dealTimers.current = [];
-    for (const timer of scoreTimers.current) window.clearTimeout(timer);
-    scoreTimers.current = [];
     if (roadRevealTimer.current !== null) window.clearTimeout(roadRevealTimer.current);
 
     const sequence: Array<{ target: "player" | "banker"; card: Card }> = [
@@ -361,11 +353,6 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
       window.setTimeout(() => {
         if (item.target === "player") setVisiblePlayerCards((current) => [...current, item.card]);
         else setVisibleBankerCards((current) => [...current, item.card]);
-        const scoreTimer = window.setTimeout(() => {
-          if (item.target === "player") setRevealedPlayerCards((current) => [...current, item.card]);
-          else setRevealedBankerCards((current) => [...current, item.card]);
-        }, SCORE_REVEAL_DELAY_MS);
-        scoreTimers.current.push(scoreTimer);
         if (index === sequence.length - 1 && snapshot.result) {
           // A beat after the last card lands, not the instant it does — its own flip animation
           // is still playing at this point, so announcing the outcome (banner, "MY RESULT",
@@ -467,8 +454,10 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const isLightningRoom = snapshot.room.gameType === "lightning_baccarat";
   const isBonusRoom = snapshot.room.gameType === "bonus_baccarat";
   const chipValues = chipValuesForRoom(snapshot.room.minBet, snapshot.room.maxBet);
-  const playerScore = revealedPlayerCards.length >= 2 ? handScore(revealedPlayerCards) : null;
-  const bankerScore = revealedBankerCards.length >= 2 ? handScore(revealedBankerCards) : null;
+  // Show the running baccarat total as soon as each card turns face-up, including
+  // the first card. The old two-card gate made the score appear to lag behind the flip.
+  const playerScore = revealedPlayerCards.length > 0 ? handScore(revealedPlayerCards) : null;
+  const bankerScore = revealedBankerCards.length > 0 ? handScore(revealedBankerCards) : null;
   const showResult = Boolean(snapshot.result) && resultRevealed;
   const currentBet = Object.values(snapshot.myBets).reduce((sum, amount) => sum + amount, 0);
   const affordableWallet = snapshot.lightningFeePercent === 20 ? Math.floor(snapshot.walletBalance / 1.2) : snapshot.walletBalance;
@@ -537,7 +526,13 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
                 <div className="ot-cards">
                   {visiblePlayerCards.length === 0 && <span className="ot-card-slot">P</span>}
                   {visiblePlayerCards.map((card, index) => (
-                    <PlayingCard key={`p-${index}`} card={card} sideways={index === 2} lightningMultiplier={lightningByCard.get(cardIdentity(card))} />
+                    <PlayingCard
+                      key={`p-${index}`}
+                      card={card}
+                      sideways={index === 2}
+                      lightningMultiplier={lightningByCard.get(cardIdentity(card))}
+                      onRevealed={() => setRevealedPlayerCards((current) => [...current, card])}
+                    />
                   ))}
                 </div>
               </div>
@@ -548,7 +543,13 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
                 <div className="ot-cards">
                   {visibleBankerCards.length === 0 && <span className="ot-card-slot">B</span>}
                   {visibleBankerCards.map((card, index) => (
-                    <PlayingCard key={`b-${index}`} card={card} sideways={index === 2} lightningMultiplier={lightningByCard.get(cardIdentity(card))} />
+                    <PlayingCard
+                      key={`b-${index}`}
+                      card={card}
+                      sideways={index === 2}
+                      lightningMultiplier={lightningByCard.get(cardIdentity(card))}
+                      onRevealed={() => setRevealedBankerCards((current) => [...current, card])}
+                    />
                   ))}
                 </div>
               </div>
