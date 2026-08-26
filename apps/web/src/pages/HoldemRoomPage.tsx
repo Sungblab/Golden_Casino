@@ -8,11 +8,13 @@ import type {
   HoldemSeatSnapshot,
   ServerToClientEvents,
 } from "@golden/contracts";
-import { evaluateBestHoldemHand } from "@golden/game-core/holdem";
 import { API_URL } from "../api";
 import { Brand } from "../components/Brand";
+import { CardBackFace } from "../components/CardFace";
 import { ChipStack } from "../components/ChipStack";
+import { DeckShoe } from "../components/DeckShoe";
 import { GameShell } from "../components/GameShell";
+import { HoldemHandPanel } from "../components/HoldemHandPanel";
 import { OrientationGate } from "../components/OrientationGate";
 import { PlayingCard } from "../components/PlayingCard";
 import { PokerHandGuide } from "../components/PokerHandGuide";
@@ -20,6 +22,7 @@ import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { playSound } from "../lib/sound";
+import { cardKey, readHoldemHand, HOLDEM_HAND_LABEL } from "../lib/holdemHandRead";
 import { randomRequestId } from "../lib/requestId";
 
 const ACTION_SECONDS = 20;
@@ -119,13 +122,10 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const myTurn = snapshot.mySeatNumber !== null && snapshot.actingSeat === snapshot.mySeatNumber;
   // Live, client-only read of my own hand — safe because it only ever combines my own hole
   // cards (already visible to me) with the public board, never another player's cards. Lets
-  // a beginner see "지금 뭐 만들었는지" without waiting for the server's showdown reveal.
-  const myHandLabel = (() => {
-    if (!mySeat?.holeCards || mySeat.folded) return null;
-    const known = [...mySeat.holeCards, ...snapshot.board];
-    if (known.length >= 5) return HAND_LABEL[evaluateBestHoldemHand(known).category];
-    return mySeat.holeCards[0]!.rank === mySeat.holeCards[1]!.rank ? "포켓페어" : null;
-  })();
+  // a beginner see "지금 뭐 만들었는지" without opening the 족보 reference or waiting for the
+  // server's showdown reveal. Drives both the rail's hand panel and the gold ring on the
+  // cards that actually make the hand.
+  const myHandRead = mySeat?.folded ? null : readHoldemHand(mySeat?.holeCards ?? null, snapshot.board);
   const potTotal = snapshot.pots.reduce((sum, pot) => sum + pot.amount, 0);
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / ACTION_SECONDS));
 
@@ -164,13 +164,20 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const minRaiseClamped = Math.min(snapshot.minRaiseTo, maxRaiseTo);
   const clampRaise = (value: number): number => Math.max(minRaiseClamped, Math.min(maxRaiseTo, value));
   // Pot-relative presets instead of a bare drag slider — one tap gets a legal sizing, the
-  // stepper below is only for fine adjustment from there.
+  // stepper is only for fine adjustment from there. Korean poker rooms (한게임/피망) name
+  // these 쿼터/하프/팟/맥스 and players expect that vocabulary, so the labels follow it
+  // rather than inventing a second set of names for the same sizings.
   const raisePresets = [
     { key: "min", label: "MIN", value: minRaiseClamped },
-    { key: "half", label: "1/2 팟", value: clampRaise(Math.round(potTotal / 2)) },
+    { key: "quarter", label: "쿼터", value: clampRaise(Math.round(potTotal / 4)) },
+    { key: "half", label: "하프", value: clampRaise(Math.round(potTotal / 2)) },
     { key: "pot", label: "팟", value: clampRaise(potTotal) },
-    { key: "allin", label: "올인", value: maxRaiseTo },
+    { key: "max", label: "맥스", value: maxRaiseTo },
   ];
+  const canRaise = maxRaiseTo > snapshot.toCall + (mySeat?.streetContributed ?? 0);
+  const raiseValue = Math.min(raiseTo, maxRaiseTo);
+  const readyCount = snapshot.seats.filter((seat) => seat.userId && seat.ready).length;
+  const seatedCount = snapshot.seats.filter((seat) => seat.userId).length;
 
   return (
     <GameShell
@@ -193,12 +200,17 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
       shellRef={shellRef}
     >
       <OrientationGate targetRef={shellRef} />
-      <div className="room-shell">
+      {/* Table on the left, action rail on the right. The actions used to be a dock floating
+          over the bottom of the felt, which covered the player's own cards at exactly the
+          moment they mattered; giving them their own column means the felt is never occluded
+          and the table gets the full height instead of reserving 148px for the dock. */}
+      <div className="room-shell holdem-room-shell">
         <section className="ot-stage">
           <div className="ot-felt holdem-felt">
             <div className="ot-feed"><WinnerFeed socket={socket} /></div>
             <RoundResultNotice notice={resultNotice} />
             <div className="holdem-table">
+              <DeckShoe />
               {/* Decorative table rail — purely visual, drawn once behind the live board/seats.
                   A plain CSS ellipse (border-radius: 50% on a box sized to match the seats' own
                   radius/0.72 squish), so it lines up with them at any viewport. An earlier version
@@ -212,14 +224,21 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
               <div className="holdem-board">
                 <div className="holdem-pot">{potTotal > 0 && <span>POT {potTotal.toLocaleString()}</span>}</div>
                 <div className="holdem-board-cards">
-                  {snapshot.board.map((card, index) => <PlayingCard key={index} card={card} delayMs={index * 120} />)}
+                  {snapshot.board.map((card, index) => (
+                    <PlayingCard
+                      key={index}
+                      card={card}
+                      delayMs={index * 120}
+                      highlighted={myHandRead?.usedKeys.has(cardKey(card)) ?? false}
+                    />
+                  ))}
                   {Array.from({ length: 5 - snapshot.board.length }).map((_, index) => <span key={`slot-${index}`} className="ot-card-slot holdem-board-slot" />)}
                 </div>
                 {snapshot.lastWinners.length > 0 && (
                   <div className="holdem-winners">
                     {snapshot.lastWinners.map((winner) => (
                       <span key={winner.seatNumber} className="holdem-winner-pill">
-                        {winner.username} +{winner.amount.toLocaleString()}{winner.handCategory ? ` (${HAND_LABEL[winner.handCategory]})` : ""}
+                        {winner.username} +{winner.amount.toLocaleString()}{winner.handCategory ? ` (${HOLDEM_HAND_LABEL[winner.handCategory]})` : ""}
                       </span>
                     ))}
                   </div>
@@ -232,7 +251,8 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                   angle={angle}
                   onSit={() => sit(seat.seatNumber)}
                   canSit={!mySeat && !seat.userId}
-                  liveHandLabel={seat.seatNumber === snapshot.mySeatNumber ? myHandLabel : null}
+                  isMine={seat.seatNumber === snapshot.mySeatNumber}
+                  highlightKeys={seat.seatNumber === snapshot.mySeatNumber ? myHandRead?.usedKeys : undefined}
                   showReady={snapshot.room.phase === "WAITING"}
                 />
               ))}
@@ -244,22 +264,37 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
               )}
             </div>
             {message && <p className="ot-message">{message}</p>}
+          </div>
 
-            {/* Betting lives on the felt itself, like Baccarat's bet zones — not tucked in a
-                separate footer rail, which on a short mobile screen was pushing these controls
-                below the visible viewport entirely. */}
+          {/* The action rail. On desktop it's the right-hand column; in mobile landscape the
+              same markup reflows into a bottom bar (see the holdem rail block in styles.css),
+              which is the layout Korean poker rooms use and players reach for with a thumb.
+              Either way it is a sibling of the felt, never an overlay on it. */}
+          <aside className="holdem-rail-v4" aria-label="홀덤 액션">
+            {myHandRead && mySeat?.holeCards && (
+              <HoldemHandPanel read={myHandRead} holeCards={mySeat.holeCards} />
+            )}
+
+            <div className="holdem-rail-meta">
+              <span>POT <b>{potTotal.toLocaleString()}</b></span>
+              {myTurn && snapshot.toCall > 0 && <span>콜 <b className="gold">{Math.min(snapshot.toCall, mySeat?.stack ?? 0).toLocaleString()}</b></span>}
+            </div>
+
             {mySeat && myTurn && (
-              <div className="holdem-actions">
-                {maxRaiseTo > snapshot.toCall + mySeat.streetContributed && (
-                  <div className="holdem-raise">
+              <>
+                {canRaise && (
+                  <>
+                    {/* One tap bets/raises at that sizing — the 한게임/피망 bar behavior these
+                        labels come from; a select-then-confirm preset made the same move cost
+                        two taps and read as broken to players used to those rooms. The stepper
+                        below stays the two-step path for custom amounts. */}
                     <div className="holdem-presets">
                       {raisePresets.map((preset) => (
                         <button
                           type="button"
                           key={preset.key}
                           className="holdem-preset"
-                          aria-pressed={raiseTo === preset.value}
-                          onClick={() => setRaiseTo(preset.value)}
+                          onClick={() => (preset.key === "max" ? act("allin") : act(snapshot.toCall === 0 ? "bet" : "raise", preset.value))}
                         >
                           <span>{preset.label}</span>
                           <b>{preset.value.toLocaleString()}</b>
@@ -267,31 +302,37 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                       ))}
                     </div>
                     <div className="holdem-stepper">
-                      <button type="button" className="holdem-step-btn" disabled={raiseTo <= minRaiseClamped} onClick={() => setRaiseTo((value) => clampRaise(value - bigBlind))}>−</button>
-                      <div className="holdem-step-value"><small>RAISE TO</small><strong>{Math.min(raiseTo, maxRaiseTo).toLocaleString()}</strong></div>
-                      <button type="button" className="holdem-step-btn" disabled={raiseTo >= maxRaiseTo} onClick={() => setRaiseTo((value) => clampRaise(value + bigBlind))}>＋</button>
+                      <button type="button" className="holdem-step-btn" disabled={raiseTo <= minRaiseClamped} onClick={() => setRaiseTo((value) => clampRaise(value - bigBlind))} aria-label="레이즈 금액 줄이기">−</button>
+                      <div className="holdem-step-value"><small>RAISE TO</small><strong>{raiseValue.toLocaleString()}</strong></div>
+                      <button type="button" className="holdem-step-btn" disabled={raiseTo >= maxRaiseTo} onClick={() => setRaiseTo((value) => clampRaise(value + bigBlind))} aria-label="레이즈 금액 늘리기">＋</button>
                     </div>
-                  </div>
+                  </>
                 )}
                 <div className="holdem-act-row">
                   <button className="outline-button bj-act-surrender" onClick={() => act("fold")}>폴드</button>
                   {snapshot.toCall === 0
                     ? <button className="outline-button bj-act-stand" onClick={() => act("check")}>체크</button>
-                    : <button className="outline-button bj-act-double" onClick={() => act("call")}>콜 {Math.min(snapshot.toCall, mySeat.stack)}</button>}
-                  {maxRaiseTo > snapshot.toCall + mySeat.streetContributed && (
-                    <button className="outline-button bj-act-hit" onClick={() => act(snapshot.toCall === 0 ? "bet" : "raise", Math.min(raiseTo, maxRaiseTo))}>
-                      {snapshot.toCall === 0 ? "베팅" : "레이즈"} {Math.min(raiseTo, maxRaiseTo).toLocaleString()}
+                    : <button className="outline-button bj-act-double" onClick={() => act("call")}>콜 {Math.min(snapshot.toCall, mySeat.stack).toLocaleString()}</button>}
+                  {canRaise && (
+                    <button className="outline-button bj-act-hit" onClick={() => act(snapshot.toCall === 0 ? "bet" : "raise", raiseValue)}>
+                      {snapshot.toCall === 0 ? "베팅" : "레이즈"} {raiseValue.toLocaleString()}
                     </button>
                   )}
                   {maxRaiseTo > 0 && <button className="outline-button bj-act-split" onClick={() => act("allin")}>올인 {maxRaiseTo.toLocaleString()}</button>}
                 </div>
-              </div>
+              </>
             )}
-            {mySeat && snapshot.room.phase === "WAITING" && (
-              <div className="holdem-ready-dock on-felt">
-                <span className="holdem-ready-status">
-                  {snapshot.seats.filter((seat) => seat.userId && seat.ready).length}/{snapshot.seats.filter((seat) => seat.userId).length}명 준비 완료
-                </span>
+
+            {/* Without this the rail was a tall empty box for most of a hand — every beat spent
+                waiting on someone else's action rendered nothing between the pot line and the
+                footer. Say whose turn it is instead. */}
+            {!myTurn && snapshot.room.phase !== "WAITING" && (
+              <p className="holdem-rail-status">{railStatus(snapshot)}</p>
+            )}
+
+            {mySeat && !myTurn && snapshot.room.phase === "WAITING" && (
+              <div className="holdem-ready-dock">
+                <span className="holdem-ready-status">{readyCount}/{seatedCount}명 준비 완료</span>
                 <button
                   type="button"
                   className={`outline-button ${mySeat.ready ? "bj-act-surrender" : "bj-act-hit"}`}
@@ -301,24 +342,26 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                 </button>
               </div>
             )}
-          </div>
-          {/* Secondary controls float over the felt instead of a footer rail — the rail was
-              pure overhead once the actual actions moved on-felt (see the "Hold'em betting
-              surface v3" comment in styles.css), so it's gone entirely now. Siblings of the
-              felt, not nested inside it, same as RoomChat always was — .ot-felt clips overflow,
-              and while position:fixed escapes that, there's no reason to tempt it. */}
-          {mySeat && (
-            <button
-              type="button"
-              className="outline-button game-fab fab-slot-2"
-              onClick={standUp}
-              disabled={!!snapshot.roundId && mySeat.totalContributed > 0 && !mySeat.folded}
-            >
-              자리 비우기
-            </button>
-          )}
-          <PokerHandGuide className="game-fab fab-slot-1" />
-          <RoomChat socket={socket} roomId={roomId} token={token} />
+
+            {/* Fills the gap between the actions and the footer controls on desktop; a no-op
+                in the bottom-bar layout, where the rail is a row. */}
+            <div className="holdem-rail-spacer" />
+
+            <div className="holdem-rail-footer">
+              <PokerHandGuide />
+              {mySeat && (
+                <button
+                  type="button"
+                  className="outline-button holdem-rail-secondary"
+                  onClick={standUp}
+                  disabled={!!snapshot.roundId && mySeat.totalContributed > 0 && !mySeat.folded}
+                >
+                  자리 비우기
+                </button>
+              )}
+              <RoomChat socket={socket} roomId={roomId} token={token} />
+            </div>
+          </aside>
         </section>
       </div>
     </GameShell>
@@ -330,7 +373,7 @@ function orderedSeats(seats: HoldemSeatSnapshot[], mySeatNumber: number | null):
   return seats.map((seat, index) => ({ seat, angle: SEAT_ANGLES[(index - rotation + seats.length) % seats.length]! }));
 }
 
-function SeatView({ seat, angle, onSit, canSit, liveHandLabel, showReady }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; liveHandLabel?: string | null; showReady: boolean }) {
+function SeatView({ seat, angle, onSit, canSit, isMine, highlightKeys, showReady }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; isMine: boolean; highlightKeys?: Set<string>; showReady: boolean }) {
   // Separate x/y radii (rather than one radius with a squish factor) because the table box now
   // fills the game screen instead of holding a fixed aspect ratio: the seats have to reach the
   // rail on both axes, and the rail's own inset is what these are tuned against — see
@@ -338,10 +381,15 @@ function SeatView({ seat, angle, onSit, canSit, liveHandLabel, showReady }: { se
   const x = 50 + 45 * Math.cos((angle * Math.PI) / 180);
   // The y radius is deliberately well short of the x radius. A seat is centred on its point, so
   // half of it sits beyond the point — and an occupied seat (cards + name + stack + status line)
-  // is ~115px tall against a table only ~500px high. At 40% the top and bottom seats hung 8px and
-  // 25px outside the rail; 31% keeps even the tallest seat state (long nickname + a showdown hand
-  // label) inside it with room to spare.
-  const y = 50 + 31 * Math.sin((angle * Math.PI) / 180);
+  // measures ~135px against a table only ~630px high.
+  //
+  // 33% is the value that clears BOTH edges for the top/bottom-centre seats, which are the only
+  // two with anything above and below them: at 31% an occupied seat overlapped the action-line
+  // ellipse by ~35px ("선에 걸려"), and pushing it further out to fix that would have run it into
+  // the rail instead. 33% leaves ~15px of felt on each side, and .holdem-action-line was pulled
+  // in to match (see table-holdem.css) — the two numbers are a pair; changing one alone
+  // reintroduces the overlap.
+  const y = 50 + 33 * Math.sin((angle * Math.PI) / 180);
   const style = { left: `${x}%`, top: `${y}%` };
   if (!seat.userId) {
     return canSit ? (
@@ -351,11 +399,27 @@ function SeatView({ seat, angle, onSit, canSit, liveHandLabel, showReady }: { se
     ) : <div className="holdem-seat holdem-seat-empty" style={style} />;
   }
   return (
-    <div className={`holdem-seat ${seat.isTurn ? "is-turn" : ""} ${seat.folded ? "is-folded" : ""} ${seat.sittingOut ? "is-away" : ""}`} style={style}>
+    <div className={`holdem-seat ${isMine ? "is-mine" : ""} ${seat.isTurn ? "is-turn" : ""} ${seat.folded ? "is-folded" : ""} ${seat.sittingOut ? "is-away" : ""}`} style={style}>
       <div className="holdem-seat-cards">
+        {/* Three distinct states, which the old markup collapsed into two: my own (or a
+            revealed showdown) hand shows faces; an opponent who was dealt in but is still
+            hidden shows card BACKS — previously an empty dashed slot, indistinguishable from
+            a seat that was never dealt in at all; and only a genuinely undealt seat shows
+            the slot. */}
         {seat.holeCards
-          ? seat.holeCards.map((card, index) => <PlayingCard key={index} card={card} animate={false} />)
-          : Array.from({ length: 2 }).map((_, index) => <span key={index} className="ot-card-slot holdem-hole-slot" />)}
+          ? seat.holeCards.map((card, index) => (
+            <PlayingCard
+              key={index}
+              card={card}
+              animate={false}
+              highlighted={highlightKeys?.has(cardKey(card)) ?? false}
+            />
+          ))
+          : Array.from({ length: 2 }).map((_, index) => (
+            seat.dealtIn
+              ? <span key={index} className="playing-card holdem-hole-back"><span className="playing-card-inner"><span className="playing-card-back"><CardBackFace /></span></span></span>
+              : <span key={index} className="ot-card-slot holdem-hole-slot" />
+          ))}
       </div>
       <div className="holdem-seat-name">
         {seat.isButton && <span className="holdem-button-chip">D</span>}
@@ -369,24 +433,38 @@ function SeatView({ seat, angle, onSit, canSit, liveHandLabel, showReady }: { se
       <ChipStack amount={seat.streetContributed} label="베팅" />
       {seat.folded && <div className="holdem-seat-status fold">폴드</div>}
       {seat.allIn && !seat.folded && <div className="holdem-seat-status allin">올인</div>}
-      {!seat.folded && (liveHandLabel ?? (seat.handCategory ? HAND_LABEL[seat.handCategory] : null)) && (
-        <div className={`holdem-seat-status ${liveHandLabel ? "live" : ""}`}>{liveHandLabel ?? HAND_LABEL[seat.handCategory!]}</div>
+      {/* Only a showdown reveal now — my own live read moved to the rail's hand panel, where
+          it has room for the supporting detail and doesn't grow the seat mid-hand. */}
+      {!seat.folded && seat.handCategory && (
+        <div className="holdem-seat-status">{HOLDEM_HAND_LABEL[seat.handCategory]}</div>
       )}
     </div>
   );
 }
 
-const HAND_LABEL: Record<string, string> = {
-  high_card: "하이카드",
-  pair: "원페어",
-  two_pair: "투페어",
-  three_of_a_kind: "트리플",
-  straight: "스트레이트",
-  flush: "플러시",
-  full_house: "풀하우스",
-  four_of_a_kind: "포카드",
-  straight_flush: "스트레이트 플러시",
-};
+/**
+ * 을/를 by whether the word ends in a 받침 — "리버을 여는 중" is wrong, "리버를" is right,
+ * and the street names split across both cases (플랍/턴 take 을, 리버 takes 를).
+ */
+function objectParticle(word: string): string {
+  const last = word.charCodeAt(word.length - 1);
+  if (last < 0xac00 || last > 0xd7a3) return "를";
+  return (last - 0xac00) % 28 === 0 ? "를" : "을";
+}
+
+/** What the rail says while the viewer has nothing to act on. */
+function railStatus(snapshot: HoldemRoomSnapshot): string {
+  if (snapshot.room.paused) return "테이블이 일시정지되었습니다";
+  if (snapshot.room.phase === "DEALING") {
+    if (snapshot.street === "preflop" || !snapshot.street) return "카드를 나눠주고 있습니다";
+    const street = STREET_LABEL[snapshot.street] ?? snapshot.street;
+    return `${street}${objectParticle(street)} 여는 중입니다`;
+  }
+  if (snapshot.room.phase === "SETTLING" || snapshot.room.phase === "RESULT") return "패를 비교하고 있습니다";
+  const acting = snapshot.seats.find((seat) => seat.seatNumber === snapshot.actingSeat);
+  if (acting?.username) return `${acting.username}님의 차례입니다`;
+  return "다른 자리의 선택을 기다리고 있습니다";
+}
 
 function phaseLabel(phase: HoldemRoomSnapshot["room"]["phase"], street: HoldemRoomSnapshot["street"]): string {
   if (phase === "PLAYER_TURN") return "베팅 진행 중";

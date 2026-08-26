@@ -18,17 +18,22 @@ import {
  * `sideways` lays the card across the fan the way a dealer squares off a
  * baccarat third card or a blackjack double-down card; the rotation lives in CSS
  * (`--card-tilt`) so it survives the deal animation's own transform.
+ *
+ * `highlighted` marks a card as part of the viewer's current best hand (gold
+ * ring) — holdem uses it on the hole/board cards the evaluated combo uses.
  */
 export function PlayingCard({
   card,
   animate = true,
   delayMs = 40,
   sideways = false,
+  highlighted = false,
 }: {
   card: Card;
   animate?: boolean;
   delayMs?: number;
   sideways?: boolean;
+  highlighted?: boolean;
 }) {
   const [revealed, setRevealed] = useState(!animate);
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -67,7 +72,11 @@ export function PlayingCard({
   }, [animate, card.rank, card.suit, delayMs]);
   const style = animate ? ({ "--card-enter-delay": `${Math.max(0, delayMs - 40)}ms` } as CSSProperties) : undefined;
   return (
-    <span ref={rootRef} className={`playing-card ${sideways ? "sideways" : ""}`} style={style}>
+    <span
+      ref={rootRef}
+      className={`playing-card ${sideways ? "sideways" : ""} ${highlighted ? "is-in-hand" : ""}`}
+      style={style}
+    >
       <span className={`playing-card-inner ${revealed ? "is-revealed" : ""}`}>
         <span className="playing-card-back">
           <CardBackFace />
