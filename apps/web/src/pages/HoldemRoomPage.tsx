@@ -20,6 +20,7 @@ import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { playSound } from "../lib/sound";
+import { randomRequestId } from "../lib/requestId";
 
 const ACTION_SECONDS = 20;
 const TIMER_RING = 163.4;
@@ -129,7 +130,7 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / ACTION_SECONDS));
 
   const sit = (seatNumber: number) => {
-    socket.emit("holdem.sit", { requestId: crypto.randomUUID(), roomId, seatNumber }, (ack) => {
+    socket.emit("holdem.sit", { requestId: randomRequestId(), roomId, seatNumber }, (ack) => {
       if (ack.ok) setSnapshot(ack.data);
       else setMessage(ack.error);
     });
@@ -148,7 +149,7 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   };
   const act = (action: HoldemAction, amount?: number) => {
     if (!snapshot.roundId) return;
-    socket.emit("holdem.act", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, action, amount }, (ack) => {
+    socket.emit("holdem.act", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, action, amount }, (ack) => {
       if (ack.ok) {
         setSnapshot(ack.data);
         playSound(action === "fold" ? "fold" : action === "allin" ? "allin" : "chip");

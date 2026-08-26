@@ -7,7 +7,6 @@ export const gameTypeSchema = z.enum([
   "blackjack",
   "lightning_blackjack",
   "holdem",
-  "casino_holdem",
   "sutda",
 ]);
 export type GameType = z.infer<typeof gameTypeSchema>;
@@ -500,74 +499,6 @@ export const holdemActionCommandSchema = z.object({
 export type HoldemActionCommand = z.infer<typeof holdemActionCommandSchema>;
 
 // ---------------------------------------------------------------------------
-// Casino Hold'em: fixed-rule table game against the house, not real heads-up NLHE.
-// Player posts Ante (+ optional AA Bonus), sees hole cards + flop, then Calls (2x
-// Ante) or Folds. Every connected user gets their own private hand — there is no
-// shared seat/table state the way the other room types have.
-// ---------------------------------------------------------------------------
-export const casinoHoldemPhaseSchema = z.enum(["IDLE", "DECISION", "RESULT"]);
-export type CasinoHoldemPhase = z.infer<typeof casinoHoldemPhaseSchema>;
-
-export const casinoHoldemBetCommandSchema = z.object({
-  requestId: z.string().uuid(),
-  roomId: z.string().uuid(),
-  ante: z.number().int().positive(),
-  bonus: z.number().int().nonnegative().optional(),
-});
-export type CasinoHoldemBetCommand = z.infer<typeof casinoHoldemBetCommandSchema>;
-
-export const casinoHoldemDecisionSchema = z.enum(["call", "fold"]);
-export type CasinoHoldemDecision = z.infer<typeof casinoHoldemDecisionSchema>;
-
-export const casinoHoldemDecideCommandSchema = z.object({
-  requestId: z.string().uuid(),
-  roomId: z.string().uuid(),
-  handId: z.string().uuid(),
-  decision: casinoHoldemDecisionSchema,
-});
-export type CasinoHoldemDecideCommand = z.infer<typeof casinoHoldemDecideCommandSchema>;
-
-export const casinoHoldemOutcomeSchema = z.enum(["win", "lose", "push", "fold"]);
-export type CasinoHoldemOutcome = z.infer<typeof casinoHoldemOutcomeSchema>;
-
-export const casinoHoldemResultSchema = z.object({
-  handId: z.string().uuid(),
-  dealerCards: z.array(cardSchema),
-  dealerQualified: z.boolean(),
-  playerHandCategory: pokerHandCategorySchema.nullable(),
-  dealerHandCategory: pokerHandCategorySchema.nullable(),
-  anteOutcome: casinoHoldemOutcomeSchema,
-  callOutcome: casinoHoldemOutcomeSchema.nullable(),
-  bonusOutcome: casinoHoldemOutcomeSchema.nullable(),
-  antePayout: z.number().int().nonnegative(),
-  callPayout: z.number().int().nonnegative(),
-  bonusPayout: z.number().int().nonnegative(),
-  netProfit: z.number().int(),
-});
-export type CasinoHoldemResultSnapshot = z.infer<typeof casinoHoldemResultSchema>;
-
-export const casinoHoldemHandSchema = z.object({
-  handId: z.string().uuid().nullable(),
-  phase: casinoHoldemPhaseSchema,
-  ante: z.number().int().nonnegative(),
-  bonus: z.number().int().nonnegative(),
-  call: z.number().int().nonnegative(),
-  holeCards: z.array(cardSchema).length(2).nullable(),
-  /** 3 cards during DECISION (flop only), 5 once a Call reveals turn/river. Stays at 3 on Fold. */
-  board: z.array(cardSchema),
-  decisionEndsAt: z.string().datetime().nullable(),
-  result: casinoHoldemResultSchema.nullable(),
-});
-export type CasinoHoldemHandSnapshot = z.infer<typeof casinoHoldemHandSchema>;
-
-export const casinoHoldemRoomSnapshotSchema = z.object({
-  room: gameRoomSchema,
-  hand: casinoHoldemHandSchema,
-  walletBalance: z.number().int().nonnegative(),
-});
-export type CasinoHoldemRoomSnapshot = z.infer<typeof casinoHoldemRoomSnapshotSchema>;
-
-// ---------------------------------------------------------------------------
 // Sutda: 2–6 player PvP.  The server owns both the hidden hwatu deck and every
 // betting decision; the client only receives its own cards until showdown.
 // ---------------------------------------------------------------------------
@@ -807,7 +738,6 @@ export interface ServerToClientEvents {
   "blackjack.snapshot": (snapshot: BlackjackRoomSnapshot) => void;
   "dragonTiger.snapshot": (snapshot: DragonTigerRoomSnapshot) => void;
   "holdem.snapshot": (snapshot: HoldemRoomSnapshot) => void;
-  "casinoHoldem.snapshot": (snapshot: CasinoHoldemRoomSnapshot) => void;
   "sutda.snapshot": (snapshot: SutdaRoomSnapshot) => void;
 }
 
@@ -839,10 +769,6 @@ export interface ClientToServerEvents {
   "holdem.ready": (payload: HoldemReadyCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
   "holdem.standUp": (payload: { roomId: string }, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
   "holdem.act": (payload: HoldemActionCommand, ack: (response: SocketAck<HoldemRoomSnapshot>) => void) => void;
-  "casinoHoldem.join": (payload: { roomId: string }, ack: (response: SocketAck<CasinoHoldemRoomSnapshot>) => void) => void;
-  "casinoHoldem.leave": (payload: { roomId: string }, ack: (response: SocketAck) => void) => void;
-  "casinoHoldem.bet": (payload: CasinoHoldemBetCommand, ack: (response: SocketAck<CasinoHoldemRoomSnapshot>) => void) => void;
-  "casinoHoldem.decide": (payload: CasinoHoldemDecideCommand, ack: (response: SocketAck<CasinoHoldemRoomSnapshot>) => void) => void;
   "sutda.join": (payload: { roomId: string }, ack: (response: SocketAck<SutdaRoomSnapshot>) => void) => void;
   "sutda.leave": (payload: { roomId: string }, ack: (response: SocketAck) => void) => void;
   "sutda.sit": (payload: SutdaSeatCommand, ack: (response: SocketAck<SutdaRoomSnapshot>) => void) => void;

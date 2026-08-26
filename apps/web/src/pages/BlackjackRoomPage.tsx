@@ -23,6 +23,7 @@ import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { playSound } from "../lib/sound";
 import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
+import { randomRequestId } from "../lib/requestId";
 
 const BETTING_SECONDS = 12;
 const TIMER_RING = 163.4;
@@ -212,14 +213,14 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
     // just got overwritten down to 10 instead of the true total (50).
     const wasFirstBet = !snapshot.myHand;
     if (snapshot.mySeat) setSelectedSeat(snapshot.mySeat);
-    socket.emit("blackjack.bet", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, amount: chip }, (ack) => {
+    socket.emit("blackjack.bet", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, amount: chip }, (ack) => {
       if (ack.ok) accept(ack.data, wasFirstBet ? `${chip}코인 본 베팅 완료` : `${chip}코인 추가 · 총 ${ack.data.myHand?.bet ?? chip}코인`);
       else setMessage(ack.error);
     });
   };
   const placeBehind = (targetSeat: number) => {
     if (!snapshot.roundId) return;
-    socket.emit("blackjack.betBehind", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, targetSeat, amount: chip }, (ack) => {
+    socket.emit("blackjack.betBehind", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, targetSeat, amount: chip }, (ack) => {
       if (ack.ok) accept(ack.data, `${targetSeat}번 좌석에 ${chip}코인 따라 베팅 완료`);
       else setMessage(ack.error);
     });
@@ -240,21 +241,21 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   };
   const repeatBet = () => {
     if (!snapshot.roundId || !lastBetAmount.current) return;
-    socket.emit("blackjack.bet", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, amount: lastBetAmount.current }, (ack) => {
+    socket.emit("blackjack.bet", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, amount: lastBetAmount.current }, (ack) => {
       if (ack.ok) accept(ack.data, `${lastBetAmount.current}코인 본 베팅 완료`);
       else setMessage(ack.error);
     });
   };
   const act = (action: BlackjackAction) => {
     if (!snapshot.roundId || !snapshot.myHand) return;
-    socket.emit("blackjack.action", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, handId: snapshot.myHand.handId, action }, (ack) => {
+    socket.emit("blackjack.action", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, handId: snapshot.myHand.handId, action }, (ack) => {
       if (ack.ok) accept(ack.data);
       else setMessage(ack.error);
     });
   };
   const takeInsurance = () => {
     if (!snapshot.roundId) return;
-    socket.emit("blackjack.insurance", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId }, (ack) => {
+    socket.emit("blackjack.insurance", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId }, (ack) => {
       if (ack.ok) accept(ack.data, `보험 ${ack.data.myInsurance?.amount ?? 0}코인 가입 완료`);
       else setMessage(ack.error);
     });

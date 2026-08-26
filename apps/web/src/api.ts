@@ -1,4 +1,5 @@
 import { adminOverviewSchema, adminCashRequestSchema, cashRequestSchema, chatHistoryResponseSchema, gameHistoryResponseSchema, lobbyResponseSchema, loginResponseSchema, profileResponseSchema, registerResponseSchema, supportConversationListSchema, walletTransactionsResponseSchema, type AdminCashRequest, type AdminOverview, type CashRequest, type ChatHistoryResponse, type GameHistoryResponse, type LobbyResponse, type LoginResponse, type ProfileResponse, type SupportConversationList, type WalletTransactionsResponse } from "@golden/contracts";
+import { randomRequestId } from "./lib/requestId";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -82,7 +83,7 @@ export async function adminResetPassword(token: string, userId: string): Promise
 export async function adminAdjustBalance(token: string, userId: string, amount: number): Promise<{ balance: number }> {
   return await request(
     `/api/v1/admin/users/${userId}/balance`,
-    { method: "POST", body: JSON.stringify({ amount, requestId: crypto.randomUUID() }) },
+    { method: "POST", body: JSON.stringify({ amount, requestId: randomRequestId() }) },
     token,
   ) as { balance: number };
 }
@@ -119,7 +120,7 @@ export async function createCashRequest(token: string, type: "deposit" | "withdr
 export async function createTransfer(token: string, recipientNickname: string, amount: number): Promise<{ walletBalance: number; duplicate: boolean }> {
   const body = await request("/api/v1/wallet/transfers", {
     method: "POST",
-    body: JSON.stringify({ requestId: crypto.randomUUID(), recipientNickname, amount }),
+    body: JSON.stringify({ requestId: randomRequestId(), recipientNickname, amount }),
   }, token) as { walletBalance: number; duplicate: boolean };
   return body;
 }

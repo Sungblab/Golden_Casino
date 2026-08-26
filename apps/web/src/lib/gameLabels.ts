@@ -8,7 +8,6 @@ export const GAME_TYPE_LABEL: Record<GameType, string> = {
   blackjack: "블랙잭",
   lightning_blackjack: "라이트닝 블랙잭",
   holdem: "홀덤",
-  casino_holdem: "카지노 홀덤",
   sutda: "섯다",
 };
 

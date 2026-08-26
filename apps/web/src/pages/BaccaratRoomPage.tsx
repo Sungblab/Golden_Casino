@@ -20,6 +20,7 @@ import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { playSound } from "../lib/sound";
 import { CHIP_TIER_COLORS, CHIP_TIER_RIM_COLORS, chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
+import { randomRequestId } from "../lib/requestId";
 
 /**
  * Reveal pacing. The whole sequence has to finish inside the server's DEALING window
@@ -375,19 +376,28 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const place = (choice: keyof RoomSnapshot["myBets"], amount = chip) => {
     if (!snapshot?.roundId) return;
     const ticket = optimisticBets.stage(choice, snapshot.myBets[choice] ?? 0, amount);
-    // The chip flies on tap for the same reason the stack appears on tap: waiting for the
-    // acknowledgement made the whole gesture feel like it had not registered.
-    spawnFlyingChip(choice, amount, chip);
-    socket.emit("bet.place", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, choice, amount }, (ack) => {
+    try {
+      // The chip flies on tap for the same reason the stack appears on tap: waiting for the
+      // acknowledgement made the whole gesture feel like it had not registered.
+      spawnFlyingChip(choice, amount, chip);
+      socket.emit("bet.place", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, choice, amount }, (ack) => {
+        optimisticBets.settle(ticket);
+        if (ack.ok) {
+          setSnapshot((current) => (!current || ack.data.sequence >= current.sequence ? ack.data : current));
+          const total = ack.data.myBets[choice] ?? amount;
+          setMessage(`${choiceLabel(choice)} ${total}코인 베팅 완료`);
+        } else {
+          setMessage(ack.error);
+        }
+      });
+    } catch (error) {
+      // The optimistic chip is a promise that the bet is on its way. If the send itself
+      // failed, take it straight back rather than leaving a bet on the felt that no server
+      // ever saw - a silent failure here reads as a placed bet that never pays out.
       optimisticBets.settle(ticket);
-      if (ack.ok) {
-        setSnapshot((current) => (!current || ack.data.sequence >= current.sequence ? ack.data : current));
-        const total = ack.data.myBets[choice] ?? amount;
-        setMessage(`${choiceLabel(choice)} ${total}코인 베팅 완료`);
-      } else {
-        setMessage(ack.error);
-      }
-    });
+      setMessage("베팅을 보내지 못했습니다. 연결을 확인한 뒤 다시 시도해주세요.");
+      throw error;
+    }
   };
 
   const hasCurrentBets = Object.values(snapshot?.myBets ?? {}).some((amount) => amount > 0);

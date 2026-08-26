@@ -22,6 +22,7 @@ import { RoundResultNotice, type RoundResultNoticeData } from "../components/Rou
 import { WinnerFeed } from "../components/WinnerFeed";
 import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
 import { playSound } from "../lib/sound";
+import { randomRequestId } from "../lib/requestId";
 
 const BETTING_SECONDS = 12;
 const TIMER_RING = 163.4;
@@ -204,13 +205,21 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
   const place = (choice: DragonTigerBetChoice, amount = chip) => {
     if (!snapshot.roundId) return;
     const ticket = optimisticBets.stage(choice, snapshot.myBets[choice] ?? 0, amount);
-    socket.emit("dragonTiger.bet", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, choice, amount }, (ack) => {
+    try {
+      socket.emit("dragonTiger.bet", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, choice, amount }, (ack) => {
+        optimisticBets.settle(ticket);
+        if (ack.ok) {
+          setSnapshot(ack.data);
+          setMessage(`${label(choice)} ${amount}코인 베팅 완료`);
+        } else setMessage(ack.error);
+      });
+    } catch (error) {
+      // See the same guard in BaccaratRoomPage: never leave an optimistic chip standing for
+      // a bet the server never received.
       optimisticBets.settle(ticket);
-      if (ack.ok) {
-        setSnapshot(ack.data);
-        setMessage(`${label(choice)} ${amount}코인 베팅 완료`);
-      } else setMessage(ack.error);
-    });
+      setMessage("베팅을 보내지 못했습니다. 연결을 확인한 뒤 다시 시도해주세요.");
+      throw error;
+    }
   };
   const cancel = (choice: DragonTigerBetChoice) => {
     if (!snapshot.roundId) return;

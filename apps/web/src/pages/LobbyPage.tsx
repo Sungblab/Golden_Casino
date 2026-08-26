@@ -12,7 +12,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
   const navigate = useNavigate();
   const [rooms, setRooms] = useState<GameRoom[]>([]);
   const [balance, setBalance] = useState(0);
-  const [selectedGame, setSelectedGame] = useState<"all" | "baccarat" | "blackjack" | "dragon_tiger" | "holdem" | "casino_holdem" | "sutda">("all");
+  const [selectedGame, setSelectedGame] = useState<"all" | "baccarat" | "blackjack" | "dragon_tiger" | "holdem" | "sutda">("all");
   const [error, setError] = useState("");
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
 
@@ -53,7 +53,6 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
   const blackjackRooms = rooms.filter((room) => room.gameType === "blackjack" || room.gameType === "lightning_blackjack");
   const dragonTigerRooms = rooms.filter((room) => room.gameType === "dragon_tiger");
   const holdemRooms = rooms.filter((room) => room.gameType === "holdem");
-  const casinoHoldemRooms = rooms.filter((room) => room.gameType === "casino_holdem");
   const sutdaRooms = rooms.filter((room) => room.gameType === "sutda");
 
   const renderCard = (room: GameRoom) => (
@@ -74,7 +73,6 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
         room.gameType === "blackjack" || room.gameType === "lightning_blackjack" ? `/rooms/blackjack/${room.id}`
             : room.gameType === "dragon_tiger" ? `/rooms/dragon-tiger/${room.id}`
             : room.gameType === "holdem" ? `/rooms/holdem/${room.id}`
-              : room.gameType === "casino_holdem" ? `/rooms/casino-holdem/${room.id}`
               : room.gameType === "sutda" ? `/rooms/sutda/${room.id}` : `/rooms/${room.id}`
       )}>
         입장
@@ -102,7 +100,6 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
             블랙잭 <span>{blackjackRooms.length}</span>
           </button>
           <button className={selectedGame === "holdem" ? "active" : ""} onClick={() => setSelectedGame("holdem")} role="tab" aria-selected={selectedGame === "holdem"}>홀덤 <span>{holdemRooms.length}</span></button>
-          <button className={selectedGame === "casino_holdem" ? "active" : ""} onClick={() => setSelectedGame("casino_holdem")} role="tab" aria-selected={selectedGame === "casino_holdem"}>카지노 홀덤 <span>{casinoHoldemRooms.length}</span></button>
           <button className={selectedGame === "sutda" ? "active" : ""} onClick={() => setSelectedGame("sutda")} role="tab" aria-selected={selectedGame === "sutda"}>섯다 <span>{sutdaRooms.length}</span></button>
         </div>
         {/* Five tabs don't fit a phone width without wrapping or truncating — a dropdown reads
@@ -118,7 +115,6 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
             { value: "dragon_tiger", label: `드래곤 타이거 (${dragonTigerRooms.length})` },
             { value: "blackjack", label: `블랙잭 (${blackjackRooms.length})` },
             { value: "holdem", label: `홀덤 (${holdemRooms.length})` },
-            { value: "casino_holdem", label: `카지노 홀덤 (${casinoHoldemRooms.length})` },
             { value: "sutda", label: `섯다 (${sutdaRooms.length})` },
           ]}
         />
@@ -140,11 +136,10 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
             <div className="room-grid">{blackjackRooms.map(renderCard)}</div>
           </section>
           {holdemRooms.length > 0 && <section className="room-section"><h2 className="room-section-title">홀덤 PvP <span>{holdemRooms.length}</span></h2><div className="room-grid">{holdemRooms.map(renderCard)}</div></section>}
-          {casinoHoldemRooms.length > 0 && <section className="room-section"><h2 className="room-section-title">카지노 홀덤 (딜러 상대) <span>{casinoHoldemRooms.length}</span></h2><div className="room-grid">{casinoHoldemRooms.map(renderCard)}</div></section>}
           {sutdaRooms.length > 0 && <section className="room-section"><h2 className="room-section-title">섯다 PvP <span>{sutdaRooms.length}</span></h2><div className="room-grid">{sutdaRooms.map(renderCard)}</div></section>}
         </>
       ) : (
-        <div className="room-grid">{(selectedGame === "baccarat" ? baccaratRooms : selectedGame === "blackjack" ? blackjackRooms : selectedGame === "dragon_tiger" ? dragonTigerRooms : selectedGame === "holdem" ? holdemRooms : selectedGame === "casino_holdem" ? casinoHoldemRooms : sutdaRooms).map(renderCard)}</div>
+        <div className="room-grid">{(selectedGame === "baccarat" ? baccaratRooms : selectedGame === "blackjack" ? blackjackRooms : selectedGame === "dragon_tiger" ? dragonTigerRooms : selectedGame === "holdem" ? holdemRooms : sutdaRooms).map(renderCard)}</div>
       )}
       {error && <p className="error-message">{error}</p>}
 

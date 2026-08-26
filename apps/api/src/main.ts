@@ -16,8 +16,6 @@ import {
   blackjackSeatCommandSchema,
   cancelBetCommandSchema,
   cashRequestCreateSchema,
-  casinoHoldemBetCommandSchema,
-  casinoHoldemDecideCommandSchema,
   COIN_SCALE,
   dragonTigerBetCommandSchema,
   dragonTigerCancelCommandSchema,
@@ -39,7 +37,6 @@ import { config } from "./config.js";
 import { pool } from "./database/pool.js";
 import { RoomManager } from "./games/rooms/room-manager.js";
 import { BlackjackRoomManager } from "./games/rooms/blackjack-room-manager.js";
-import { CasinoHoldemRoomManager } from "./games/rooms/casino-holdem-room-manager.js";
 import { DragonTigerRoomManager } from "./games/rooms/dragon-tiger-room-manager.js";
 import { HoldemRoomManager } from "./games/rooms/holdem-room-manager.js";
 import { SutdaRoomManager } from "./games/rooms/sutda-room-manager.js";
@@ -61,7 +58,6 @@ const rooms = new RoomManager(io);
 const blackjackRooms = new BlackjackRoomManager(io);
 const dragonTigerRooms = new DragonTigerRoomManager(io);
 const holdemRooms = new HoldemRoomManager(io);
-const casinoHoldemRooms = new CasinoHoldemRoomManager(io);
 const sutdaRooms = new SutdaRoomManager(io);
 
 app.get("/api/v1/health", async (_req, res) => {
@@ -71,19 +67,19 @@ app.get("/api/v1/health", async (_req, res) => {
 
 app.get("/api/v1/lobby", requireAuth, async (req, res) => {
   const user = (req as AuthRequest).user;
-  res.json({ rooms: [...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms(), ...casinoHoldemRooms.listRooms(), ...sutdaRooms.listRooms()], walletBalance: await walletService.getUserBalance(user.id) });
+  res.json({ rooms: [...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms(), ...sutdaRooms.listRooms()], walletBalance: await walletService.getUserBalance(user.id) });
 });
 
 app.post("/api/v1/admin/rooms/:roomId/pause", requireAuth, requireAdmin, (req, res) => {
   const roomId = String(req.params.roomId ?? "");
-  const ok = rooms.setPaused(roomId, true) || dragonTigerRooms.setPaused(roomId, true) || blackjackRooms.setPaused(roomId, true) || holdemRooms.setPaused(roomId, true) || casinoHoldemRooms.setPaused(roomId, true) || sutdaRooms.setPaused(roomId, true);
+  const ok = rooms.setPaused(roomId, true) || dragonTigerRooms.setPaused(roomId, true) || blackjackRooms.setPaused(roomId, true) || holdemRooms.setPaused(roomId, true) || sutdaRooms.setPaused(roomId, true);
   if (!ok) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
   res.json({ status: "paused" });
 });
 
 app.post("/api/v1/admin/rooms/:roomId/resume", requireAuth, requireAdmin, (req, res) => {
   const roomId = String(req.params.roomId ?? "");
-  const ok = rooms.setPaused(roomId, false) || dragonTigerRooms.setPaused(roomId, false) || blackjackRooms.setPaused(roomId, false) || holdemRooms.setPaused(roomId, false) || casinoHoldemRooms.setPaused(roomId, false) || sutdaRooms.setPaused(roomId, false);
+  const ok = rooms.setPaused(roomId, false) || dragonTigerRooms.setPaused(roomId, false) || blackjackRooms.setPaused(roomId, false) || holdemRooms.setPaused(roomId, false) || sutdaRooms.setPaused(roomId, false);
   if (!ok) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
   res.json({ status: "resumed" });
 });
@@ -136,7 +132,6 @@ app.post("/api/v1/admin/broadcast", requireAuth, requireAdmin, (req, res) => {
     dragonTigerRooms.participantUserIds(roomId) ??
     blackjackRooms.participantUserIds(roomId) ??
     holdemRooms.participantUserIds(roomId) ??
-    casinoHoldemRooms.participantUserIds(roomId) ??
     sutdaRooms.participantUserIds(roomId);
   if (userIds === null) return void res.status(404).json({ message: "방을 찾을 수 없습니다." });
   for (const userId of userIds) io.to(`support:user:${userId}`).emit("site.announcement", entry);
@@ -159,17 +154,6 @@ const ALL_BETS_CTE = `
     UNION ALL
     SELECT user_id, room_id, amount_minor, payout_minor, outcome, settled_at
     FROM holdem_contributions WHERE settled_at IS NOT NULL
-    UNION ALL
-    SELECT user_id, room_id,
-           ante_minor + bonus_minor + call_minor AS amount_minor,
-           COALESCE(ante_payout_minor,0) + COALESCE(bonus_payout_minor,0) + COALESCE(call_payout_minor,0) AS payout_minor,
-           CASE
-             WHEN COALESCE(ante_payout_minor,0) + COALESCE(bonus_payout_minor,0) + COALESCE(call_payout_minor,0) > ante_minor + bonus_minor + call_minor THEN 'win'
-             WHEN COALESCE(ante_payout_minor,0) + COALESCE(bonus_payout_minor,0) + COALESCE(call_payout_minor,0) = ante_minor + bonus_minor + call_minor THEN 'push'
-             ELSE 'lose'
-           END AS outcome,
-           settled_at
-    FROM casino_holdem_hands WHERE settled_at IS NOT NULL
   )
 `;
 
@@ -260,7 +244,7 @@ app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) =
     ),
   ]);
 
-  const liveRooms = new Map([...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms(), ...casinoHoldemRooms.listRooms(), ...sutdaRooms.listRooms()].map((room) => [room.id, room]));
+  const liveRooms = new Map([...rooms.listRooms(), ...dragonTigerRooms.listRooms(), ...blackjackRooms.listRooms(), ...holdemRooms.listRooms(), ...sutdaRooms.listRooms()].map((room) => [room.id, room]));
   const adminRooms = roomRows.rows.map((room) => {
     const live = liveRooms.get(room.id);
     return {
@@ -688,7 +672,7 @@ app.get("/api/v1/game-history", requireAuth, async (req, res) => {
   const userId = (req as AuthRequest).user.id;
   const limitPerGame = 80;
 
-  const [wagerRows, blackjackRows, holdemRows, casinoHoldemRows] = await Promise.all([
+  const [wagerRows, blackjackRows, holdemRows] = await Promise.all([
     pool.query<{ id: string; game_type: GameType; room_name: string; choice: string; amount_minor: string; payout_minor: string | null; outcome: "win" | "lose" | "push" | null; created_at: string }>(
       `SELECT w.id,gr.game_type,gr.name AS room_name,w.choice,w.amount_minor,w.payout_minor,w.outcome,w.settled_at AS created_at
        FROM wagers w JOIN game_rooms gr ON gr.id=w.room_id
@@ -708,21 +692,6 @@ app.get("/api/v1/game-history", requireAuth, async (req, res) => {
        FROM holdem_contributions c JOIN game_rooms gr ON gr.id=c.room_id
        WHERE c.user_id=$1 AND c.settled_at IS NOT NULL
        ORDER BY c.settled_at DESC LIMIT $2`,
-      [userId, limitPerGame],
-    ),
-    pool.query<{ id: string; game_type: GameType; room_name: string; amount_minor: string; payout_minor: string; outcome: "win" | "lose" | "push"; created_at: string }>(
-      `SELECT h.id,gr.game_type,gr.name AS room_name,
-              (h.ante_minor+h.bonus_minor+h.call_minor) AS amount_minor,
-              (COALESCE(h.ante_payout_minor,0)+COALESCE(h.bonus_payout_minor,0)+COALESCE(h.call_payout_minor,0)) AS payout_minor,
-              CASE
-                WHEN (COALESCE(h.ante_payout_minor,0)+COALESCE(h.bonus_payout_minor,0)+COALESCE(h.call_payout_minor,0)) > (h.ante_minor+h.bonus_minor+h.call_minor) THEN 'win'
-                WHEN (COALESCE(h.ante_payout_minor,0)+COALESCE(h.bonus_payout_minor,0)+COALESCE(h.call_payout_minor,0)) = (h.ante_minor+h.bonus_minor+h.call_minor) THEN 'push'
-                ELSE 'lose'
-              END AS outcome,
-              h.settled_at AS created_at
-       FROM casino_holdem_hands h JOIN game_rooms gr ON gr.id=h.room_id
-       WHERE h.user_id=$1 AND h.settled_at IS NOT NULL
-       ORDER BY h.settled_at DESC LIMIT $2`,
       [userId, limitPerGame],
     ),
   ]);
@@ -753,16 +722,6 @@ app.get("/api/v1/game-history", requireAuth, async (req, res) => {
       game: row.game_type,
       roomName: row.room_name,
       choiceLabel: `홀덤 ${row.seat_number}번 좌석`,
-      amount: coins(row.amount_minor),
-      outcome: row.outcome,
-      net: coins(Number(row.payout_minor ?? 0) - Number(row.amount_minor)),
-      createdAt: row.created_at,
-    })),
-    ...casinoHoldemRows.rows.map((row) => ({
-      id: row.id,
-      game: row.game_type,
-      roomName: row.room_name,
-      choiceLabel: "카지노 홀덤",
       amount: coins(row.amount_minor),
       outcome: row.outcome,
       net: coins(Number(row.payout_minor ?? 0) - Number(row.amount_minor)),
@@ -987,50 +946,6 @@ io.on("connection", (socket) => {
       ack({ ok: false, code, error: messageFor(error) });
     }
   });
-  socket.on("casinoHoldem.join", async (payload, ack) => {
-    if (typeof ack !== "function") return;
-    try {
-      await authorizeCommand();
-      if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND");
-      ack({ ok: true, data: await casinoHoldemRooms.join(socket, payload.roomId) });
-    } catch (error) {
-      ack({ ok: false, code: "ROOM_JOIN_FAILED", error: messageFor(error) });
-    }
-  });
-  socket.on("casinoHoldem.leave", async (payload, ack) => {
-    if (typeof ack !== "function") return;
-    try {
-      await authorizeCommand();
-      await casinoHoldemRooms.leave(socket, payload.roomId);
-      ack({ ok: true, data: undefined });
-    } catch (error) {
-      ack({ ok: false, code: "ROOM_LEAVE_FAILED", error: messageFor(error) });
-    }
-  });
-  socket.on("casinoHoldem.bet", async (payload, ack) => {
-    if (typeof ack !== "function") return;
-    try {
-      await authorizeCommand();
-      const parsed = casinoHoldemBetCommandSchema.safeParse(payload);
-      if (!parsed.success) return ack({ ok: false, code: "INVALID_BET", error: "베팅 요청 형식이 올바르지 않습니다." });
-      ack({ ok: true, data: await casinoHoldemRooms.bet(socket.data.user.id, parsed.data) });
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "BET_FAILED";
-      ack({ ok: false, code, error: messageFor(error) });
-    }
-  });
-  socket.on("casinoHoldem.decide", async (payload, ack) => {
-    if (typeof ack !== "function") return;
-    try {
-      await authorizeCommand();
-      const parsed = casinoHoldemDecideCommandSchema.safeParse(payload);
-      if (!parsed.success) return ack({ ok: false, code: "INVALID_ACTION", error: "요청 형식이 올바르지 않습니다." });
-      ack({ ok: true, data: await casinoHoldemRooms.decide(socket.data.user.id, parsed.data) });
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "ACTION_FAILED";
-      ack({ ok: false, code, error: messageFor(error) });
-    }
-  });
   socket.on("sutda.join", async (payload, ack) => {
     if (typeof ack !== "function") return;
     try { await authorizeCommand(); if (!payload || typeof payload.roomId !== "string") throw new Error("ROOM_NOT_FOUND"); ack({ ok: true, data: await sutdaRooms.join(socket, payload.roomId) }); }
@@ -1066,11 +981,11 @@ io.on("connection", (socket) => {
     try {
       await authorizeCommand();
       if (!payload || typeof payload.roomId !== "string" || typeof payload.message !== "string") throw new Error("CHAT_INVALID");
-      if (!rooms.isParticipant(socket.data.user.id, payload.roomId) && !dragonTigerRooms.isParticipant(socket.data.user.id, payload.roomId) && !blackjackRooms.isParticipant(socket.data.user.id, payload.roomId) && !holdemRooms.isParticipant(socket.data.user.id, payload.roomId) && !casinoHoldemRooms.isParticipant(socket.data.user.id, payload.roomId) && !sutdaRooms.isParticipant(socket.data.user.id, payload.roomId)) throw new Error("ROOM_JOIN_REQUIRED");
+      if (!rooms.isParticipant(socket.data.user.id, payload.roomId) && !dragonTigerRooms.isParticipant(socket.data.user.id, payload.roomId) && !blackjackRooms.isParticipant(socket.data.user.id, payload.roomId) && !holdemRooms.isParticipant(socket.data.user.id, payload.roomId) && !sutdaRooms.isParticipant(socket.data.user.id, payload.roomId)) throw new Error("ROOM_JOIN_REQUIRED");
       const message = await createRoomMessage(socket.data.user.id, payload.roomId, payload.message);
       // Baccarat and blackjack actors use different gameplay channels. The
       // union also mirrors every table message to the admin monitoring feed.
-      io.to(`room:${payload.roomId}`).to(`dt-room:${payload.roomId}`).to(`bj-room:${payload.roomId}`).to(`holdem-room:${payload.roomId}`).to(`casino-holdem-room:${payload.roomId}`).to(`sutda-room:${payload.roomId}`).to("chat:admins").emit("room.chat.message", message);
+      io.to(`room:${payload.roomId}`).to(`dt-room:${payload.roomId}`).to(`bj-room:${payload.roomId}`).to(`holdem-room:${payload.roomId}`).to(`sutda-room:${payload.roomId}`).to("chat:admins").emit("room.chat.message", message);
       ack({ ok: true, data: message });
     } catch (error) {
       const code = error instanceof Error ? error.message : "CHAT_FAILED";
@@ -1229,7 +1144,6 @@ io.on("connection", (socket) => {
     void dragonTigerRooms.disconnect(socket);
     void blackjackRooms.disconnect(socket);
     void holdemRooms.disconnect(socket);
-    void casinoHoldemRooms.disconnect(socket);
     void sutdaRooms.disconnect(socket);
   });
 });
@@ -1274,7 +1188,6 @@ function messageFor(error: unknown): string {
 // game_rounds row globally and only knows how to refund from the `wagers` table, so it must not
 // reach a leftover Hold'em hand before holdemRooms has had a chance to refund its pot properly.
 await holdemRooms.initialize();
-await casinoHoldemRooms.initialize();
 await sutdaRooms.initialize();
 await rooms.initialize();
 await dragonTigerRooms.initialize();

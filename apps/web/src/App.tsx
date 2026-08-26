@@ -8,7 +8,6 @@ import { BaccaratRoomPage } from "./pages/BaccaratRoomPage";
 import { BlackjackRoomPage } from "./pages/BlackjackRoomPage";
 import { DragonTigerRoomPage } from "./pages/DragonTigerRoomPage";
 import { HoldemRoomPage } from "./pages/HoldemRoomPage";
-import { CasinoHoldemRoomPage } from "./pages/CasinoHoldemRoomPage";
 import { SutdaRoomPage } from "./pages/SutdaRoomPage";
 import { WalletPage } from "./pages/WalletPage";
 import { ProfilePage } from "./pages/ProfilePage";
@@ -120,7 +119,6 @@ export function App() {
       <Route path="/rooms/blackjack/:roomId" element={token ? <BlackjackRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/dragon-tiger/:roomId" element={token ? <DragonTigerRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/holdem/:roomId" element={token ? <HoldemRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
-      <Route path="/rooms/casino-holdem/:roomId" element={token ? <CasinoHoldemRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/sutda/:roomId" element={token ? <SutdaRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="/rooms/:roomId" element={token ? <BaccaratRoomPage token={token} onLogout={logout} /> : <Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to={token ? "/lobby" : "/login"} replace />} />

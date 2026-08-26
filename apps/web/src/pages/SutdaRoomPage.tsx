@@ -10,6 +10,7 @@ import { HwatuCard } from "../components/HwatuCard";
 import { OrientationGate } from "../components/OrientationGate";
 import { RoomChat } from "../components/RoomChat";
 import { SutdaHandGuide } from "../components/SutdaHandGuide";
+import { randomRequestId } from "../lib/requestId";
 
 const ACTION_SECONDS = 20;
 const ANGLES = [90, 150, 210, 270, 330, 30];
@@ -22,8 +23,8 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
   useEffect(() => { const update = () => setFullscreen(document.fullscreenElement === shellRef.current); document.addEventListener("fullscreenchange", update); return () => document.removeEventListener("fullscreenchange", update); }, []);
   if (!snapshot) return <div className="loading-screen"><Brand /><p>{message || "섯다방에 연결하고 있습니다…"}</p></div>;
   const mine = snapshot.seats.find((seat) => seat.seatNumber === snapshot.mySeatNumber) ?? null; const myTurn = snapshot.actingSeat === snapshot.mySeatNumber; const seated = snapshot.seats.filter((seat) => seat.userId).length;
-  const command = (action: SutdaAction) => { if (!snapshot.roundId) return; socket.emit("sutda.act", { requestId: crypto.randomUUID(), roomId, roundId: snapshot.roundId, action }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error)); };
-  const sit = (seatNumber: number) => socket.emit("sutda.sit", { requestId: crypto.randomUUID(), roomId, seatNumber }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error));
+  const command = (action: SutdaAction) => { if (!snapshot.roundId) return; socket.emit("sutda.act", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, action }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error)); };
+  const sit = (seatNumber: number) => socket.emit("sutda.sit", { requestId: randomRequestId(), roomId, seatNumber }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error));
   const ready = () => socket.emit("sutda.ready", { roomId, ready: !mine?.ready }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error));
   const stand = () => socket.emit("sutda.standUp", { roomId }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error));
   return <GameShell title={snapshot.room.name} subtitle={`삥 ${snapshot.room.minBet} · 최대 ${snapshot.room.maxBet} · 2–6인 PvP`} phaseLabel={snapshot.room.paused ? "일시정지" : label(snapshot)} phaseSeconds={snapshot.phaseEndsAt ? seconds : null} balance={snapshot.walletBalance} onLogout={onLogout} isFullscreen={fullscreen} onToggleFullscreen={() => void (document.fullscreenElement ? document.exitFullscreen() : shellRef.current?.requestFullscreen())} shellRef={shellRef}>
