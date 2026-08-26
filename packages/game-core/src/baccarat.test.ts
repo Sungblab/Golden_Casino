@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "@golden/contracts";
-import { handScore, payoutForBaccaratBet, payoutMultiplierHundredths, playBaccaratRound, shouldBankerDraw } from "./baccarat.js";
+import { dragonBonusMultiplierHundredths, handScore, payoutForBaccaratBet, payoutMultiplierHundredths, playBaccaratRound, shouldBankerDraw } from "./baccarat.js";
+import type { BaccaratResult } from "./baccarat.js";
 import { Shoe } from "./shoe.js";
 
 describe("baccarat rules", () => {
@@ -76,5 +77,35 @@ describe("baccarat rules", () => {
       payoutMultiplierHundredths("player", tie),
       payoutMultiplierHundredths("banker", tie),
     ]).toEqual([200, 195, 900, 100, 100]);
+  });
+
+  it("uses the Evolution-style Dragon Bonus payout bands", () => {
+    const cards: Card[] = [{ rank: "2", suit: "S" }, { rank: "3", suit: "H" }, { rank: "4", suit: "D" }];
+    const result = (playerScore: number, bankerScore: number): Parameters<typeof dragonBonusMultiplierHundredths>[1] => ({
+      playerCards: cards,
+      bankerCards: cards,
+      playerScore,
+      bankerScore,
+      result: playerScore > bankerScore ? "player" : playerScore < bankerScore ? "banker" : "tie",
+      playerPair: false,
+      bankerPair: false,
+    });
+    expect(dragonBonusMultiplierHundredths("player_bonus", result(9, 0))).toBe(3_100);
+    expect(dragonBonusMultiplierHundredths("player_bonus", result(9, 1))).toBe(1_100);
+    expect(dragonBonusMultiplierHundredths("player_bonus", result(8, 2))).toBe(500);
+    expect(dragonBonusMultiplierHundredths("player_bonus", result(7, 2))).toBe(300);
+    expect(dragonBonusMultiplierHundredths("player_bonus", result(6, 3))).toBe(0);
+    expect(dragonBonusMultiplierHundredths("banker_bonus", result(2, 8))).toBe(500);
+  });
+
+  it("pays a natural Dragon Bonus win and only pushes a natural tie", () => {
+    const twoCards: Card[] = [{ rank: "4", suit: "S" }, { rank: "4", suit: "H" }];
+    const naturalWin = { playerCards: twoCards, bankerCards: twoCards, playerScore: 9, bankerScore: 8, result: "player" as const, playerPair: true, bankerPair: true };
+    const naturalTie = { ...naturalWin, playerScore: 8, bankerScore: 8, result: "tie" as const };
+    const nonNaturalTie: BaccaratResult = { ...naturalTie, playerCards: [...twoCards, { rank: "10", suit: "C" }], bankerCards: [...twoCards, { rank: "10", suit: "D" }] };
+    expect(payoutMultiplierHundredths("player_bonus", naturalWin)).toBe(200);
+    expect(payoutMultiplierHundredths("banker_bonus", naturalWin)).toBe(0);
+    expect(payoutMultiplierHundredths("player_bonus", naturalTie)).toBe(100);
+    expect(payoutMultiplierHundredths("banker_bonus", nonNaturalTie)).toBe(0);
   });
 });

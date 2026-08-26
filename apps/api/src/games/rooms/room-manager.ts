@@ -25,6 +25,8 @@ const BACCARAT_CHOICE_LABEL: Record<BaccaratBetChoice, string> = {
   player: "PLAYER",
   banker: "BANKER",
   tie: "TIE",
+  player_bonus: "P BONUS",
+  banker_bonus: "B BONUS",
   player_pair: "P PAIR",
   banker_pair: "B PAIR",
 };
@@ -53,12 +55,12 @@ function delay(milliseconds: number): Promise<void> {
  *
  * DEALING_MS is the one value that is not free to pick: the web client reveals the round's
  * cards one at a time (see DEAL_STEP_MS in BaccaratRoomPage.tsx) and a six-card round takes
- * ~3.85s to finish that animation. Anything shorter here and the table settles while the
+ * ~5.1s to mount its last card. Anything shorter here and the table settles while the
  * player is still watching cards land, so the result banner flashes past.
  */
 const BETTING_MS = 12_000;
 const LOCKED_MS = 700;
-const DEALING_MS = 4_400;
+const DEALING_MS = 6_000;
 const SETTLING_MS = 1_000;
 /** Long enough that RESULT_NOTICE_MS (client's win banner, BaccaratRoomPage.tsx) finishes
  * with room to spare before the table moves on and the next round's betting starts. */
@@ -71,7 +73,8 @@ class AutomaticBaccaratRoomActor {
   private sequence = 0;
   private result: BaccaratResult | null = null;
   private lightningCards: LightningCard[] = [];
-  private shoe = new Shoe(6);
+  // Evolution Lightning Baccarat is dealt from an eight-deck shoe.
+  private shoe = new Shoe(8);
   private participants = new Map<string, Set<string>>();
   private usernames = new Map<string, string>();
   private cycleToken = 0;
@@ -84,6 +87,15 @@ class AutomaticBaccaratRoomActor {
 
   private get isLightning(): boolean {
     return this.room.game_type === "lightning_baccarat";
+  }
+
+  private get isBonus(): boolean {
+    return this.room.game_type === "bonus_baccarat";
+  }
+
+  private isAllowedChoice(choice: BaccaratBetChoice): boolean {
+    if (choice === "player_bonus" || choice === "banker_bonus") return this.isBonus;
+    return true;
   }
 
   async loadHistory(): Promise<void> {
@@ -168,6 +180,7 @@ class AutomaticBaccaratRoomActor {
   async placeBet(userId: string, command: PlaceBetCommand): Promise<RoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     if (this.phase !== "BETTING" || command.roundId !== this.roundId) throw new Error("BETTING_CLOSED");
+    if (!this.isAllowedChoice(command.choice)) throw new Error("INVALID_BET_CHOICE");
     await baccaratBetService.place(userId, command, this.room.min_bet, this.room.max_bet, this.isLightning ? 20 : 0, this.room.side_bet_max);
     this.sequence += 1;
     await this.emitSnapshots();
@@ -177,6 +190,7 @@ class AutomaticBaccaratRoomActor {
   async cancelBet(userId: string, roundId: string, choice: PlaceBetCommand["choice"]): Promise<RoomSnapshot> {
     if (!this.participants.has(userId)) throw new Error("ROOM_JOIN_REQUIRED");
     if (this.phase !== "BETTING" || roundId !== this.roundId) throw new Error("BETTING_CLOSED");
+    if (!this.isAllowedChoice(choice)) throw new Error("INVALID_BET_CHOICE");
     await baccaratBetService.cancel(userId, this.room.id, roundId, choice);
     this.sequence += 1;
     await this.emitSnapshots();
@@ -184,7 +198,7 @@ class AutomaticBaccaratRoomActor {
   }
 
   async snapshot(userId: string, betTotals?: Record<string, BetZoneTotal>): Promise<RoomSnapshot> {
-    const myBets = { player: 0, banker: 0, tie: 0, player_pair: 0, banker_pair: 0 };
+    const myBets = { player: 0, banker: 0, tie: 0, player_bonus: 0, banker_bonus: 0, player_pair: 0, banker_pair: 0 };
     if (this.roundId) {
       const wagers = await pool.query<{ choice: keyof typeof myBets; total: string }>(
         "SELECT choice,SUM(amount_minor) AS total FROM wagers WHERE round_id=$1 AND user_id=$2 AND status='accepted' GROUP BY choice",
@@ -313,8 +327,10 @@ class AutomaticBaccaratRoomActor {
       [this.room.id],
     );
     const created = await pool.query<{ id: string }>(
-      "INSERT INTO game_rounds (room_id,round_number,phase) VALUES ($1,$2,'BETTING') RETURNING id",
-      [this.room.id, Number(next.rows[0]!.next_number)],
+      "INSERT INTO game_rounds (room_id,round_number,phase,rules_version) VALUES ($1,$2,'BETTING',$3) RETURNING id",
+      // `rules_version` is varchar(20); keep the Lightning identifier within the
+      // schema limit (the previous 21-character value aborted every round at INSERT).
+      [this.room.id, Number(next.rows[0]!.next_number), this.isBonus ? "bonus-baccarat-v1" : this.isLightning ? "lightning-bac-v1" : "baccarat-v1"],
     );
     this.roundId = created.rows[0]!.id;
     await this.setPhase("BETTING", BETTING_MS);
@@ -329,10 +345,10 @@ class AutomaticBaccaratRoomActor {
     await delay(LOCKED_MS);
     if (this.isLightning) this.lightningCards = generateLightningCards();
     await this.setPhase("DEALING", DEALING_MS);
-    // Road maps represent the active shoe, which is how a live baccarat table
-    // presents statistics. A fresh six-deck shoe starts with a fresh road.
+    // Road maps represent the active eight-deck shoe, which is how a live baccarat
+    // table presents statistics. A fresh eight-deck shoe starts with a fresh road.
     if (this.shoe.remaining < 60) {
-      this.shoe = new Shoe(6);
+      this.shoe = new Shoe(8);
       this.recentResults = [];
     }
     this.result = playBaccaratRound(this.shoe);
@@ -379,9 +395,9 @@ export class RoomManager {
   async initialize(): Promise<void> {
     const recovered = await baccaratBetService.recoverInterruptedRounds();
     if (recovered > 0) console.warn(`Recovered ${recovered} interrupted baccarat rounds`);
-    const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,side_bet_max,enabled FROM game_rooms WHERE game_type IN ('baccarat','lightning_baccarat') ORDER BY min_bet");
+    const result = await pool.query<RoomRow>("SELECT id,game_type,code,name,min_bet,max_bet,side_bet_max,enabled FROM game_rooms WHERE game_type IN ('baccarat','bonus_baccarat','lightning_baccarat') ORDER BY min_bet");
     for (const row of result.rows) {
-      if (row.game_type !== "baccarat" && row.game_type !== "lightning_baccarat") continue;
+      if (row.game_type !== "baccarat" && row.game_type !== "bonus_baccarat" && row.game_type !== "lightning_baccarat") continue;
       const actor = new AutomaticBaccaratRoomActor(this.io, row);
       await actor.loadHistory();
       this.actors.set(row.id, actor);

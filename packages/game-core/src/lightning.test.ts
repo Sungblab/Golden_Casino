@@ -40,6 +40,14 @@ describe("lightning games", () => {
     expect(payoutForLightningBaccaratBet("player", result, lightning, 100)).toBe(1700);
   });
 
+  it("uses Lightning Baccarat base payouts instead of standard Baccarat payouts", () => {
+    const tie: BaccaratResult = { ...result, result: "tie", bankerScore: 8 };
+    const pair: BaccaratResult = { ...result, playerPair: true };
+    expect(payoutForLightningBaccaratBet("tie", tie, [], 100)).toBe(600);
+    expect(payoutForLightningBaccaratBet("player_pair", pair, [], 100)).toBe(1000);
+    expect(payoutForLightningBaccaratBet("banker", { ...result, result: "banker" }, [{ card: result.bankerCards[0]!, multiplier: 8 }], 100)).toBe(895);
+  });
+
   it("applies blackjack lightning multipliers to profit, not returned stake", () => {
     expect(applyLightningBlackjackMultiplier(200, 100, 5)).toBe(600);
     expect(applyLightningBlackjackMultiplier(100, 100, 25)).toBe(100);

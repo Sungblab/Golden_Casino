@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import "./styles.css";
 import "./styles/table-baccarat.css";
+import "./styles/table-bonus-baccarat.css";
 import "./styles/table-dragontiger.css";
 import "./styles/table-holdem.css";
 import "./styles/deck-shoe.css";

@@ -38,7 +38,15 @@ export type BaccaratWin = AutomaticTableWin;
  * though its 8:1/11:1 payout is also elevated: it's treated as a third main outcome (Player/Banker/Tie),
  * not a side bet, matching standard table convention.
  */
-const SIDE_BET_CHOICES: ReadonlySet<AutomaticBetChoice> = new Set(["player_pair", "banker_pair", "suited_tie"]);
+const SIDE_BET_CHOICES: ReadonlySet<AutomaticBetChoice> = new Set([
+  "player_bonus",
+  "banker_bonus",
+  "player_pair",
+  "banker_pair",
+  "suited_tie",
+]);
+/** Provider-style per-round guardrail for extreme Lightning payouts. */
+const LIGHTNING_MAX_PAYOUT_MINOR = 500_000 * COIN_SCALE;
 
 export class BaccaratBetService {
   async place(userId: string, command: AutomaticBetCommand, minBet: number, maxBet: number, feePercent: 0 | 20 = 0, sideBetMax: number | null = null): Promise<{ duplicate: boolean; balance: number }> {
@@ -218,12 +226,14 @@ export class BaccaratBetService {
     result: BaccaratResult,
     lightningCards: LightningCard[] = [],
   ): Promise<{ balances: Map<string, number>; wins: AutomaticTableWin[] }> {
+    let lightningCapRemaining = LIGHTNING_MAX_PAYOUT_MINOR;
     return this.settleResolved(roomId, roundId, "baccarat_wager", (choice, stake) => {
-      if (!["player", "banker", "tie", "player_pair", "banker_pair"].includes(choice)) throw new Error("INVALID_BET_CHOICE");
+      if (!["player", "banker", "tie", "player_bonus", "banker_bonus", "player_pair", "banker_pair"].includes(choice)) throw new Error("INVALID_BET_CHOICE");
       const baccaratChoice = choice as BaccaratBetChoice;
-      return lightningCards.length > 0
-        ? payoutForLightningBaccaratBet(baccaratChoice, result, lightningCards, stake, COIN_SCALE)
-        : payoutForBaccaratBet(baccaratChoice, result, stake, COIN_SCALE);
+      if (lightningCards.length === 0) return payoutForBaccaratBet(baccaratChoice, result, stake, COIN_SCALE);
+      const payout = Math.min(lightningCapRemaining, payoutForLightningBaccaratBet(baccaratChoice, result, lightningCards, stake, COIN_SCALE));
+      lightningCapRemaining -= payout;
+      return payout;
     }, { result: result.result, lightningCards });
   }
 

@@ -7,6 +7,7 @@ import { AdminPanelHeading, AdminView } from "./AdminView";
 
 const GAME_TYPE_LABEL: Record<GameRoom["gameType"], string> = {
   baccarat: "바카라",
+  bonus_baccarat: "보너스 바카라",
   lightning_baccarat: "라이트닝 바카라",
   blackjack: "블랙잭",
   lightning_blackjack: "라이트닝 블랙잭",
@@ -16,7 +17,7 @@ const GAME_TYPE_LABEL: Record<GameRoom["gameType"], string> = {
 };
 
 /** Only these game types track a road/scoreboard, so only they get a "통계 초기화" button. */
-const HAS_ROAD: ReadonlySet<GameRoom["gameType"]> = new Set(["baccarat", "lightning_baccarat", "dragon_tiger"]);
+const HAS_ROAD: ReadonlySet<GameRoom["gameType"]> = new Set(["baccarat", "bonus_baccarat", "lightning_baccarat", "dragon_tiger"]);
 
 export function AdminGamesPage() {
   const { token, overview, refresh } = useAdminData();

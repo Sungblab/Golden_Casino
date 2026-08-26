@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Card } from "@golden/contracts";
-import { applyShoeFlight, FLIP_LEAD_MS } from "../lib/shoeFlight";
+import { applyShoeFlight, SHOE_REVEAL_HOLD_MS } from "../lib/shoeFlight";
 import {
   CARD_BACK_URL,
   CardBackFace,
@@ -21,6 +21,8 @@ import {
  *
  * `highlighted` marks a card as part of the viewer's current best hand (gold
  * ring) — holdem uses it on the hole/board cards the evaluated combo uses.
+ * `lightningMultiplier` marks a card selected by the Lightning round and shows
+ * the multiplier on the physical card when it is revealed.
  */
 export function PlayingCard({
   card,
@@ -28,12 +30,14 @@ export function PlayingCard({
   delayMs = 40,
   sideways = false,
   highlighted = false,
+  lightningMultiplier,
 }: {
   card: Card;
   animate?: boolean;
   delayMs?: number;
   sideways?: boolean;
   highlighted?: boolean;
+  lightningMultiplier?: number;
 }) {
   const [revealed, setRevealed] = useState(!animate);
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -57,10 +61,12 @@ export function PlayingCard({
     let cancelled = false;
     let timer = 0;
     setRevealed(false);
-    // A card flying in from the shoe stays face-down until just before it
-    // lands (the .55s flip mostly plays out after touchdown); flipping at the
-    // stock delayMs would turn it face-up in mid-air right out of the shoe.
-    const revealDelay = delayMs + Math.max(0, flightMsRef.current - FLIP_LEAD_MS);
+    // A shoe-dealt card stays face-down through the whole flight, rests for a
+    // beat after touchdown, then starts its slower turn. Without a measured
+    // flight this keeps the original lightweight delay for non-shoe cards.
+    const revealDelay = flightMsRef.current > 0
+      ? delayMs + flightMsRef.current + SHOE_REVEAL_HOLD_MS
+      : delayMs;
     const reveal = () => {
       if (!cancelled) timer = window.setTimeout(() => setRevealed(true), revealDelay);
     };
@@ -74,7 +80,7 @@ export function PlayingCard({
   return (
     <span
       ref={rootRef}
-      className={`playing-card ${sideways ? "sideways" : ""} ${highlighted ? "is-in-hand" : ""}`}
+      className={`playing-card ${sideways ? "sideways" : ""} ${highlighted ? "is-in-hand" : ""} ${lightningMultiplier ? "is-lightning-hit" : ""}`}
       style={style}
     >
       <span className={`playing-card-inner ${revealed ? "is-revealed" : ""}`}>
@@ -83,6 +89,7 @@ export function PlayingCard({
         </span>
         <span className="playing-card-face">
           <CardFace card={card} />
+          {lightningMultiplier && <b className="playing-card-lightning-badge">×{lightningMultiplier}</b>}
         </span>
       </span>
     </span>

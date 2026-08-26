@@ -231,7 +231,102 @@
   top: 32%;
   right: 27%;
   width: clamp(26px, 2.6vw, 34px);
-  rotate: -5deg;
+}
+
+/* ── The table itself: a physical object, not a green donut ───────────────────
+   What separates a real table render from a flat one: a padded LEATHER bumper
+   whose top catches the room light, felt that sits visibly LOWER than the
+   bumper (the bumper casts a shadow onto it), an overhead light pool on the
+   felt fading to a vignette at the edges, and painted cream betting lines —
+   casino lines are silk-screened cream/white, not gold trim. */
+.game-shell .holdem-room-shell .holdem-table-rail {
+  background: linear-gradient(180deg, #6a4522 0%, #4a2f14 22%, #2c1b0a 55%, #1a0f05 100%);
+  box-shadow:
+    /* outer gold trim + floor shadow */
+    0 0 0 2px rgba(240, 180, 28, .5),
+    0 30px 70px -22px rgba(0, 0, 0, .85),
+    /* the bumper's rounded top edge catching the light */
+    inset 0 3px 5px rgba(255, 224, 160, .3),
+    inset 0 -5px 12px rgba(0, 0, 0, .65);
+}
+/* The felt, recessed inside the bumper. inset = the bumper's visible width. */
+.game-shell .holdem-room-shell .holdem-table-rail::before {
+  content: "";
+  position: absolute;
+  inset: clamp(14px, 1.8vw, 24px);
+  border-radius: 999px;
+  background:
+    /* overhead light pool */
+    radial-gradient(ellipse 72% 58% at 50% 36%, rgba(255, 255, 245, .09), transparent 68%),
+    /* the felt */
+    radial-gradient(ellipse 130% 110% at 50% 44%, #14724a 0%, #0d5636 40%, #084026 72%, #062e1c 100%);
+  box-shadow:
+    /* bumper overhangs the felt and shades it */
+    inset 0 12px 30px rgba(0, 0, 0, .6),
+    inset 0 -8px 24px rgba(0, 0, 0, .45),
+    inset 0 0 70px rgba(0, 0, 0, .3),
+    /* thin gold piping where leather meets felt */
+    0 0 0 1.5px rgba(240, 180, 28, .35);
+}
+
+/* Painted double betting line — cream, like the silk-screened line on real
+   felt, replacing the gold ellipse that read as more UI trim. */
+.game-shell .holdem-room-shell .holdem-action-line {
+  border: 1.5px solid rgba(255, 244, 214, .17);
+}
+.game-shell .holdem-room-shell .holdem-action-line::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px solid rgba(255, 244, 214, .1);
+  border-radius: 999px;
+}
+
+/* Felt marking, not floating UI text. */
+.game-shell .holdem-room-shell .holdem-table-brand {
+  color: rgba(255, 244, 214, .07);
+  letter-spacing: .34em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .25);
+}
+
+/* Seat nameplates — the piece every real client has that this table lacked:
+   name/stack sit on a dark plate, and the cards rest against its top edge. */
+.holdem-seat-plate {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-width: 86px;
+  max-width: 100%;
+  margin-top: -7px;
+  padding: 4px 12px 5px;
+  border: 1px solid rgba(240, 180, 28, .32);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(20, 13, 5, .92), rgba(8, 5, 2, .94));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 229, 152, .1);
+}
+/* Cards overlap the plate from above — z above it, and the plate pulls up under them. */
+.game-shell .holdem-seat .holdem-seat-cards { position: relative; z-index: 1; }
+.holdem-seat-plate .holdem-seat-name { max-width: 100%; }
+.holdem-seat-plate .holdem-seat-stack { font-weight: 700; }
+.game-shell .holdem-seat.is-turn .holdem-seat-plate {
+  border-color: var(--gold-light);
+  box-shadow: 0 0 14px rgba(255, 210, 74, .45), 0 6px 16px rgba(0, 0, 0, .55);
+}
+.game-shell .holdem-seat.is-mine .holdem-seat-plate { border-color: rgba(240, 180, 28, .55); }
+
+/* Empty seats: a recessed cushion in the felt rather than a dashed wireframe circle. */
+.game-shell .holdem-room-shell .holdem-seat-empty {
+  border: 1px solid rgba(255, 244, 214, .14);
+  background: radial-gradient(circle at 50% 42%, rgba(0, 0, 0, .32), rgba(0, 0, 0, .16) 68%, transparent 78%);
+  box-shadow: inset 0 3px 9px rgba(0, 0, 0, .45), inset 0 -1px 0 rgba(255, 244, 214, .06);
+  color: rgba(255, 244, 214, .4);
+}
+.game-shell .holdem-room-shell .holdem-seat-empty:hover,
+.game-shell .holdem-room-shell .holdem-seat-empty:focus-visible {
+  border-color: rgba(255, 210, 74, .6);
+  color: var(--gold-light);
+  background: radial-gradient(circle at 50% 42%, rgba(240, 180, 28, .18), rgba(0, 0, 0, .2) 72%);
 }
 
 /* The seats' y radius (33% — see SeatView) and this ellipse are a matched pair:
@@ -341,6 +436,9 @@
      reaches ~5px into the desktop-tuned line box, so pull it in a notch more. */
   .game-shell .holdem-room-shell .holdem-action-line { top: 30%; height: 40%; }
   .game-shell .holdem-room-shell .holdem-timer { top: 35%; }
+
+  /* Plates shrink with everything else on the 257px table. */
+  .holdem-seat-plate { min-width: 64px; margin-top: -5px; padding: 2px 8px 3px; border-radius: 8px; }
 
   .holdem-rail-footer { flex: 0 0 auto; }
   .game-shell .holdem-rail-footer .outline-button,

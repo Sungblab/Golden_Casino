@@ -44,7 +44,7 @@ const CHOICE_LABEL: Record<DragonTigerBetChoice, string> = {
 
 const BETTING_MS = 12_000;
 const LOCKED_MS = 700;
-const DEALING_MS = 1_800;
+const DEALING_MS = 2_800;
 const SETTLING_MS = 900;
 const RESULT_MS = 4_000;
 

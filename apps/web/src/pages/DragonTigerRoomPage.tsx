@@ -30,15 +30,10 @@ const TIMER_RING = 163.4;
 const RESULT_NOTICE_MS = 2_600;
 const ROAD_LABELS = { player: "D", banker: "T" } as const;
 const BET_CHOICES: DragonTigerBetChoice[] = ["dragon", "tie", "suited_tie", "tiger"];
-/** Beat after both cards finish their flip animation before the road updates, same reasoning
- * as Baccarat's ROAD_REVEAL_DELAY_MS — the scoreboard shouldn't know the outcome before the
- * cards have visibly finished revealing. Sized against the shoe flight plus the Tiger card's
- * TIGER_DEAL_DELAY_MS stagger; must stay inside the server's DEALING_MS (1,800ms,
- * dragon-tiger-room-manager.ts) so the WIN banner still lands during the reveal phase. */
-const ROAD_REVEAL_DELAY_MS = 850;
-/** The two cards leave the same shoe, so the Tiger card follows a beat behind the Dragon
- * card instead of both launching from one spot on the same frame. */
-const TIGER_DEAL_DELAY_MS = 240;
+/** Leave enough room for both cards' shoe flight, landing pause and 800ms flip before updating. */
+const ROAD_REVEAL_DELAY_MS = 1_800;
+/** Dragon Tiger deals both sides together; the physical game draws the pair simultaneously. */
+const TIGER_DEAL_DELAY_MS = 40;
 
 export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const { roomId = "" } = useParams();
@@ -267,7 +262,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
         <section className="ot-stage">
           <div className="ot-felt baccarat dragon-tiger-felt dt-felt">
             <div className="ot-feed"><WinnerFeed socket={socket} /></div>
-            <DeckShoe remaining={snapshot.shoeRemaining} />
+            <DeckShoe />
             <div className="ot-hands dragon-tiger-hands">
               <div className={`ot-hand player ${snapshot.result === "dragon" ? "won" : ""}`}>
                 <div className="ot-hand-head">DRAGON</div>
@@ -277,7 +272,6 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
                   centre-of-felt ring the other tables use: Dragon Tiger's centre column is
                   already occupied by this medallion, so a separate ring landed on top of it. */}
               <div className="dragon-tiger-center">
-                <span className="dragon-tiger-center-odds">TIE 11:1</span>
                 <span className={`dragon-tiger-center-badge dt-medallion ${betting ? "is-counting" : ""} ${betting && seconds <= 4 ? "closing" : ""}`}>
                   {betting && (
                     <svg className="dt-medallion-ring" viewBox="0 0 60 60" aria-hidden="true">
@@ -287,7 +281,6 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
                   )}
                   <b>{betting ? seconds : "VS"}</b>
                 </span>
-                <span className="dragon-tiger-center-odds">SUITED 50:1</span>
               </div>
               <div className={`ot-hand banker ${snapshot.result === "tiger" ? "won" : ""}`}>
                 <div className="ot-hand-head">TIGER</div>

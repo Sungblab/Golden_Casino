@@ -49,7 +49,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
     }
   };
 
-  const baccaratRooms = rooms.filter((room) => room.gameType === "baccarat" || room.gameType === "lightning_baccarat");
+  const baccaratRooms = rooms.filter((room) => room.gameType === "baccarat" || room.gameType === "bonus_baccarat" || room.gameType === "lightning_baccarat");
   const blackjackRooms = rooms.filter((room) => room.gameType === "blackjack" || room.gameType === "lightning_blackjack");
   const dragonTigerRooms = rooms.filter((room) => room.gameType === "dragon_tiger");
   const holdemRooms = rooms.filter((room) => room.gameType === "holdem");
@@ -67,7 +67,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
       <p>
         {room.minBet}–{room.maxBet} 코인
       </p>
-      {(room.gameType === "baccarat" || room.gameType === "lightning_baccarat") && <BigRoad history={room.recentResults ?? []} compact />}
+      {(room.gameType === "baccarat" || room.gameType === "bonus_baccarat" || room.gameType === "lightning_baccarat") && <BigRoad history={room.recentResults ?? []} compact />}
       {room.gameType === "dragon_tiger" && <BigRoad history={room.recentResults ?? []} compact labels={{ player: "D", banker: "T" }} />}
       <button className="outline-button" onClick={() => navigate(
         room.gameType === "blackjack" || room.gameType === "lightning_blackjack" ? `/rooms/blackjack/${room.id}`

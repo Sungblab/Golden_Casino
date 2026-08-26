@@ -85,9 +85,10 @@ function delay(milliseconds: number): Promise<void> {
 
 const BETTING_MS = 12_000;
 const PLAYER_TURN_MS = 30_000;
-const DEALER_STEP_MS = 700;
+const DEALER_STEP_MS = 950;
 const RESULT_MS = 4_500;
-const DEAL_STEP_MS = 260;
+/** Longer than the web card's maximum 680ms flight, so cards land one at a time. */
+const DEAL_STEP_MS = 900;
 const INSURANCE_MS = 7_000;
 const SEAT_COUNT = 7;
 
@@ -449,6 +450,7 @@ class BlackjackRoomActor {
       dealerCards,
       dealerScore: this.dealerHoleHidden ? null : (this.dealerCards.length ? handValue(this.dealerCards).total : null),
       dealerHoleHidden: this.dealerHoleHidden,
+      dealerHoleDealt: this.dealerCards.length >= 2,
       hands: publicHands,
       seats,
       mySeat: this.seatOf(userId),

@@ -10,6 +10,7 @@ const rooms = [
   ["10000000-0000-4000-8000-000000000001", "baccarat", "baccarat-rookie", "Rookie Baccarat", 1, 20, 5],
   ["10000000-0000-4000-8000-000000000002", "baccarat", "baccarat-standard", "Standard Baccarat", 10, 200, 40],
   ["10000000-0000-4000-8000-000000000003", "baccarat", "baccarat-high", "High Roller Baccarat", 100, 5_000, 500],
+  ["10500000-0000-4000-8000-000000000001", "bonus_baccarat", "bonus-baccarat", "Bonus Baccarat", 10, 200, 40],
   ["11000000-0000-4000-8000-000000000001", "lightning_baccarat", "lightning-baccarat", "Lightning Baccarat", 10, 1_000, 100],
 
   ["20000000-0000-4000-8000-000000000001", "blackjack", "blackjack-rookie", "Rookie Blackjack", 1, 20, null],

@@ -32,7 +32,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS game_rooms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  game_type varchar(30) NOT NULL CHECK (game_type IN ('baccarat','lightning_baccarat','dragon_tiger','blackjack','lightning_blackjack','holdem','sutda')),
+  game_type varchar(30) NOT NULL CHECK (game_type IN ('baccarat','bonus_baccarat','lightning_baccarat','dragon_tiger','blackjack','lightning_blackjack','holdem','sutda')),
   code varchar(50) NOT NULL UNIQUE,
   name varchar(80) NOT NULL,
   min_bet integer NOT NULL CHECK (min_bet > 0),
@@ -74,23 +74,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_wallet_per_room ON wallet_accounts(room_id
 CREATE UNIQUE INDEX IF NOT EXISTS one_house_wallet ON wallet_accounts(kind) WHERE kind = 'house';
 CREATE UNIQUE INDEX IF NOT EXISTS one_issuance_wallet ON wallet_accounts(kind) WHERE kind = 'issuance';
 
--- Casino Hold'em (dealer-vs-house) was removed as a game entirely. Wind down any
--- existing rooms/hands first so the tightened game_type constraint below doesn't
--- fail against leftover data from a previous deploy.
+-- Casino Hold'em (dealer-vs-house) is no longer offered, but its wallet and ledger
+-- rows are immutable accounting history. Keep the legacy discriminator valid and
+-- disable old rooms instead of deleting accounts that settled entries still reference.
 DO $remove_casino_holdem$
 BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'casino_holdem_hands') THEN
-    DELETE FROM casino_holdem_hands;
-  END IF;
-  DELETE FROM wallet_accounts WHERE room_id IN (SELECT id FROM game_rooms WHERE game_type = 'casino_holdem');
-  DELETE FROM game_rooms WHERE game_type = 'casino_holdem';
+  UPDATE game_rooms SET enabled = false WHERE game_type = 'casino_holdem';
 END
 $remove_casino_holdem$;
-DROP TABLE IF EXISTS casino_holdem_hands;
 
 ALTER TABLE game_rooms DROP CONSTRAINT IF EXISTS game_rooms_game_type_check;
 ALTER TABLE game_rooms ADD CONSTRAINT game_rooms_game_type_check
-  CHECK (game_type IN ('baccarat','lightning_baccarat','dragon_tiger','blackjack','lightning_blackjack','holdem','sutda'));
+  CHECK (game_type IN ('baccarat','bonus_baccarat','lightning_baccarat','dragon_tiger','blackjack','lightning_blackjack','holdem','sutda','casino_holdem'));
 
 CREATE TABLE IF NOT EXISTS ledger_transactions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -246,7 +241,7 @@ CREATE TABLE IF NOT EXISTS wagers (
   round_id uuid NOT NULL REFERENCES game_rounds(id) ON DELETE RESTRICT,
   room_id uuid NOT NULL REFERENCES game_rooms(id) ON DELETE RESTRICT,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  choice varchar(30) NOT NULL CHECK (choice IN ('player','banker','tie','player_pair','banker_pair','dragon','tiger','suited_tie')),
+  choice varchar(30) NOT NULL CHECK (choice IN ('player','banker','tie','player_bonus','banker_bonus','player_pair','banker_pair','dragon','tiger','suited_tie')),
   amount_minor bigint NOT NULL CHECK (amount_minor > 0),
   fee_minor bigint NOT NULL DEFAULT 0 CHECK (fee_minor >= 0),
   payout_minor bigint,
@@ -261,7 +256,7 @@ ALTER TABLE game_rounds ADD COLUMN IF NOT EXISTS result_data jsonb NOT NULL DEFA
 ALTER TABLE wagers ADD COLUMN IF NOT EXISTS fee_minor bigint NOT NULL DEFAULT 0 CHECK (fee_minor >= 0);
 ALTER TABLE wagers DROP CONSTRAINT IF EXISTS wagers_choice_check;
 ALTER TABLE wagers ADD CONSTRAINT wagers_choice_check
-  CHECK (choice IN ('player','banker','tie','player_pair','banker_pair','dragon','tiger','suited_tie'));
+  CHECK (choice IN ('player','banker','tie','player_bonus','banker_bonus','player_pair','banker_pair','dragon','tiger','suited_tie'));
 
 -- Hold'em PvP: one row per seated player per hand (game_rounds row). There is
 -- no house counterparty, so amount_minor accumulates into the room escrow
@@ -460,7 +455,7 @@ CREATE INDEX IF NOT EXISTS wagering_progress_user_idx ON wagering_progress_event
 -- so every non-push settlement in that game was silently crashing settlement mid-transaction.
 ALTER TABLE wagering_progress_events DROP CONSTRAINT IF EXISTS wagering_progress_events_source_type_check;
 ALTER TABLE wagering_progress_events ADD CONSTRAINT wagering_progress_events_source_type_check
-  CHECK (source_type IN ('cash_deposit','baccarat_wager','dragon_tiger_wager','blackjack_hand','blackjack_behind','blackjack_insurance','holdem_rake','sutda_rake'));
+  CHECK (source_type IN ('cash_deposit','baccarat_wager','dragon_tiger_wager','blackjack_hand','blackjack_behind','blackjack_insurance','holdem_rake','sutda_rake','casino_holdem_wager'));
 
 CREATE TABLE IF NOT EXISTS wallet_transfers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

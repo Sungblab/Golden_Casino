@@ -25,6 +25,23 @@ const ranks: Card["rank"][] = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10"
 const suits: Card["suit"][] = ["S", "H", "D", "C"];
 const multipliers: LightningCard["multiplier"][] = [2, 3, 4, 5, 8];
 
+/**
+ * Evolution publishes the possible values, but not the RNG weight table. Keep the
+ * distribution explicit and tunable instead of accidentally making every value equally
+ * likely (which makes the game player-positive once the 20% fee is included).
+ */
+const MULTIPLIER_WEIGHTS = [25, 25, 20, 20, 10] as const;
+
+function weightedIndex(rng: RandomInt, weights: readonly number[]): number {
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let ticket = rng(total);
+  for (let index = 0; index < weights.length; index += 1) {
+    ticket -= weights[index]!;
+    if (ticket < 0) return index;
+  }
+  return weights.length - 1;
+}
+
 export function cardIdentity(card: Card): string {
   return `${card.rank}${card.suit}`;
 }
@@ -37,7 +54,7 @@ export function generateLightningCards(rng: RandomInt = secureRandomInt): Lightn
   for (let index = 0; index < count; index += 1) {
     const target = rng(deck.length);
     const [card] = deck.splice(target, 1);
-    selected.push({ card: card!, multiplier: multipliers[rng(multipliers.length)]! });
+    selected.push({ card: card!, multiplier: multipliers[weightedIndex(rng, MULTIPLIER_WEIGHTS)]! });
   }
   return selected;
 }
@@ -55,6 +72,8 @@ function winningCards(choice: BaccaratBetChoice, result: BaccaratResult): Card[]
   if (choice === "tie" && result.result === "tie") return [...result.playerCards, ...result.bankerCards];
   if (choice === "player_pair" && result.playerPair) return result.playerCards.slice(0, 2);
   if (choice === "banker_pair" && result.bankerPair) return result.bankerCards.slice(0, 2);
+  if (choice === "player_bonus" && result.result === "player") return result.playerCards;
+  if (choice === "banker_bonus" && result.result === "banker") return result.bankerCards;
   return [];
 }
 
@@ -78,10 +97,32 @@ export function payoutForLightningBaccaratBet(
   stake: number,
   unit = 1,
 ): number {
-  const baseReturn = payoutForBaccaratBet(choice, result, stake, unit);
-  if (baseReturn <= stake) return baseReturn;
+  if (!Number.isInteger(stake) || !Number.isInteger(unit) || unit <= 0 || stake < 0 || stake % unit !== 0) {
+    throw new Error("Lightning Baccarat stake must be a whole number of settlement units");
+  }
+  const stakeUnits = stake / unit;
+  // Bonus side bets are enabled in some shared baccarat contracts but are not part of
+  // Evolution's Lightning Baccarat layout. Preserve their existing payout semantics if
+  // an operator enables them in a Lightning room.
+  if (choice === "player_bonus" || choice === "banker_bonus") {
+    const baseReturn = payoutForBaccaratBet(choice, result, stake, unit);
+    if (baseReturn <= stake) return baseReturn;
+    return stake + (baseReturn - stake) * matchingLightningMultiplier(choice, result, lightningCards);
+  }
+  let baseProfitHundredths: number;
+  let returnedStakeHundredths = 100;
+  if ((choice === "player" && result.result === "tie") || (choice === "banker" && result.result === "tie")) return stake;
+  if (choice === "player" && result.result === "player") baseProfitHundredths = 100;
+  else if (choice === "banker" && result.result === "banker") {
+    baseProfitHundredths = 100;
+    returnedStakeHundredths = 95;
+  } else if (choice === "tie" && result.result === "tie") baseProfitHundredths = 500;
+  else if (choice === "player_pair" && result.playerPair) baseProfitHundredths = 900;
+  else if (choice === "banker_pair" && result.bankerPair) baseProfitHundredths = 900;
+  else return 0;
   const multiplier = matchingLightningMultiplier(choice, result, lightningCards);
-  return stake + (baseReturn - stake) * multiplier;
+  const profitUnits = Math.round((stakeUnits * baseProfitHundredths * multiplier) / 100);
+  return Math.round((stakeUnits * returnedStakeHundredths) / 100 + profitUnits) * unit;
 }
 
 export const LIGHTNING_BLACKJACK_MULTIPLIERS = [2, 5, 8, 10, 15, 20, 25] as const;

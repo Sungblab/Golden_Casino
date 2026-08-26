@@ -653,6 +653,8 @@ const BACCARAT_HISTORY_CHOICE_LABEL: Record<string, string> = {
   player: "플레이어",
   banker: "뱅커",
   tie: "타이",
+  player_bonus: "플레이어 보너스",
+  banker_bonus: "뱅커 보너스",
   player_pair: "플레이어 페어",
   banker_pair: "뱅커 페어",
   dragon: "드래곤",

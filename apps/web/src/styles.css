@@ -280,10 +280,34 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
   margin-left: calc((var(--_ch) - var(--_cw)) * .5 - var(--_cw) * var(--card-fan));
   margin-right: calc((var(--_ch) - var(--_cw)) * .5);
 }
-.playing-card-inner { display: block; position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .55s cubic-bezier(.3,1.15,.4,1); }
+.playing-card-inner { display: block; position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform var(--card-flip-ms, .55s) cubic-bezier(.3,1.05,.4,1); }
 .playing-card-inner.is-revealed { transform: rotateY(180deg); }
 .playing-card-back, .playing-card-face { position: absolute; inset: 0; overflow: hidden; border-radius: calc(var(--_cw) * .055); background: #0b4a32; backface-visibility: hidden; filter: drop-shadow(0 calc(var(--_cw) * .11) calc(var(--_cw) * .2) rgba(0,0,0,.5)); }
 .playing-card-face { transform: rotateY(180deg); }
+.playing-card.is-lightning-hit .playing-card-face {
+  outline: 3px solid #ffd45f;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 2px rgba(255,212,95,.85), 0 0 22px rgba(255,190,45,.95);
+  animation: lightning-card-hit 1.15s ease-in-out infinite;
+}
+.playing-card-lightning-badge {
+  position: absolute;
+  right: -6px;
+  bottom: 5px;
+  z-index: 2;
+  padding: 2px 5px;
+  border: 1px solid rgba(255,247,205,.9);
+  border-radius: 999px;
+  color: #241600;
+  background: #ffd45f;
+  box-shadow: 0 0 12px rgba(255,190,45,.9);
+  font: 900 clamp(9px, 1.2vw, 13px)/1 var(--ui-font);
+  white-space: nowrap;
+}
+@keyframes lightning-card-hit {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(255,212,95,.6)); }
+  50% { filter: drop-shadow(0 0 14px rgba(255,212,95,1)); }
+}
 .card-face-svg { display: block; width: 100%; height: 100%; }
 /* The box is now exactly the art's 1.4 aspect, so `fill` avoids the hairline of
    card-back green that `contain` used to leak along a rounded-off edge. */
@@ -299,7 +323,7 @@ h1, h2, h3, .brand strong { font-family: "Noto Serif KR", serif; text-shadow: 0 
   18% { opacity: 1; }
   to { transform: translate3d(0, 0, 0) rotate(var(--card-tilt, 0deg)) scale(1); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .playing-card { animation: none; } .playing-card-inner { transition: none; } .chip-stack { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .playing-card, .playing-card.is-lightning-hit .playing-card-face { animation: none; } .playing-card-inner { transition: none; } .chip-stack { animation: none; } }
 .result-banner { padding: 12px; color: #fff; font-family: var(--ui-font); font-size: 18px; letter-spacing: .08em; text-align: center; font-weight: 900; text-shadow: 0 2px 4px rgba(0,0,0,.5); animation: result-in .3s ease-out; }
 .result-banner.player { background: linear-gradient(90deg, #0a3bb5, var(--player)); }
 .result-banner.banker { background: linear-gradient(90deg, #94040f, var(--banker)); }
@@ -1665,6 +1689,12 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+/* Keep Baccarat / Dragon Tiger hands in the playable middle band. A fixed top offset
+   looked acceptable on short monitors but drifted toward the ceiling as the felt grew
+   taller; the clamped percentage scales with the table, then stops before the betting zones. */
+.game-shell .ot-felt.baccarat .ot-hands {
+  top: clamp(110px, 28%, 300px);
 }
 .game-shell .ot-hands { top: 38px; }
 .game-shell .ot-hand { gap: 5px; padding-top: 4px; }
@@ -3640,7 +3670,7 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
 @media (max-width: 600px) and (orientation: portrait) {
   .game-shell .ot-felt.baccarat .ot-road.right {
     top: 30%;
-    height: 15%;
+    height: 18%;
   }
   .game-shell .ot-felt.baccarat .ot-road.left {
     top: 48%;
@@ -3759,18 +3789,8 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   font-weight: 800;
   letter-spacing: .06em;
 }
-.dragon-tiger-center-odds {
-  color: rgba(220,194,135,.75);
-  font-family: var(--ui-font);
-  font-size: 7.5px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  white-space: nowrap;
-}
-
 .dragon-tiger-road { bottom: 66px; }
 @media (max-width: 900px) {
-  .dragon-tiger-center-odds { display: none; }
   .dragon-tiger-road { display: none; }
 }
 

@@ -65,7 +65,32 @@ export function playBaccaratRound(shoe: Shoe): BaccaratResult {
   };
 }
 
+/**
+ * Evolution-style Dragon Bonus return multiplier, stake included.
+ * Natural wins pay 1:1 and a natural tie pushes. Non-natural winning hands
+ * need a margin of at least four points; the official table groups 4–5 and 6–7.
+ */
+export function dragonBonusMultiplierHundredths(
+  choice: "player_bonus" | "banker_bonus",
+  result: BaccaratResult,
+): number {
+  const isNatural = result.playerCards.length === 2
+    && result.bankerCards.length === 2
+    && (result.playerScore >= 8 || result.bankerScore >= 8);
+  if (result.result === "tie") return isNatural ? 100 : 0;
+  const selectedResult = choice === "player_bonus" ? "player" : "banker";
+  if (result.result !== selectedResult) return 0;
+  if (isNatural) return 200;
+  const margin = Math.abs(result.playerScore - result.bankerScore);
+  if (margin === 9) return 3_100;
+  if (margin === 8) return 1_100;
+  if (margin >= 6) return 500;
+  if (margin >= 4) return 300;
+  return 0;
+}
+
 export function payoutMultiplierHundredths(choice: BaccaratBetChoice, result: BaccaratResult): number {
+  if (choice === "player_bonus" || choice === "banker_bonus") return dragonBonusMultiplierHundredths(choice, result);
   if (choice === "player" && result.result === "tie") return 100;
   if (choice === "banker" && result.result === "tie") return 100;
   if (choice === "player" && result.result === "player") return 200;

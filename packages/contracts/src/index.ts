@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const gameTypeSchema = z.enum([
   "baccarat",
+  "bonus_baccarat",
   "lightning_baccarat",
   "dragon_tiger",
   "blackjack",
@@ -29,6 +30,8 @@ export const baccaratBetChoiceSchema = z.enum([
   "player",
   "banker",
   "tie",
+  "player_bonus",
+  "banker_bonus",
   "player_pair",
   "banker_pair",
 ]);
@@ -322,6 +325,8 @@ export const blackjackRoomSnapshotSchema = z.object({
   dealerScore: z.number().int().min(0).nullable(),
   /** True while the dealer's second card is still face-down (during BETTING/LOCKED/PLAYER_TURN). */
   dealerHoleHidden: z.boolean(),
+  /** True only after the dealer's second card has actually been dealt. */
+  dealerHoleDealt: z.boolean(),
   hands: z.array(blackjackPlayerHandSchema),
   seats: z.array(blackjackSeatSnapshotSchema).length(7),
   mySeat: z.number().int().min(1).max(7).nullable(),

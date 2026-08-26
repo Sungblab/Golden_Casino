@@ -421,15 +421,20 @@ function SeatView({ seat, angle, onSit, canSit, isMine, highlightKeys, showReady
               : <span key={index} className="ot-card-slot holdem-hole-slot" />
           ))}
       </div>
-      <div className="holdem-seat-name">
-        {seat.isButton && <span className="holdem-button-chip">D</span>}
-        {/* The nickname needs its own element: `text-overflow: ellipsis` has no effect on a flex
-            container, so as a bare text node it was hard-clipped mid-character and pushed the
-            dealer chip / ready dot out of the seat entirely. */}
-        <span className="holdem-seat-nick" title={seat.username ?? undefined}>{seat.username}</span>
-        {showReady && <span className={`holdem-ready-dot ${seat.ready ? "is-ready" : ""}`} title={seat.ready ? "준비 완료" : "준비 대기"} />}
+      {/* Name + stack share one dark nameplate, the way every real client draws seats —
+          bare text floating on felt is what made the table read as a mock-up. The card row
+          above overlaps its top edge slightly (CSS), like cards resting against the plate. */}
+      <div className="holdem-seat-plate">
+        <div className="holdem-seat-name">
+          {seat.isButton && <span className="holdem-button-chip">D</span>}
+          {/* The nickname needs its own element: `text-overflow: ellipsis` has no effect on a flex
+              container, so as a bare text node it was hard-clipped mid-character and pushed the
+              dealer chip / ready dot out of the seat entirely. */}
+          <span className="holdem-seat-nick" title={seat.username ?? undefined}>{seat.username}</span>
+          {showReady && <span className={`holdem-ready-dot ${seat.ready ? "is-ready" : ""}`} title={seat.ready ? "준비 완료" : "준비 대기"} />}
+        </div>
+        <div className="holdem-seat-stack">{seat.stack.toLocaleString()}</div>
       </div>
-      <div className="holdem-seat-stack">{seat.stack.toLocaleString()}</div>
       <ChipStack amount={seat.streetContributed} label="베팅" />
       {seat.folded && <div className="holdem-seat-status fold">폴드</div>}
       {seat.allIn && !seat.folded && <div className="holdem-seat-status allin">올인</div>}

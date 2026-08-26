@@ -1,0 +1,143 @@
+/* Bonus Baccarat keeps the existing table chrome and card stage, but uses the
+   reference's clear 3-column hierarchy: main bets, Dragon Bonus, then pairs. */
+.game-shell .bonus-baccarat .bonus-baccarat-print {
+  grid-template-columns: minmax(0, 1fr) minmax(118px, .62fr) minmax(0, 1fr);
+  grid-template-rows: minmax(76px, 1.2fr) minmax(48px, .72fr) minmax(44px, .62fr);
+  align-items: stretch;
+  gap: 4px;
+  height: clamp(178px, 23vh, 220px);
+}
+
+.game-shell .bonus-baccarat-print > .bet-zone {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.game-shell .bonus-baccarat-print .bet-zone-surface,
+.game-shell .bonus-baccarat-print .bet-zone.tie .bet-zone-surface,
+.game-shell .bonus-baccarat-print .bet-zone.pair .bet-zone-surface {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 8px;
+}
+
+.game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print > .bonus-player-main { grid-area: 1 / 1; }
+.game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print > .bonus-tie-main { grid-area: 1 / 2; }
+.game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print > .bonus-banker-main { grid-area: 1 / 3; }
+.game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print > .bonus-player-side { grid-area: 2 / 1; }
+.game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print > .bonus-banker-side { grid-area: 2 / 3; }
+.game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print > .bonus-player-pair { grid-area: 3 / 1; }
+.game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print > .bonus-banker-pair { grid-area: 3 / 3; }
+
+.game-shell .bonus-baccarat-print .bonus-tie-main .bet-zone-surface {
+  border-radius: 44px 44px 8px 8px;
+}
+
+.game-shell .bonus-baccarat-print .bonus-player-side .bet-zone-surface,
+.game-shell .bonus-baccarat-print .bonus-banker-side .bet-zone-surface,
+.game-shell .bonus-baccarat-print .bonus-player-pair .bet-zone-surface,
+.game-shell .bonus-baccarat-print .bonus-banker-pair .bet-zone-surface {
+  padding: 3px 8px;
+}
+
+.game-shell .bonus-baccarat-print .bonus-player-side strong,
+.game-shell .bonus-baccarat-print .bonus-banker-side strong,
+.game-shell .bonus-baccarat-print .bonus-player-pair strong,
+.game-shell .bonus-baccarat-print .bonus-banker-pair strong {
+  font-size: clamp(10px, .88vw, 14px);
+}
+
+.game-shell .bonus-baccarat-print .bonus-player-side small,
+.game-shell .bonus-baccarat-print .bonus-banker-side small,
+.game-shell .bonus-baccarat-print .bonus-player-pair small,
+.game-shell .bonus-baccarat-print .bonus-banker-pair small {
+  font-size: clamp(8px, .66vw, 10px);
+}
+
+.game-shell .bonus-baccarat-print .bonus-paytable {
+  grid-area: 2 / 2 / 4 / 3;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: center;
+  gap: 4px 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(220, 173, 43, .58);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(48, 34, 10, .9), rgba(17, 21, 14, .9));
+  color: #f1dfaa;
+  box-shadow: inset 0 1px rgba(255, 239, 184, .14);
+  text-align: center;
+  pointer-events: none;
+}
+
+.game-shell .bonus-baccarat-print .bonus-paytable strong {
+  grid-column: 1 / -1;
+  color: #f5c84c;
+  font-family: var(--ui-font);
+  font-size: clamp(9px, .68vw, 11px);
+  letter-spacing: .08em;
+}
+
+.game-shell .bonus-baccarat-print .bonus-paytable span {
+  font-size: clamp(8px, .62vw, 10px);
+  white-space: nowrap;
+}
+
+.game-shell .bonus-baccarat-print .bonus-paytable b { color: #fff4d4; }
+
+@media (max-width: 900px) {
+  .game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print {
+    grid-template-columns: minmax(0, 1fr) minmax(88px, .7fr) minmax(0, 1fr);
+    grid-template-rows: minmax(52px, 1.15fr) minmax(44px, .72fr) minmax(44px, .66fr);
+    align-items: stretch;
+    gap: 3px;
+    height: auto;
+  }
+
+  .game-shell .bonus-baccarat-print .bet-zone-surface,
+  .game-shell .bonus-baccarat-print .bet-zone.tie .bet-zone-surface,
+  .game-shell .bonus-baccarat-print .bet-zone.pair .bet-zone-surface {
+    padding: 3px 5px;
+    border-radius: 6px;
+  }
+
+  .game-shell .bonus-baccarat-print .bonus-tie-main .bet-zone-surface {
+    border-radius: 34px 34px 6px 6px;
+  }
+
+  .game-shell .bonus-baccarat-print .bet-zone-surface strong { font-size: clamp(9px, 3vw, 14px); }
+  .game-shell .bonus-baccarat-print .bet-zone-surface small { font-size: clamp(7px, 2vw, 9px); }
+  .game-shell .bonus-baccarat-print .bet-zone-live { display: none; }
+
+  .game-shell .bonus-baccarat-print .bonus-paytable {
+    gap: 2px 4px;
+    padding: 4px;
+    border-radius: 6px;
+  }
+
+  .game-shell .bonus-baccarat-print .bonus-paytable strong { font-size: 8px; }
+  .game-shell .bonus-baccarat-print .bonus-paytable span { font-size: 7px; }
+}
+
+@media (max-width: 430px) {
+  .game-shell .ot-felt.baccarat.bonus-baccarat .ot-print.bonus-baccarat-print {
+    grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr);
+  }
+
+  .game-shell .bonus-baccarat-print .bonus-player-side small,
+  .game-shell .bonus-baccarat-print .bonus-banker-side small {
+    font-size: 6.5px;
+  }
+
+  .game-shell .bonus-baccarat-print .bonus-paytable {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+
+  .game-shell .bonus-baccarat-print .bonus-paytable strong,
+  .game-shell .bonus-baccarat-print .bonus-paytable span { grid-column: 1; }
+}

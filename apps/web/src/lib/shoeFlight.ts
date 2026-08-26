@@ -9,15 +9,16 @@
  * the measured values on its very first frame.
  */
 
-const FLIGHT_MIN_MS = 280;
-/**
- * Also the ceiling on how far a card's flip can be pushed back (flip waits for
- * touchdown, see PlayingCard) — the baccarat/dragon-tiger ROAD_REVEAL delays
- * are budgeted against this cap, so raising it means revisiting those.
- */
-const FLIGHT_MAX_MS = 420;
-/** How long before touchdown a flip may begin — most of the .55s flip still plays after landing. */
-export const FLIP_LEAD_MS = 180;
+const FLIGHT_MIN_MS = 360;
+/** Flight duration ceiling. Reveal timing is budgeted against this in each shoe game. */
+const FLIGHT_MAX_MS = 600;
+/** Baccarat, Dragon Tiger and Blackjack use the larger table-to-hand travel. */
+const CASINO_FLIGHT_MIN_MS = 400;
+const CASINO_FLIGHT_MAX_MS = 680;
+/** Cards pause briefly after touchdown instead of beginning to turn in mid-air. */
+export const SHOE_REVEAL_HOLD_MS = 140;
+/** A slower, readable back-to-face turn for cards dealt from a shoe. */
+export const SHOE_FLIP_MS = 800;
 
 const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
@@ -35,7 +36,8 @@ export function applyShoeFlight(el: HTMLElement | null): number {
   // keyframe only plays on mount anyway, so a cached result is also the correct one.
   const cached = el.dataset.shoeFlightMs;
   if (cached !== undefined) return Number(cached);
-  const shoe = el.closest(".ot-felt")?.querySelector("[data-deck-shoe]");
+  const felt = el.closest(".ot-felt");
+  const shoe = felt?.querySelector("[data-deck-shoe]");
   if (!shoe) return 0;
   // The enter animation fills backwards, so before first paint the element may
   // already measure at the keyframe's translated `from` position — suspend it
@@ -48,10 +50,15 @@ export function applyShoeFlight(el: HTMLElement | null): number {
   const from = shoe.getBoundingClientRect();
   const dx = from.left + from.width / 2 - (to.left + to.width / 2);
   const dy = from.top + from.height / 2 - (to.top + to.height / 2);
-  const ms = Math.round(Math.min(FLIGHT_MAX_MS, Math.max(FLIGHT_MIN_MS, Math.hypot(dx, dy) * 0.55)));
+  const isCasinoShoeGame = felt?.classList.contains("baccarat") || felt?.classList.contains("bj");
+  const minMs = isCasinoShoeGame ? CASINO_FLIGHT_MIN_MS : FLIGHT_MIN_MS;
+  const maxMs = isCasinoShoeGame ? CASINO_FLIGHT_MAX_MS : FLIGHT_MAX_MS;
+  const distanceScale = isCasinoShoeGame ? 0.78 : 0.7;
+  const ms = Math.round(Math.min(maxMs, Math.max(minMs, Math.hypot(dx, dy) * distanceScale)));
   el.style.setProperty("--card-deal-x", `${Math.round(dx)}px`);
   el.style.setProperty("--card-deal-y", `${Math.round(dy)}px`);
   el.style.setProperty("--card-deal-ms", `${ms}ms`);
+  el.style.setProperty("--card-flip-ms", `${SHOE_FLIP_MS}ms`);
   el.dataset.shoeFlightMs = String(ms);
   return ms;
 }

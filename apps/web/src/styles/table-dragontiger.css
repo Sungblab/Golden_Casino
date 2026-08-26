@@ -36,6 +36,13 @@
 .dt-medallion.closing .ot-timer-ring { stroke: #ff6b74; filter: drop-shadow(0 0 6px rgba(255,138,143,.65)); }
 
 @media (min-width: 901px) {
+  /* The two-row wager grid must stay a control strip, not expand into the play area
+     on tall desktop viewports. Dragon/Tiger span both rows; Tie and Suited Tie split it. */
+  .game-shell .dt-felt .dragon-tiger-print {
+    height: clamp(160px, 18vh, 190px);
+    max-height: 190px;
+  }
+
   /* Only one card each here, so it can afford to be far larger than Baccarat's
      three-card fan — the shared size left this felt looking empty. */
   .game-shell .dt-felt .ot-cards { --card-w: clamp(64px, min(9vw, 13vh), 108px); }
