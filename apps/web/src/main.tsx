@@ -7,6 +7,7 @@ import "./styles/table-baccarat.css";
 import "./styles/table-bonus-baccarat.css";
 import "./styles/table-dragontiger.css";
 import "./styles/table-holdem.css";
+import "./styles/table-sutda.css";
 import "./styles/deck-shoe.css";
 
 createRoot(document.getElementById("root")!).render(

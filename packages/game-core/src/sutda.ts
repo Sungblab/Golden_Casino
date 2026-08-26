@@ -43,9 +43,13 @@ export function evaluateSutdaHand(cards: HwatuCard[]): SutdaHand {
   if (bothGwang && ((months[0] === 1 && months[1] === 3) || (months[0] === 1 && months[1] === 8))) return { label: `${months[0]}${months[1]}광땡`, detail: "암행어사를 제외하면 최상위", rank: 990, special: "none" };
   if (a!.month === b!.month) return { label: a!.month === 10 ? "장땡" : `${a!.month}땡`, detail: "같은 월 두 장", rank: 900 + a!.month, special: "none" };
   // Standard online variants use these particular picture cards for special hands.
+  // When a special hand's catch/redeal does NOT trigger, it competes as its ordinary 끗
+  // total — that is the standard rule, and `rank` here is exactly that fallback:
+  // 땡잡이 3+7=10 → 망통(0), 멍텅구리 구사 4+9=13 → 3끗, 암행어사 4+7=11 → 1끗. These used
+  // to all be 0, which made an idle 암행어사/구사 lose to (or tie with) 망통.
   if (hasMonths(cards, 3, 7) && cards.some((c) => c.month === 3 && c.kind === "hikari") && cards.some((c) => c.month === 7 && c.kind === "tane")) return { label: "땡잡이", detail: "장땡·광땡을 제외한 땡을 잡음", rank: 0, special: "ddang_catcher" };
-  if (hasMonths(cards, 4, 9) && cards.every((c) => c.kind === "tane")) return { label: "멍텅구리 구사", detail: "상위 패가 없으면 재경기", rank: 0, special: "mungu" };
-  if (hasMonths(cards, 4, 7) && cards.every((c) => c.kind === "tane")) return { label: "암행어사", detail: "13·18광땡을 잡음", rank: 0, special: "ambassador" };
+  if (hasMonths(cards, 4, 9) && cards.every((c) => c.kind === "tane")) return { label: "멍텅구리 구사", detail: "상위 패가 없으면 재경기", rank: 3, special: "mungu" };
+  if (hasMonths(cards, 4, 7) && cards.every((c) => c.kind === "tane")) return { label: "암행어사", detail: "13·18광땡을 잡음", rank: 1, special: "ambassador" };
   const named: Record<string, string> = { "1-2": "알리", "1-4": "독사", "1-9": "구삥", "1-10": "장삥", "4-10": "장사", "4-6": "세륙" };
   const key = `${months[0]}-${months[1]}`;
   const label = named[key];

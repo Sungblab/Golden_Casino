@@ -539,6 +539,10 @@ export const sutdaSeatSchema = z.object({
   isDealer: z.boolean(),
   isTurn: z.boolean(),
   cards: z.array(hwatuCardSchema).min(1).max(2).nullable(),
+  /** How many cards this seat actually holds right now (0–2). `cards` is null for hidden
+   *  opponents, which alone can't tell the table whether to draw one back, two backs, or
+   *  none — 섯다 deals one card, bets, then deals the second. */
+  cardCount: z.number().int().min(0).max(2),
   handLabel: z.string().nullable(),
   ready: z.boolean(),
 });

@@ -1,0 +1,113 @@
+/* =============================================================================
+   섯다 v2 — the Hold'em v4 table system with hwatu cards.
+
+   The layout (two-column shell, right rail / mobile bottom bar, leather bumper,
+   recessed felt, nameplates, action-line geometry) all comes from
+   table-holdem.css via the shared holdem-* classes; this file only carries what
+   is different about 섯다: hwatu card sizing, the on-felt deck, its deal
+   animation, and the winner treatment.
+
+   The old .sutda-table / .sutda-center medallion rules in styles.css are dead
+   markup as of the v2 page and intentionally left untouched there.
+   ============================================================================= */
+
+/* The felt panel chrome is off, same as Hold'em — the table IS the screen. */
+.game-shell .holdem-room-shell .sutda-felt { background: none; }
+
+/* The real hwatu back — quilted red lattice drawn in /cards/hwatu/back.svg —
+   replacing the base .hwatu-back's CSS stripe gradient, which read as UI
+   texture rather than a physical card. Applies everywhere a back is drawn
+   (seats, the on-felt deck). */
+.hwatu-back {
+  background: #a80f16 url("/cards/hwatu/back.svg") center / cover no-repeat;
+  border-color: #7c050a;
+}
+
+/* 섯다 felt tone: hwatu tables run warmer/deeper than a poker room's green. */
+.game-shell .sutda-shell .holdem-table-rail::before {
+  background:
+    radial-gradient(ellipse 72% 58% at 50% 36%, rgba(255, 250, 235, .09), transparent 68%),
+    radial-gradient(ellipse 130% 110% at 50% 44%, #176243 0%, #0e4a30 40%, #093a24 72%, #062a1a 100%);
+}
+
+/* ── Hwatu sizing per context ─────────────────────────────────────────────────
+   The base .hwatu-card in styles.css is a fixed 53×82 tuned for the old giant
+   table; on the shared table the opponents' cards need to be seat-sized and
+   only my own hand reads larger (same rule as Hold'em's .is-mine). */
+.game-shell .sutda-shell .sutda-cards { height: auto; min-height: 56px; align-items: flex-end; gap: 0; }
+.game-shell .sutda-shell .sutda-cards .hwatu-card { width: 34px; height: 53px; }
+.game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards { min-height: 74px; }
+.game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-card { width: 46px; height: 71px; }
+.game-shell .sutda-shell .sutda-cards .sutda-fly + .sutda-fly { margin-left: -8px; }
+.game-shell .sutda-shell .sutda-cards .sutda-fly + .sutda-fly .hwatu-card { transform: rotate(4deg); }
+
+/* Rail hand panel minis. */
+.game-shell .sutda-shell .sutda-panel-cards .hwatu-card { width: 22px; height: 34px; border-radius: 3px; }
+
+/* ── The deck on the felt ─────────────────────────────────────────────────────
+   Sits where Hold'em parks its deck (inside the action line, the dealer's
+   spot) and doubles as the [data-deck-shoe] flight origin. */
+.sutda-deck {
+  position: absolute;
+  top: 32%;
+  right: 27%;
+  z-index: 1;
+  width: 34px;
+  height: 53px;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .55));
+}
+.sutda-deck .hwatu-card { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sutda-deck .hwatu-card:first-child { transform: translate(-2.5px, -2.5px); filter: brightness(.7); }
+
+/* ── Deal flight ──────────────────────────────────────────────────────────────
+   lib/shoeFlight writes --card-deal-x/y/ms from the deck's real position; with
+   no measured flight (reduced motion, missing anchor) the defaults collapse to
+   a quiet fade-in-place. Hwatu has no back->face flip, so unlike PlayingCard
+   this is the entire deal animation. */
+.sutda-fly {
+  display: inline-block;
+  animation: sutda-deal var(--card-deal-ms, .4s) cubic-bezier(.2, .85, .32, 1) var(--card-enter-delay, 0ms) backwards;
+}
+@keyframes sutda-deal {
+  from { transform: translate3d(var(--card-deal-x, 0px), var(--card-deal-y, 0px), 0) rotate(8deg) scale(.82); opacity: 0; }
+  18% { opacity: 1; }
+  to { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .sutda-fly { animation: none; } }
+
+/* Street label under the pot. */
+.sutda-street {
+  color: rgba(255, 244, 214, .55);
+  font-family: var(--ui-font);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+/* ── Winner treatment (shared shape, lives here because 섯다 shipped it first) ── */
+.game-shell .holdem-seat.is-winner { opacity: 1; filter: drop-shadow(0 0 14px rgba(255, 210, 74, .55)); }
+.game-shell .holdem-seat.is-winner .holdem-seat-plate { border-color: var(--gold-light); }
+.game-shell .holdem-seat-status.win {
+  padding: 1px 8px;
+  border: 1px solid var(--gold-light);
+  border-radius: 999px;
+  background: var(--gold-btn);
+  color: #23150a;
+  font-weight: 800;
+}
+
+/* 족보 popover opens from the rail footer; keep it above the rail and clear of
+   the viewport edge now that its trigger no longer floats mid-screen. */
+.game-shell .sutda-shell .sutda-guide { position: relative; flex: 1 1 0; min-width: 0; }
+.game-shell .sutda-shell .sutda-guide .outline-button { width: 100%; min-height: 34px; padding: 0 8px; font-size: 11.5px; margin-top: 0; }
+.game-shell .sutda-shell .sutda-guide-popover { right: 0; bottom: calc(100% + 10px); z-index: 41; }
+
+@media (max-width: 900px), (max-height: 560px) {
+  .game-shell .sutda-shell .sutda-cards { min-height: 40px; }
+  .game-shell .sutda-shell .sutda-cards .hwatu-card { width: 24px; height: 37px; }
+  .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards { min-height: 50px; }
+  .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-card { width: 31px; height: 48px; }
+  .sutda-deck { width: 24px; height: 37px; }
+  .game-shell .sutda-shell .sutda-guide .outline-button { min-height: 30px; padding: 0 7px; font-size: 10px; }
+}
