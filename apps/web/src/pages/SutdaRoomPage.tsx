@@ -130,8 +130,9 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
     >
       <OrientationGate targetRef={shellRef} />
       {/* Same two-column shell as Hold'em v4 (holdem-room-shell): table left, action rail
-          right, bottom bar on mobile landscape — the layout system in table-holdem.css is
-          deliberately shared between the two PvP card games. */}
+          right, at every viewport — the rail narrows on mobile rather than moving to a
+          bottom bar. The layout system in table-holdem.css is deliberately shared between
+          the two PvP card games. */}
       <div className="room-shell holdem-room-shell sutda-shell">
         <section className="ot-stage">
           <div className="ot-felt holdem-felt sutda-felt">

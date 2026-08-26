@@ -7,10 +7,12 @@
    to reserve 148px of bottom padding for it. Here the actions get their own
    column, so nothing overlaps the table and the felt keeps the full height.
 
-   Desktop     : table | rail (right-hand column)
-   Mobile 가로 : table over a bottom bar — the layout Korean poker rooms use
-                 (한게임/피망) and what a thumb reaches. Same markup, different
-                 flow direction; nothing is duplicated.
+   Desktop and mobile 가로 both use the SAME right-hand rail — a bottom bar was
+   tried first and dropped: it cost 84px of vertical space on a screen that is
+   already short, and put the actions right under the player's own cards. The
+   rail stays a right-hand column at every width; below 900px/560px it just
+   narrows and every section inside it packs denser (see the section at the
+   bottom of this file).
 
    Additive, like the other styles/ files: it layers on the shared .ot-felt /
    .holdem-table primitives rather than replacing them.
@@ -353,102 +355,76 @@
   --card-w: clamp(26px, min(9vw, 7.4vh), 52px);
 }
 
-/* ── Mobile landscape: the rail becomes a bottom bar ──────────────────────── */
+/* ── Mobile landscape: same rail, narrower and denser ─────────────────────── */
 @media (max-width: 900px), (max-height: 560px) {
   .game-shell .holdem-room-shell .ot-stage {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
-    gap: 6px;
+    /* Still two columns — just a narrower second one. The table loses width,
+       not the rail its own column, which is what a bottom bar used to cost:
+       84px taken off the SHORT axis of an already-short screen. */
+    grid-template-columns: minmax(0, 1fr) 150px;
+    gap: 7px;
     padding: 6px 7px 7px;
   }
   .holdem-rail-v4 {
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 9px;
+    gap: 6px;
+    padding: 8px 7px;
     border-radius: 12px;
+    /* Belt-and-braces, same as the v3 rail: if a very short viewport still
+       can't fit every section, scroll inside the rail rather than clip or
+       squash something below tap-target size. */
+    overflow-y: auto;
   }
-  /* In a row the spacer would eat the width the buttons need. */
-  .holdem-rail-spacer { display: none; }
 
-  /* Same markup, reflowed: the mini cards go (the player's real cards are right
-     there on the felt) and the label/detail sit on one line. */
-  .holdem-hand-panel {
-    flex: 0 0 auto;
-    gap: 1px;
-    padding: 5px 10px;
-    max-width: 190px;
-  }
-  .holdem-hand-panel-cards { display: none; }
-  .holdem-hand-panel-private { display: none; }
-  .holdem-hand-panel-eyebrow { font-size: 8px; letter-spacing: .1em; }
-  .holdem-hand-panel-text { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-  .holdem-hand-panel-text strong { font-size: 16px; }
-  .holdem-hand-panel.is-hint .holdem-hand-panel-text strong { font-size: 14px; }
-  .holdem-hand-panel-text span { font-size: 9.5px; }
+  .holdem-hand-panel { gap: 2px; padding: 6px 8px; }
+  .holdem-hand-panel-cards { gap: 2px; }
+  .holdem-hand-panel-card { width: 18px; }
+  .holdem-hand-panel-eyebrow { font-size: 7.5px; letter-spacing: .09em; }
+  .holdem-hand-panel-private { font-size: 7px; }
+  .holdem-hand-panel-text strong { font-size: 15px; }
+  .holdem-hand-panel.is-hint .holdem-hand-panel-text strong { font-size: 13px; }
+  .holdem-hand-panel-text span { font-size: 8.5px; }
 
-  .holdem-rail-meta {
-    flex: 0 0 auto;
-    gap: 8px;
-    padding: 0 4px;
-    border: 0;
-    font-size: 10.5px;
-  }
-  .holdem-rail-status { flex: 1 1 auto; padding: 0 6px; font-size: 11px; }
+  .holdem-rail-meta { gap: 8px; padding: 4px 0; font-size: 10px; }
+  .holdem-rail-status { font-size: 10px; padding: 2px; }
 
-  /* One row of five sizings, then one row of actions — the 한게임 bar shape. */
-  .game-shell .holdem-rail-v4 .holdem-presets {
-    display: flex;
-    flex: 1 1 auto;
-    gap: 5px;
-    min-width: 0;
-  }
-  .game-shell .holdem-rail-v4 .holdem-preset:first-child { grid-column: auto; }
-  .game-shell .holdem-rail-v4 .holdem-preset { flex: 1 1 0; min-width: 46px; min-height: 32px; }
-  /* The stepper is the first thing to go when width is scarce: the presets
+  .game-shell .holdem-rail-v4 .holdem-presets { gap: 4px; }
+  .game-shell .holdem-rail-v4 .holdem-preset { min-height: 28px; padding: 2px 4px; }
+  .game-shell .holdem-rail-v4 .holdem-preset span { font-size: 7px; }
+  .game-shell .holdem-rail-v4 .holdem-preset b { font-size: 10.5px; }
+  /* The stepper is the first thing to go when height is scarce: the presets
      already give every legal sizing in one tap, so fine adjustment is the
-     part a 844px-wide screen can afford to lose. */
+     part a short screen can afford to lose. */
   .game-shell .holdem-rail-v4 .holdem-stepper { display: none; }
 
+  /* Two-up instead of one-per-row: four full-width action buttons stacked
+     (the desktop shape) run to ~185px alone, more than half of what a
+     landscape phone's whole rail has to work with top to bottom. A 2×2 grid
+     covers the same four actions in about half that height. */
   .game-shell .holdem-rail-v4 .holdem-act-row {
-    display: flex;
-    flex: 1 1 auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 5px;
-    min-width: 0;
   }
   .game-shell .holdem-rail-v4 .holdem-act-row .outline-button {
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 40px;
-    padding: 0 6px;
-    font-size: 12.5px;
+    min-height: 38px;
+    padding: 0 4px;
+    font-size: 11.5px;
   }
-  .game-shell .holdem-rail-v4 .holdem-ready-dock {
-    display: flex;
-    flex: 1 1 auto;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  .game-shell .holdem-rail-v4 .holdem-ready-dock .outline-button { width: auto; flex: 0 1 160px; min-height: 40px; }
+  .game-shell .holdem-rail-v4 .holdem-ready-dock .outline-button { min-height: 34px; font-size: 12px; }
+  .game-shell .holdem-rail-v4 .holdem-ready-status { font-size: 10px; }
 
-  /* The 257px-tall mobile table squeezes everything: the top seat's card row
-     reaches ~5px into the desktop-tuned line box, so pull it in a notch more. */
-  .game-shell .holdem-room-shell .holdem-action-line { top: 30%; height: 40%; }
-  .game-shell .holdem-room-shell .holdem-timer { top: 35%; }
-
-  /* Plates shrink with everything else on the 257px table. */
+  /* Plates shrink with everything else on the narrower table. */
   .holdem-seat-plate { min-width: 64px; margin-top: -5px; padding: 2px 8px 3px; border-radius: 8px; }
 
-  .holdem-rail-footer { flex: 0 0 auto; }
+  .holdem-rail-footer { flex-wrap: wrap; gap: 4px; }
   .game-shell .holdem-rail-footer .outline-button,
   .game-shell .holdem-rail-footer .poker-guide-trigger {
-    flex: 0 0 auto;
-    min-height: 30px;
-    padding: 0 7px;
-    font-size: 10px;
+    flex: 1 1 auto;
+    min-width: 56px;
+    min-height: 28px;
+    padding: 0 5px;
+    font-size: 9.5px;
   }
-  .game-shell .holdem-rail-footer .room-chat-toggle { width: 30px; height: 30px; }
+  .game-shell .holdem-rail-footer .room-chat-toggle { width: 28px; height: 28px; flex: 0 0 auto; }
   .game-shell .holdem-room-shell .room-chat-panel,
-  .game-shell .holdem-room-shell .poker-guide-panel { right: 10px; bottom: 76px; }
+  .game-shell .holdem-room-shell .poker-guide-panel { right: 8px; bottom: 8px; }
 }

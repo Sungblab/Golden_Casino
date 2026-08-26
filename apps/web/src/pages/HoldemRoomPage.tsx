@@ -266,10 +266,9 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
             {message && <p className="ot-message">{message}</p>}
           </div>
 
-          {/* The action rail. On desktop it's the right-hand column; in mobile landscape the
-              same markup reflows into a bottom bar (see the holdem rail block in styles.css),
-              which is the layout Korean poker rooms use and players reach for with a thumb.
-              Either way it is a sibling of the felt, never an overlay on it. */}
+          {/* The action rail — the right-hand column at every viewport, narrower and denser
+              below 900px/560px (see table-holdem.css) rather than moving to a bottom bar.
+              Always a sibling of the felt, never an overlay on it. */}
           <aside className="holdem-rail-v4" aria-label="홀덤 액션">
             {myHandRead && mySeat?.holeCards && (
               <HoldemHandPanel read={myHandRead} holeCards={mySeat.holeCards} />
