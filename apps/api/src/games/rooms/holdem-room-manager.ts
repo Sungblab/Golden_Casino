@@ -16,7 +16,7 @@ import {
   type ServerToClientEvents,
   type WinnerFeedEntry,
 } from "@golden/contracts";
-import { buildHoldemPots, evaluateBestHoldemHand, Shoe } from "@golden/game-core";
+import { buildHoldemPots, evaluateBestHoldemHand, HOLDEM_CATEGORY_LABEL, Shoe } from "@golden/game-core";
 import type { AuthUser } from "../../auth/auth.js";
 import { pool } from "../../database/pool.js";
 import { walletService } from "../../wallet/wallet-service.js";
@@ -201,9 +201,16 @@ class HoldemRoomActor {
     const index = this.seats.findIndex((seat) => seat?.userId === userId);
     if (index === -1) throw new Error("NOT_SEATED");
     const seat = this.seats[index]!;
-    // Mid-hand: leave the chips in the pot (they fold when their turn comes) and only
-    // clear the seat once the hand settles, so pot accounting never has a gap.
+    // Mid-hand: leave the chips in the pot and only clear the seat once the hand settles, so
+    // pot accounting never has a gap. The hand itself is folded right now (releasing the turn
+    // if it was theirs) rather than left to the 20s action timer — the table shouldn't have to
+    // wait out a countdown for a player who has already walked away.
     if (this.roundId && seat.totalContributed > 0 && !seat.folded) {
+      if (seat.holeCards.length > 0) {
+        seat.folded = true;
+        await holdemService.markFolded(this.roundId, seat.userId);
+        if (this.actingSeat === index + 1) this.resolveTurnEarly();
+      }
       this.sittingOut.add(userId);
     } else {
       this.seats[index] = null;
@@ -354,7 +361,7 @@ class HoldemRoomActor {
         // exception escaped through emitSnapshots into the cycle's catch, which refunded the pot
         // and immediately re-dealt — so a seated player saw hands restart in a loop and could
         // never reach the between-hands window where standing up is allowed.
-        handCategory: showCards && !seat.folded && seat.holeCards.length + this.board.length >= 5
+        handCategory: showCards && !seat.folded && seat.holeCards.length > 0 && seat.holeCards.length + this.board.length >= 5
           ? evaluateBestHoldemHand([...seat.holeCards, ...this.board]).category
           : null,
         ready: this.ready.has(seat.userId),
@@ -409,7 +416,7 @@ class HoldemRoomActor {
         roomId: this.room.id,
         game: "holdem",
         username: winner.username,
-        choiceLabel: (winner.handCategory && HAND_LABEL[winner.handCategory]) || "팟 획득",
+        choiceLabel: (winner.handCategory && HOLDEM_CATEGORY_LABEL[winner.handCategory]) || "팟 획득",
         amount: winner.amount,
       }));
       this.recentWinners = pushWinnerEntries(this.recentWinners, entries);
@@ -498,8 +505,11 @@ class HoldemRoomActor {
     return order;
   }
 
+  /** Seats still in the hand: dealt in and not folded. A seat taken mid-hand has no hole cards
+   *  and is not a contender — counting it dealt out streets to a lone survivor and showed it a
+   *  showdown "hand" evaluated from the board alone. */
   private contenderSeats(): number[] {
-    return this.seats.map((seat, index) => (seat && !seat.folded ? index + 1 : null)).filter((seat): seat is number => seat !== null);
+    return this.seats.map((seat, index) => (seat && !seat.folded && seat.holeCards.length > 0 ? index + 1 : null)).filter((seat): seat is number => seat !== null);
   }
 
   private activeSeats(): number[] {
@@ -707,18 +717,6 @@ class HoldemRoomActor {
     await this.setPhase("RESULT", SHOWDOWN_MS);
   }
 }
-
-const HAND_LABEL: Record<string, string> = {
-  high_card: "하이카드",
-  pair: "원페어",
-  two_pair: "투페어",
-  three_of_a_kind: "트리플",
-  straight: "스트레이트",
-  flush: "플러시",
-  full_house: "풀하우스",
-  four_of_a_kind: "포카드",
-  straight_flush: "스트레이트 플러시",
-};
 
 export class HoldemRoomManager {
   private actors = new Map<string, HoldemRoomActor>();

@@ -19,6 +19,7 @@ import { DerivedRoads } from "../components/DerivedRoads";
 import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
+import { baccaratGuide } from "../lib/guides/houseGames";
 import { playSound } from "../lib/sound";
 import { CHIP_TIER_COLORS, CHIP_TIER_RIM_COLORS, chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
 import { randomRequestId } from "../lib/requestId";
@@ -492,6 +493,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
       isFullscreen={isFullscreen}
       onToggleFullscreen={() => void toggleFullscreen()}
       shellRef={shellRef}
+      guide={baccaratGuide}
     >
       <div className="room-shell">
         <section className="ot-stage">
