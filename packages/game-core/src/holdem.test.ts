@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "@golden/contracts";
-import { buildHoldemPots, comparePokerHands, evaluateBestHoldemHand } from "./holdem.js";
+import {
+  buildHoldemPots,
+  comparePokerHands,
+  evaluateBestHoldemHand,
+  evaluateFiveCardHand,
+  HOLDEM_RANKINGS,
+  holdemCategoryTier,
+  holdemPreflopTier,
+  readHoldemDraws,
+} from "./holdem.js";
 
 const cards = (input: string): Card[] => input.split(" ").map((code) => ({
   rank: code.slice(0, -1) as Card["rank"],
@@ -28,5 +37,40 @@ describe("holdem evaluator", () => {
       { amount: 300, eligibleUserIds: ["a", "b"] },
       { amount: 300, eligibleUserIds: ["b"] },
     ]);
+  });
+
+  it("ships a ranking table whose examples evaluate to their own row", () => {
+    expect(HOLDEM_RANKINGS).toHaveLength(10);
+    for (const row of HOLDEM_RANKINGS) {
+      const evaluated = evaluateFiveCardHand(row.cards);
+      expect(evaluated.category).toBe(row.category === "royal_flush" ? "straight_flush" : row.category);
+    }
+    // Strongest first.
+    const values = HOLDEM_RANKINGS.map((row) => evaluateFiveCardHand(row.cards));
+    for (let index = 1; index < values.length; index += 1) expect(comparePokerHands(values[index - 1]!, values[index]!)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("grades made hands and starting hands on the same five-step scale", () => {
+    expect(holdemCategoryTier("high_card").tier).toBe(1);
+    expect(holdemCategoryTier("straight_flush").tier).toBe(5);
+    expect(holdemPreflopTier(cards("AS AD") as [Card, Card]).tier).toBe(5);
+    expect(holdemPreflopTier(cards("AS KS") as [Card, Card]).tier).toBe(5);
+    expect(holdemPreflopTier(cards("7H 2C") as [Card, Card]).tier).toBe(1);
+    expect(holdemPreflopTier(cards("8H 7H") as [Card, Card]).tier).toBe(2);
+  });
+
+  it("spots flush and straight draws on the flop and turn only", () => {
+    const flushDraw = readHoldemDraws(cards("AS KS 3S 9S 2D"));
+    expect(flushDraw.flush).toEqual({ suit: "S", have: 4 });
+    const openEnded = readHoldemDraws(cards("9S 8D 7C 6H 2D"));
+    expect(openEnded.straight?.kind).toBe("open");
+    expect(openEnded.straight?.needed).toEqual(["5", "10"]);
+    const gutshot = readHoldemDraws(cards("9S 8D 6C 5H 2D"));
+    expect(gutshot.straight?.kind).toBe("gutshot");
+    expect(gutshot.straight?.needed).toEqual(["7"]);
+    // A made straight is not a draw, and the river has nothing left to draw to.
+    expect(readHoldemDraws(cards("9S 8D 7C 6H 5D")).straight).toBeNull();
+    expect(readHoldemDraws(cards("AS KS 3S 9S 2D 4C 8H")).flush).toBeNull();
+    expect(readHoldemDraws(cards("AS KS")).flush).toBeNull();
   });
 });

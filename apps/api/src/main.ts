@@ -1182,6 +1182,14 @@ function messageFor(error: unknown): string {
   if (code === "CHAT_EMPTY" || code === "CHAT_TOO_LONG" || code === "CHAT_INVALID") return "메시지는 1~500자로 입력해주세요.";
   if (code === "ADMIN_REQUIRED") return "관리자만 이용할 수 있습니다.";
   if (code === "CONVERSATION_NOT_FOUND") return "문의 대화를 찾을 수 없습니다.";
+  // PvP tables (섯다 · 홀덤) — every code the room actors throw gets a sentence a player can act on.
+  if (code === "NOT_SEATED") return "먼저 자리에 앉아야 합니다.";
+  if (code === "ALREADY_SEATED") return "이미 자리에 앉아 있습니다.";
+  if (code === "MUST_CALL_OR_DIE") return "상대가 올렸습니다. 콜 또는 다이를 선택해주세요.";
+  if (code === "MUST_CALL_OR_FOLD") return "상대가 베팅했습니다. 콜 또는 폴드를 선택해주세요.";
+  if (code === "TABLE_LIMIT_REACHED") return "테이블 최대 베팅 한도에 도달했습니다.";
+  if (code === "RAISE_TOO_SMALL") return "최소 레이즈 금액보다 적습니다.";
+  if (code === "INVALID_ACTION") return "지금은 할 수 없는 액션입니다.";
   console.error(error);
   return "요청 처리 중 오류가 발생했습니다.";
 }

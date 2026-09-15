@@ -5,21 +5,24 @@ import type { ClientToServerEvents, ServerToClientEvents, SutdaAction, SutdaRoom
 import { API_URL } from "../api";
 import { Brand } from "../components/Brand";
 import { ChipStack } from "../components/ChipStack";
-import { GameShell } from "../components/GameShell";
+import { GameShell, openGameGuide } from "../components/GameShell";
 import { HwatuCard } from "../components/HwatuCard";
-import { OrientationGate } from "../components/OrientationGate";
+import { ActionButton, HandStrengthMeter, StepBar } from "../components/PvpBits";
 import { RoomChat } from "../components/RoomChat";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
-import { SutdaHandGuide } from "../components/SutdaHandGuide";
+import { sutdaGuide } from "../lib/guides/sutda";
 import { applyShoeFlight } from "../lib/shoeFlight";
 import { playSound } from "../lib/sound";
 import { randomRequestId } from "../lib/requestId";
+import { readSutdaHand } from "../lib/sutdaHandRead";
 
 const ACTION_SECONDS = 20;
 const TIMER_RING = 163.4;
-// Same table geometry as Hold'em (see its SeatView): x/y radii tuned as a pair with the
-// action-line ellipse in table-holdem.css — the two games share the whole table system.
+// Same table geometry as Hold'em (see its SeatView): the unit-circle position goes into
+// --sx/--sy and table-pvp.css picks the radii per layout (landscape vs portrait).
 const SEAT_ANGLES = [90, 150, 210, 270, 330, 30];
+const ROUND_STEPS = ["첫 패", "1차 베팅", "둘째 패", "2차 베팅", "승부"];
+const ROUND_STEPS_SHORT = ["첫패", "1차", "둘째", "2차", "승부"];
 
 export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: () => void }) {
   const { roomId = "" } = useParams();
@@ -39,10 +42,13 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
     const accept = (next: SutdaRoomSnapshot) => setSnapshot((current) => !current || next.sequence >= current.sequence ? next : current);
     const connect = () => socket.emit("sutda.join", { roomId }, (ack) => ack.ok ? accept(ack.data) : setMessage(ack.error));
     const wallet = ({ balance }: { balance: number }) => setSnapshot((current) => current ? { ...current, walletBalance: balance } : current);
+    const onConnectError = (error: Error) => error.message === "UNAUTHORIZED"
+      ? window.dispatchEvent(new Event("golden:session-expired"))
+      : setMessage("게임 서버에 연결할 수 없습니다.");
     socket.on("connect", connect);
     socket.on("sutda.snapshot", accept);
     socket.on("wallet.updated", wallet);
-    socket.on("connect_error", () => setMessage("게임 서버에 연결할 수 없습니다."));
+    socket.on("connect_error", onConnectError);
     socket.connect();
     return () => { socket.emit("sutda.leave", { roomId }, () => undefined); socket.disconnect(); socket.off(); };
   }, [roomId, socket]);
@@ -66,6 +72,8 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
     if (!snapshot) return;
     if (snapshot.room.phase !== prevPhaseRef.current) {
       if (snapshot.room.phase === "DEALING") playSound("deal");
+      // A stale "NOT_YOUR_TURN"/rejected-action line must not sit on screen into the next street.
+      if (snapshot.room.phase === "PLAYER_TURN" || snapshot.room.phase === "WAITING") setMessage("");
       prevPhaseRef.current = snapshot.room.phase;
     }
     const myTurnNow = snapshot.mySeatNumber !== null && snapshot.actingSeat === snapshot.mySeatNumber;
@@ -73,19 +81,31 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
     prevTurnRef.current = myTurnNow;
   }, [snapshot]);
 
-  // Personal win banner. lastWinners persists through the between-hands WAITING, so key the
-  // notice on its content rather than the (already cleared) roundId.
+  // Personal result banner. lastWinners persists through the between-hands WAITING, so key the
+  // notice on its content rather than the (already cleared) roundId. A win shows what was
+  // credited; a lost showdown says which hand beat mine, so the loss teaches something.
   useEffect(() => {
     if (!snapshot || snapshot.lastWinners.length === 0 || snapshot.mySeatNumber === null) return;
     const key = snapshot.lastWinners.map((w) => `${w.seatNumber}:${w.amount}`).join("|");
     if (noticeKeyRef.current === key) return;
     noticeKeyRef.current = key;
+    const me = snapshot.seats.find((seat) => seat.seatNumber === snapshot.mySeatNumber);
     const mine = snapshot.lastWinners.find((w) => w.seatNumber === snapshot.mySeatNumber);
-    if (!mine) return;
-    setResultNotice({ net: mine.amount, amount: mine.amount, title: `${mine.handLabel} 승리` });
-    playSound("win");
+    if (mine) {
+      setResultNotice({ net: mine.amount, amount: mine.amount, title: `${mine.handLabel} 승리` });
+      playSound("win");
+    } else if (me && me.cardCount > 0 && !me.folded) {
+      const winner = snapshot.lastWinners[0]!;
+      const isRedeal = winner.handLabel.includes("재경기");
+      setResultNotice({
+        net: isRedeal ? 0 : -me.totalContributed,
+        amount: isRedeal ? 0 : -me.totalContributed,
+        title: isRedeal ? "재경기 · 베팅금 반환" : `${winner.username}님의 ${winner.handLabel}에 패배`,
+      });
+      playSound(isRedeal ? "tie" : "lose");
+    } else return;
     if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
-    noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), 3600);
+    noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), 4_200);
   }, [snapshot]);
 
   useEffect(() => () => {
@@ -104,17 +124,28 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
   // ante, capped by the table limit — shown on the button so a raise is never a surprise amount.
   const toCall = snapshot.toCall;
   const halfRaise = mine ? Math.min(Math.max(snapshot.room.minBet, Math.round(snapshot.pot.amount / 2)), Math.max(0, snapshot.room.maxBet - mine.totalContributed - toCall)) : 0;
+  const halfTotal = toCall + halfRaise;
+  const canCall = Boolean(mine && mine.stack >= toCall);
+  const canHalf = Boolean(mine && halfRaise > 0 && mine.stack >= halfTotal);
+  const myRead = mine && !mine.folded ? readSutdaHand(mine.cards) : null;
+  const inHand = Boolean(mine && mine.cardCount > 0 && !mine.folded);
+  const step = roundStep(snapshot);
+  const closing = myTurn && seconds <= 5;
 
   const command = (action: SutdaAction) => {
     if (!snapshot.roundId) return;
     socket.emit("sutda.act", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, action }, (ack) => {
       if (ack.ok) { setSnapshot(ack.data); playSound(action === "die" ? "fold" : "chip"); }
-      else setMessage(ack.error);
+      else setMessage(errorText(ack.error));
     });
   };
-  const sit = (seatNumber: number) => socket.emit("sutda.sit", { requestId: randomRequestId(), roomId, seatNumber }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error));
-  const ready = () => socket.emit("sutda.ready", { roomId, ready: !mine?.ready }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error));
-  const stand = () => socket.emit("sutda.standUp", { roomId }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(ack.error));
+  const sit = (seatNumber: number) => socket.emit("sutda.sit", { requestId: randomRequestId(), roomId, seatNumber }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(errorText(ack.error)));
+  const ready = () => socket.emit("sutda.ready", { roomId, ready: !mine?.ready }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(errorText(ack.error)));
+  const stand = () => {
+    // Leaving with live cards folds them on the server — say so before it happens.
+    if (inHand && snapshot.roundId && !window.confirm("진행 중인 판을 포기(다이)하고 자리를 비웁니다. 지금까지 낸 베팅은 돌려받지 못해요. 계속할까요?")) return;
+    socket.emit("sutda.standUp", { roomId }, (ack) => ack.ok ? setSnapshot(ack.data) : setMessage(errorText(ack.error)));
+  };
 
   return (
     <GameShell
@@ -127,12 +158,11 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
       isFullscreen={fullscreen}
       onToggleFullscreen={() => void (document.fullscreenElement ? document.exitFullscreen() : shellRef.current?.requestFullscreen())}
       shellRef={shellRef}
+      guide={sutdaGuide}
     >
-      <OrientationGate targetRef={shellRef} />
       {/* Same two-column shell as Hold'em v4 (holdem-room-shell): table left, action rail
-          right, at every viewport — the rail narrows on mobile rather than moving to a
-          bottom bar. The layout system in table-holdem.css is deliberately shared between
-          the two PvP card games. */}
+          right; on a portrait phone the rail becomes a bottom dock (table-pvp.css). The
+          layout system in table-holdem.css is deliberately shared between the two PvP games. */}
       <div className="room-shell holdem-room-shell sutda-shell">
         <section className="ot-stage">
           <div className="ot-felt holdem-felt sutda-felt">
@@ -150,7 +180,7 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
               <div className="holdem-board">
                 <div className="holdem-pot">{snapshot.pot.amount > 0 && <span>팟 {snapshot.pot.amount.toLocaleString()}</span>}</div>
                 {snapshot.street && snapshot.street !== "showdown" && (
-                  <div className="sutda-street">{snapshot.street === "first" ? "첫 패 베팅" : "둘째 패 베팅"}</div>
+                  <div className="sutda-street">{snapshot.street === "first" ? "1차 베팅 · 첫 패" : "2차 베팅 · 둘째 패"}</div>
                 )}
                 {snapshot.lastWinners.length > 0 && (
                   <div className="holdem-winners">
@@ -171,58 +201,105 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
                   onSit={() => sit(seat.seatNumber)}
                   isMine={seat.seatNumber === snapshot.mySeatNumber}
                   showReady={snapshot.room.phase === "WAITING"}
+                  showdown={snapshot.street === "showdown"}
                   winnerLabel={winnerBySeat.get(seat.seatNumber) ? `WIN +${winnerBySeat.get(seat.seatNumber)!.amount.toLocaleString()}` : null}
                 />
               ))}
               {myTurn && (
-                <div className="ot-timer holdem-timer">
+                <div className={`ot-timer holdem-timer ${closing ? "closing" : ""}`}>
                   <svg viewBox="0 0 60 60"><circle className="ot-timer-track" cx="30" cy="30" r="26" /><circle className="ot-timer-ring" cx="30" cy="30" r="26" style={{ strokeDashoffset: timerOffset }} /></svg>
                   <span className="ot-timer-num">{seconds}</span>
                 </div>
               )}
             </div>
+            {!mine && (
+              <div className="felt-prompt">
+                빈 자리를 눌러 앉으세요
+                <small>앉으려면 최소 {(snapshot.room.minBet * 2).toLocaleString()}코인 필요 · 관전은 자유</small>
+              </div>
+            )}
             {message && <p className="ot-message">{message}</p>}
           </div>
 
           <aside className="holdem-rail-v4" aria-label="섯다 액션">
-            {/* My live 족보 — the server already evaluates my own two-card hand (handLabel);
-                with one card the read is honest about being incomplete. Private by nature:
-                the label is only ever computed for the viewer's own seat. */}
-            {mine && mine.cards && mine.cards.length > 0 && (
-              <div className={`holdem-hand-panel ${mine.handLabel ? "" : "is-hint"}`}>
+            <StepBar steps={ROUND_STEPS} shortSteps={ROUND_STEPS_SHORT} current={step} ariaLabel="이번 판 진행 단계" />
+
+            {/* My live 족보 with a strength read. Private by nature: the read only ever
+                looks at the viewer's own cards (lib/sutdaHandRead). */}
+            {mine && myRead && (
+              <div className={`holdem-hand-panel sutda-hand-panel ${myRead.complete ? "" : "is-hint"}`}>
                 <header>
                   <span className="holdem-hand-panel-eyebrow">내 족보</span>
                   <span className="holdem-hand-panel-private">나만 보여요</span>
                 </header>
                 <div className="holdem-hand-panel-body">
                   <div className="holdem-hand-panel-cards sutda-panel-cards" aria-hidden="true">
-                    {mine.cards.map((card) => <HwatuCard key={card.id} card={card} />)}
+                    {mine.cards?.map((card) => <HwatuCard key={card.id} card={card} />)}
+                    {!myRead.complete && <span className="hwatu-card hwatu-back is-pending" />}
                   </div>
                   <div className="holdem-hand-panel-text">
-                    <strong>{mine.handLabel ?? "첫 패"}</strong>
-                    <span>{mine.handLabel ? "두 장 확정" : "둘째 패를 기다리는 중"}</span>
+                    <strong>{myRead.label}</strong>
+                    <span>{myRead.detail}</span>
                   </div>
                 </div>
+                {myRead.complete && myRead.tier && (
+                  <>
+                    <HandStrengthMeter tier={myRead.meter} label={myRead.meterLabel} detail={myRead.tierLabel} />
+                    {myRead.strengthLine && <p className="hand-panel-line">{myRead.strengthLine}</p>}
+                  </>
+                )}
+                {myRead.specialLine && <p className="hand-panel-line is-special">{myRead.specialLine}</p>}
+                {!myRead.complete && myRead.outlook.length > 0 && (
+                  <p className="hand-panel-outlook">
+                    <small>둘째 패로 노려볼 패</small>
+                    {myRead.outlook.map((entry) => (
+                      <span key={entry.label} className={`tier-${entry.tier}`}>{entry.label}<em>{entry.months.map((month) => `${month}월`).join("·")}</em></span>
+                    ))}
+                  </p>
+                )}
+                <button type="button" className="hand-panel-link" onClick={() => openGameGuide("rankings")}>족보표 전체 보기</button>
               </div>
             )}
 
             <div className="holdem-rail-meta">
               <span>팟 <b>{snapshot.pot.amount.toLocaleString()}</b></span>
+              {mine && inHand && <span>내 베팅 <b>{mine.totalContributed.toLocaleString()}</b></span>}
               {myTurn && toCall > 0 && <span>콜 <b className="gold">{toCall.toLocaleString()}</b></span>}
             </div>
 
             {mine && myTurn && (
-              <div className="holdem-act-row">
-                <button className="outline-button bj-act-surrender" onClick={() => command("die")}>다이</button>
-                {toCall === 0
-                  ? <button className="outline-button bj-act-stand" onClick={() => command("check")}>체크</button>
-                  : <button className="outline-button bj-act-double" onClick={() => command("call")}>콜 {toCall.toLocaleString()}</button>}
-                {halfRaise > 0 && <button className="outline-button bj-act-hit" onClick={() => command("half")}>하프 +{(toCall + halfRaise).toLocaleString()}</button>}
-              </div>
+              <>
+                <div className={`turn-strip ${closing ? "is-closing" : ""}`} role="status" aria-live="polite">
+                  <div>
+                    <strong>내 차례예요</strong>
+                    <small>{toCall > 0 ? `콜 ${toCall.toLocaleString()} 또는 다이 · 하프로 올릴 수도 있어요` : "체크로 넘기거나 하프로 올릴 수 있어요"}</small>
+                  </div>
+                  <b>{seconds}</b>
+                  <span className="turn-strip-bar" style={{ width: `${Math.min(100, (seconds / ACTION_SECONDS) * 100)}%` }} aria-hidden="true" />
+                </div>
+                <div className="holdem-act-row cols-3">
+                  <ActionButton label="다이" hint="포기하기" tone="red" onClick={() => command("die")} />
+                  {toCall === 0
+                    ? <ActionButton label="체크" hint="그냥 넘기기" tone="gold" onClick={() => command("check")} />
+                    : <ActionButton label={`콜 ${toCall.toLocaleString()}`} hint={canCall ? "따라가기" : "잔액 부족"} tone="blue" onClick={() => command("call")} disabled={!canCall} />}
+                  <ActionButton
+                    label={halfRaise > 0 ? `하프 ${halfTotal.toLocaleString()}` : "하프"}
+                    hint={halfRaise <= 0 ? "한도 도달" : !canHalf ? "잔액 부족" : "올리기"}
+                    tone="green"
+                    onClick={() => command("half")}
+                    disabled={!canHalf}
+                    title={halfRaise > 0 ? `콜 ${toCall.toLocaleString()} + 올리기 ${halfRaise.toLocaleString()}` : undefined}
+                  />
+                </div>
+              </>
             )}
 
             {!myTurn && snapshot.room.phase !== "WAITING" && (
-              <p className="holdem-rail-status">{railStatus(snapshot)}</p>
+              <>
+                <p className="holdem-rail-status">{railStatus(snapshot, mine)}</p>
+                {mine && mine.folded && <p className="rail-hint">이번 판은 다이했어요. 승부가 끝나면 다음 판에 자동으로 참여합니다.</p>}
+                {mine && !mine.folded && mine.cardCount === 0 && snapshot.roundId && <p className="rail-hint">진행 중인 판이 끝나면 다음 판부터 참여해요.</p>}
+              </>
             )}
 
             {mine && !myTurn && snapshot.room.phase === "WAITING" && (
@@ -231,15 +308,22 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
                 <button type="button" className={`outline-button ${mine.ready ? "bj-act-surrender" : "bj-act-hit"}`} onClick={ready}>
                   {mine.ready ? "준비 취소" : "준비 완료"}
                 </button>
+                <p className="rail-hint">
+                  {seated < 2 ? <>상대가 한 명 더 앉으면 시작할 수 있어요</> : <>앉은 사람 <b>모두</b> 준비되면 자동 시작 · 삥 {snapshot.room.minBet}코인 자동 납부</>}
+                </p>
               </div>
+            )}
+
+            {!mine && (
+              <p className="rail-hint">테이블의 빈 자리를 누르면 참여할 수 있어요. 처음이라면 위의 <b>도움말</b>에서 족보표와 게임 방법을 확인하세요.</p>
             )}
 
             <div className="holdem-rail-spacer" />
 
             <div className="holdem-rail-footer">
-              <SutdaHandGuide />
+              <button type="button" className="outline-button" onClick={() => openGameGuide("rankings")}>족보표</button>
               {mine && (
-                <button type="button" className="outline-button" onClick={stand} disabled={Boolean(snapshot.roundId && !mine.folded)}>
+                <button type="button" className="outline-button" onClick={stand} title={inHand ? "진행 중인 판을 포기하고 나갑니다" : undefined}>
                   자리 비우기
                 </button>
               )}
@@ -257,14 +341,13 @@ function ordered(seats: SutdaSeatSnapshot[], mine: number | null) {
   return seats.map((seat, index) => ({ seat, angle: SEAT_ANGLES[(index - rotate + seats.length) % seats.length]! }));
 }
 
-function Seat({ seat, angle, canSit, onSit, isMine, showReady, winnerLabel }: { seat: SutdaSeatSnapshot; angle: number; canSit: boolean; onSit: () => void; isMine: boolean; showReady: boolean; winnerLabel: string | null }) {
-  const x = 50 + 44 * Math.cos((angle * Math.PI) / 180);
-  const y = 50 + 33 * Math.sin((angle * Math.PI) / 180);
-  const style = { left: `${x}%`, top: `${y}%` };
+function Seat({ seat, angle, canSit, onSit, isMine, showReady, showdown, winnerLabel }: { seat: SutdaSeatSnapshot; angle: number; canSit: boolean; onSit: () => void; isMine: boolean; showReady: boolean; showdown: boolean; winnerLabel: string | null }) {
+  // Unit-circle position; the radii live in CSS so portrait and landscape can differ.
+  const style = { "--sx": Math.cos((angle * Math.PI) / 180).toFixed(4), "--sy": Math.sin((angle * Math.PI) / 180).toFixed(4) } as CSSProperties;
   if (!seat.userId) {
     return canSit ? (
-      <button className="holdem-seat holdem-seat-empty" style={style} onClick={onSit} aria-label={`${seat.seatNumber}번 좌석 착석`}>
-        <span>착석</span>
+      <button className="holdem-seat holdem-seat-empty" style={style} onClick={onSit} aria-label={`${seat.seatNumber}번 좌석 앉기`}>
+        <span>앉기</span>
       </button>
     ) : <div className="holdem-seat holdem-seat-empty" style={style} />;
   }
@@ -272,17 +355,15 @@ function Seat({ seat, angle, canSit, onSit, isMine, showReady, winnerLabel }: { 
     <div className={`holdem-seat sutda-seat ${isMine ? "is-mine" : ""} ${seat.isTurn ? "is-turn" : ""} ${seat.folded ? "is-folded" : ""} ${seat.sittingOut ? "is-away" : ""} ${winnerLabel ? "is-winner" : ""}`} style={style}>
       <div className="holdem-seat-cards sutda-cards">
         {/* Faces for my own seat (and everyone's at showdown); otherwise exactly as many
-            backs as the seat actually holds — 섯다 deals one card, bets, then the second,
-            and the old markup drew two backs for every occupied seat including undealt
-            ones sitting through WAITING. */}
+            backs as the seat actually holds — 섯다 deals one card, bets, then the second. */}
         {seat.cards
           ? seat.cards.map((card, index) => <FlyingHwatu key={card.id} delayMs={index * 200}><HwatuCard card={card} /></FlyingHwatu>)
           : Array.from({ length: seat.cardCount }).map((_, index) => <FlyingHwatu key={index} delayMs={index * 200}><HwatuCard hidden /></FlyingHwatu>)}
       </div>
       <div className="holdem-seat-plate">
         <div className="holdem-seat-name">
-          {seat.isDealer && <span className="holdem-button-chip">D</span>}
-          <span className="holdem-seat-nick" title={seat.username ?? undefined}>{seat.username}</span>
+          {seat.isDealer && <span className="holdem-button-chip is-seon" title="선 (이번 판의 기준 자리)">선</span>}
+          <span className="holdem-seat-nick" title={seat.username ?? undefined}>{isMine ? "나" : seat.username}</span>
           {showReady && <span className={`holdem-ready-dot ${seat.ready ? "is-ready" : ""}`} title={seat.ready ? "준비 완료" : "준비 대기"} />}
         </div>
         <div className="holdem-seat-stack">{seat.stack.toLocaleString()}</div>
@@ -290,8 +371,8 @@ function Seat({ seat, angle, canSit, onSit, isMine, showReady, winnerLabel }: { 
       <ChipStack amount={seat.totalContributed} label="베팅" />
       {seat.folded && <div className="holdem-seat-status fold">다이</div>}
       {winnerLabel && <div className="holdem-seat-status win">{winnerLabel}</div>}
-      {!seat.folded && !winnerLabel && seat.handLabel && !isMine && (
-        <div className="holdem-seat-status">{seat.handLabel}</div>
+      {!seat.folded && seat.handLabel && (showdown || !isMine) && (
+        <div className="holdem-seat-status hand">{seat.handLabel}</div>
       )}
     </div>
   );
@@ -314,17 +395,41 @@ function FlyingHwatu({ delayMs, children }: { delayMs: number; children: React.R
   );
 }
 
-function railStatus(snapshot: SutdaRoomSnapshot): string {
-  if (snapshot.room.phase === "DEALING") return snapshot.street === "final" ? "둘째 패를 나눠주고 있습니다" : "첫 패를 나눠주고 있습니다";
-  if (snapshot.room.phase === "RESULT") return "패를 비교하고 있습니다";
+/** 0-based index into ROUND_STEPS, or -1 between hands. */
+function roundStep(snapshot: SutdaRoomSnapshot): number {
+  if (!snapshot.roundId && snapshot.room.phase === "WAITING") return -1;
+  if (snapshot.street === "showdown" || snapshot.room.phase === "RESULT") return 4;
+  if (snapshot.street === "final") return snapshot.room.phase === "DEALING" ? 2 : 3;
+  return snapshot.room.phase === "DEALING" ? 0 : 1;
+}
+
+function railStatus(snapshot: SutdaRoomSnapshot, mine: SutdaSeatSnapshot | null): string {
+  if (snapshot.room.paused) return "테이블이 일시정지되었습니다";
+  if (snapshot.room.phase === "DEALING") return snapshot.street === "final" ? "둘째 패를 나눠주고 있어요" : "첫 패를 나눠주고 있어요";
+  if (snapshot.room.phase === "RESULT") return "족보를 비교하고 있어요";
   const acting = snapshot.seats.find((seat) => seat.seatNumber === snapshot.actingSeat);
-  if (acting?.username) return `${acting.username}님의 차례입니다`;
-  return "다른 자리의 선택을 기다리고 있습니다";
+  if (acting?.username) return `${acting.username}님이 선택하는 중… ${mine && !mine.folded ? "곧 내 차례가 와요" : ""}`.trim();
+  return "다른 자리의 선택을 기다리고 있어요";
 }
 
 function phaseLabel(snapshot: SutdaRoomSnapshot): string {
-  if (snapshot.room.phase === "PLAYER_TURN") return "베팅 진행 중";
+  if (snapshot.room.phase === "PLAYER_TURN") return snapshot.street === "final" ? "2차 베팅" : "1차 베팅";
   if (snapshot.room.phase === "DEALING") return snapshot.street === "final" ? "둘째 패 배분" : "첫 패 배분";
   if (snapshot.room.phase === "RESULT") return "승부 결과";
   return "플레이어 대기";
+}
+
+const ERROR_TEXT: Record<string, string> = {
+  NOT_YOUR_TURN: "지금은 내 차례가 아니에요.",
+  MUST_CALL_OR_DIE: "상대가 올렸어요. 콜 또는 다이를 선택하세요.",
+  INSUFFICIENT_BALANCE: "잔액이 부족해요.",
+  TABLE_LIMIT_REACHED: "테이블 최대 베팅 한도에 도달했어요.",
+  SEAT_TAKEN: "이미 다른 사람이 앉은 자리예요.",
+  ALREADY_SEATED: "이미 자리에 앉아 있어요.",
+  NOT_SEATED: "먼저 자리에 앉아야 해요.",
+  ROOM_JOIN_REQUIRED: "방에 다시 접속해주세요.",
+};
+
+function errorText(code: string): string {
+  return ERROR_TEXT[code] ?? code;
 }

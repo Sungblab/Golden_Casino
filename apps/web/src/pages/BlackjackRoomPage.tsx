@@ -14,7 +14,6 @@ import type {
 import { handValue } from "@golden/game-core/blackjack";
 import { API_URL } from "../api";
 import { GameShell } from "../components/GameShell";
-import { OrientationGate } from "../components/OrientationGate";
 import { Brand } from "../components/Brand";
 import { CardBackFace } from "../components/CardFace";
 import { DeckShoe } from "../components/DeckShoe";
@@ -22,6 +21,7 @@ import { PlayingCard } from "../components/PlayingCard";
 import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
+import { blackjackGuide } from "../lib/guides/houseGames";
 import { playSound } from "../lib/sound";
 import { applyShoeFlight } from "../lib/shoeFlight";
 import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
@@ -301,8 +301,8 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
       isFullscreen={isFullscreen}
       onToggleFullscreen={() => void toggleFullscreen()}
       shellRef={shellRef}
+      guide={blackjackGuide}
     >
-      <OrientationGate targetRef={shellRef} />
       <div className="room-shell bj-room-shell">
         <section className="ot-stage bj-stage">
           <div className={`ot-felt bj bj-phase-${snapshot.room.phase.toLowerCase()}`}>

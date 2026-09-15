@@ -8,6 +8,8 @@ import "./styles/table-bonus-baccarat.css";
 import "./styles/table-dragontiger.css";
 import "./styles/table-holdem.css";
 import "./styles/table-sutda.css";
+import "./styles/table-pvp.css";
+import "./styles/game-guide.css";
 import "./styles/deck-shoe.css";
 
 createRoot(document.getElementById("root")!).render(

@@ -51,6 +51,16 @@
 - [x] 홀덤 프로세스 재시작 시 리버까지 진행된 핸드는 저장된 보드로 정산 완료(환불 아님); 리버 전 중단은 여전히 전액 환불 — 슈의 남은 카드 순서는 프로세스 메모리에만 있고 절대 영속화하지 않으므로(영속화하면 DB 접근 권한이 곧 카드 순서 열람 권한이 되어 담합 도구가 됨) 그 이전 중단은 원리적으로 재개 불가능
 - [ ] 홀덤 토너먼트
 
+## Milestone 5 — 초보자 친화 UX와 모바일 반응형 (섯다·홀덤 중심)
+
+- [x] 게임별 도움말 시트 (`apps/web/src/components/GameGuide.tsx`, `apps/web/src/lib/guides/`) — 모든 테이블의 게임 바 같은 자리에 `도움말` 버튼. 족보표(실제 화투·카드 이미지) · 게임 방법 · 버튼 설명 · 용어. 첫 방문 시 1회 안내 말풍선 (`localStorage`)
+- [x] 섯다 족보 참조 데이터와 강도 계산 (`packages/game-core/src/sutda.ts`: `SUTDA_RANKINGS`, `SUTDA_SPECIALS`, `sutdaHandStrength`, `sutdaSecondCardOutlook`) — 가능한 190개 조합 대비 순위, 첫 패만 있을 때 "노려볼 패"
+- [x] 홀덤 족보 참조 데이터와 읽기 (`packages/game-core/src/holdem.ts`: `HOLDEM_RANKINGS`, `holdemCategoryTier`, `holdemPreflopTier`, `readHoldemDraws`) — 5단계 강도, 플러시·스트레이트 드로우 안내
+- [x] 섯다·홀덤 테이블 레일 개편 — 진행 단계 바, 내 족보 패널(강도 미터), "내 차례" 스트립, 버튼마다 한 줄 설명(포기하기·따라가기·올리기…), 선/D·SB·BB 배지, 쇼다운 족보 공개, 패배 시 어떤 패에 졌는지 안내
+- [x] 섯다·홀덤·블랙잭 세로 모드 지원 — 가로 강제 오버레이(`OrientationGate`) 제거. PvP 테이블은 세로 화면에서 테이블 위·액션 독 아래 배치 (`apps/web/src/styles/table-pvp.css`, 좌석 좌표는 `--sx/--sy` CSS 변수로 레이아웃별 반지름 분리)
+- [x] 로직 검증 — 땡잡이가 광땡보다 이기던 판정 수정(`resolveSutdaWinners`), 판 중간 착석 좌석이 베팅 루프·쇼다운을 깨던 문제(섯다 `active()`/홀덤 `contenderSeats()`는 카드를 받은 좌석만), 진행 중 자리 비우기는 즉시 다이/폴드 처리, PvP 오류 코드 한글 메시지
+- [ ] 튜토리얼 모드 (봇 상대 연습 판)
+
 ## Later systems
 
 - [ ] 회원 가입과 관리자 승인

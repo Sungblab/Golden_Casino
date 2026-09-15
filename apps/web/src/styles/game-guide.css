@@ -1,0 +1,199 @@
+/* =============================================================================
+   In-game help: the shell's 도움말 button, its one-time first-visit nudge, and
+   the GameGuide sheet (족보표 / 게임 방법 / 용어). One look across all five games.
+   ============================================================================= */
+
+/* ── Help button in the game bar ─────────────────────────────────────────── */
+.game-help-anchor { position: relative; display: flex; align-items: center; }
+.game-help-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 11px 0 9px;
+  border: 1px solid var(--gold-line);
+  border-radius: 999px;
+  background: linear-gradient(to bottom, rgba(240,180,28,.26), rgba(240,180,28,.08));
+  color: var(--gold-light);
+  font: 700 11.5px var(--ui-font);
+  cursor: pointer;
+  transition: background .18s, border-color .18s, box-shadow .18s;
+}
+.game-help-button:hover { border-color: var(--gold-light); background: rgba(240,180,28,.3); }
+.game-help-button svg { flex: none; }
+.game-help-button.is-nudging { box-shadow: 0 0 0 3px rgba(255,210,74,.28), 0 0 18px rgba(255,210,74,.35); animation: game-help-nudge 1.6s ease-in-out infinite; }
+@keyframes game-help-nudge { 0%, 100% { box-shadow: 0 0 0 3px rgba(255,210,74,.22), 0 0 12px rgba(255,210,74,.25); } 50% { box-shadow: 0 0 0 5px rgba(255,210,74,.34), 0 0 22px rgba(255,210,74,.45); } }
+@media (prefers-reduced-motion: reduce) { .game-help-button.is-nudging { animation: none; } }
+
+/* First-visit tip: a small speech bubble under the button, never a blocking modal. */
+.game-help-tip {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 4px;
+  width: min(280px, calc(100vw - 24px));
+  padding: 12px 13px 11px;
+  border: 1px solid var(--gold-line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(160deg, #2a1c09, #130c04);
+  box-shadow: 0 18px 40px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,229,152,.12);
+  color: var(--text);
+  font-family: var(--ui-font);
+  animation: game-help-tip-in .22s ease;
+}
+.game-help-tip::before { content: ""; position: absolute; top: -6px; right: 22px; width: 11px; height: 11px; transform: rotate(45deg); border-left: 1px solid var(--gold-line); border-top: 1px solid var(--gold-line); background: #2a1c09; }
+.game-help-tip strong { font-size: 13px; color: var(--gold-light); }
+.game-help-tip > span { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.game-help-tip-actions { display: flex; gap: 6px; margin-top: 6px; }
+.game-help-tip-primary, .game-help-tip-secondary { flex: 1 1 0; min-height: 34px; border-radius: var(--radius-sm); font: 700 12px var(--ui-font); cursor: pointer; }
+.game-help-tip-primary { border: 1px solid var(--gold-light); background: var(--gold-btn); color: var(--on-gold); }
+.game-help-tip-secondary { border: 1px solid var(--gold-line-soft); background: rgba(0,0,0,.3); color: var(--muted); }
+@keyframes game-help-tip-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* ── The sheet ───────────────────────────────────────────────────────────── */
+.game-guide-root { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; font-family: var(--ui-font); }
+.game-guide-scrim { position: absolute; inset: 0; background: rgba(2,1,0,.62); backdrop-filter: blur(3px); }
+.game-guide {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(600px, calc(100vw - 32px));
+  max-height: min(84dvh, 760px);
+  overflow: hidden;
+  border: 1px solid var(--gold-line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(170deg, #1d1408 0%, #0f0904 60%, #0a0603 100%);
+  box-shadow: 0 30px 80px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,229,152,.1);
+  animation: game-guide-in .22s cubic-bezier(.2,.85,.32,1);
+}
+@keyframes game-guide-in { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+.game-guide-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 16px 10px; }
+.game-guide-head h2 { margin: 0 0 4px; font: 900 18px var(--display-font); color: var(--gold-light); letter-spacing: .02em; }
+.game-guide-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.game-guide-close { display: grid; flex: none; width: 34px; height: 34px; place-items: center; border: 1px solid var(--gold-line-soft); border-radius: 50%; background: rgba(0,0,0,.3); color: var(--muted); cursor: pointer; }
+.game-guide-close:hover { border-color: var(--gold-light); color: var(--gold-light); }
+.game-guide-tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--gold-line-soft); overflow-x: auto; scrollbar-width: none; }
+.game-guide-tabs::-webkit-scrollbar { display: none; }
+.game-guide-tab {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: 700 13px var(--ui-font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.game-guide-tab.is-active { color: var(--gold-light); border-bottom-color: var(--gold-light); }
+.game-guide-body { min-height: 0; overflow-y: auto; padding: 14px 16px 22px; overscroll-behavior: contain; }
+
+/* Phones: a bottom sheet that uses the full width and most of the height. */
+@media (max-width: 620px) {
+  .game-guide-root { align-items: end; }
+  .game-guide { width: 100vw; max-height: 88dvh; border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 0; animation: game-guide-up .26s cubic-bezier(.2,.85,.32,1); }
+  .game-guide-head { padding: 14px 14px 8px; }
+  .game-guide-head h2 { font-size: 16px; }
+  .game-guide-head p { font-size: 11.5px; }
+  .game-guide-body { padding: 12px 12px calc(18px + env(safe-area-inset-bottom)); }
+  @keyframes game-guide-up { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+}
+/* Landscape phones are short: the sheet fills the height instead. */
+@media (max-height: 520px) {
+  .game-guide { max-height: calc(100dvh - 12px); }
+  .game-guide-head { padding: 10px 14px 6px; }
+  .game-guide-head p { display: none; }
+  .game-guide-tab { min-height: 34px; font-size: 12px; }
+}
+
+/* ── Content blocks ──────────────────────────────────────────────────────── */
+.guide-note { margin: 0 0 12px; padding: 9px 11px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1.55; }
+.guide-note.is-gold { border: 1px solid rgba(240,180,28,.35); background: rgba(240,180,28,.1); color: #f5dea3; }
+.guide-note.is-red { border: 1px solid rgba(255,77,92,.4); background: rgba(204,10,28,.12); color: #ffc4c9; }
+.guide-note.is-green { border: 1px solid rgba(47,217,126,.35); background: rgba(6,145,74,.14); color: #c7f5da; }
+.guide-heading { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 8px; }
+.guide-heading h3 { margin: 0; font: 800 14px var(--ui-font); color: var(--gold-light); }
+.guide-heading span { color: var(--muted-dim); font-size: 11px; }
+
+.guide-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.guide-steps li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; padding: 9px 11px; border: 1px solid rgba(240,180,28,.2); border-radius: var(--radius-sm); background: rgba(255,255,255,.025); }
+.guide-step-num { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: var(--gold-btn); color: var(--on-gold); font-size: 12px; font-weight: 900; }
+.guide-step-text { display: grid; gap: 2px; }
+.guide-step-text strong { font-size: 13px; color: var(--text); }
+.guide-step-text span { font-size: 11.5px; line-height: 1.55; color: var(--muted); }
+
+.guide-actions { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.guide-actions li { display: grid; grid-template-columns: 78px 1fr; gap: 10px; align-items: center; padding: 7px 9px; border: 1px solid rgba(240,180,28,.18); border-radius: var(--radius-sm); background: rgba(255,255,255,.02); }
+.guide-action-chip { display: grid; place-items: center; min-height: 32px; padding: 0 8px; border: 1px solid; border-radius: var(--radius-sm); font-size: 12px; font-weight: 800; text-align: center; }
+.guide-action-chip.red { background: linear-gradient(to bottom, #8a2028, #4d1015); border-color: var(--banker-light); color: #ffe9ea; }
+.guide-action-chip.gold { background: linear-gradient(to bottom, var(--gold), var(--gold-deep)); border-color: var(--gold-light); color: var(--on-gold); }
+.guide-action-chip.blue { background: linear-gradient(to bottom, #2970a8, #123b63); border-color: #4a93e0; color: #eef8ff; }
+.guide-action-chip.green { background: linear-gradient(to bottom, #12a35d, #0a6234); border-color: var(--tie-light); color: #eafff3; }
+.guide-action-chip.purple { background: linear-gradient(to bottom, #6b4bab, #3b2765); border-color: #a184e0; color: #f2ecff; }
+.guide-action-body { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+
+.guide-terms { display: grid; gap: 6px; margin: 0; }
+.guide-term { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 8px 10px; border: 1px solid rgba(240,180,28,.18); border-radius: var(--radius-sm); background: rgba(255,255,255,.02); }
+.guide-term dt { font-size: 12.5px; font-weight: 800; color: var(--gold-light); }
+.guide-term dd { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+
+.guide-payouts { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.guide-payouts th { padding: 6px 8px; border-bottom: 1px solid var(--gold-line-soft); color: var(--muted-dim); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-align: left; }
+.guide-payouts td { padding: 8px; border-bottom: 1px solid rgba(240,180,28,.12); color: var(--muted); vertical-align: top; line-height: 1.45; }
+.guide-payouts td:first-child { color: var(--text); font-weight: 700; white-space: nowrap; }
+.guide-payouts td:nth-child(2) { color: var(--gold-light); font-weight: 800; white-space: nowrap; }
+
+/* Ranking rows (both games) */
+.guide-rank-groups { display: grid; gap: 14px; }
+.guide-rank-group h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; padding-left: 2px; font: 800 12px var(--ui-font); letter-spacing: .06em; color: var(--gold-light); }
+.guide-rank-group h4 span { color: var(--muted-dim); font-size: 10.5px; font-weight: 600; letter-spacing: 0; }
+.guide-rank-group ul, .guide-rank-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.guide-rank-row {
+  display: grid;
+  grid-template-columns: 22px auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 9px 6px 7px;
+  border: 1px solid rgba(240,180,28,.18);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.025);
+}
+.guide-rank-num { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: rgba(240,180,28,.16); color: var(--gold-light); font-size: 10px; font-weight: 800; }
+.guide-rank-cards { display: flex; align-items: center; gap: 3px; }
+.guide-rank-cards-hwatu .hwatu-card { width: 30px; height: 47px; margin: 0; transform: none; border-radius: 3px; }
+.guide-rank-cards-hwatu .hwatu-card + .hwatu-card { margin-left: 0; transform: none; }
+.guide-poker-card { display: block; width: 26px; height: calc(26px * 1.4); overflow: hidden; border-radius: 3px; box-shadow: 0 2px 5px rgba(0,0,0,.5); }
+.guide-poker-card img { display: block; width: 100%; height: 100%; object-fit: fill; }
+.guide-rank-text { display: grid; gap: 2px; min-width: 0; }
+.guide-rank-text strong { font-size: 13px; color: var(--text); }
+.guide-rank-text strong em { margin-left: 5px; color: var(--muted-dim); font-size: 10px; font-style: normal; font-weight: 500; }
+.guide-rank-text small { font-size: 11px; line-height: 1.45; color: var(--muted); }
+.guide-rank-text small.is-effect { color: #f5dea3; font-weight: 600; }
+/* Tier colours follow the hand meter's palette so the panel and the guide agree. */
+.guide-rank-row.tier-gwangddaeng { border-left-color: #ffd24a; background: linear-gradient(90deg, rgba(255,210,74,.16), rgba(255,255,255,.02)); }
+.guide-rank-row.tier-ddaeng { border-left-color: #ff6b74; }
+.guide-rank-row.tier-named { border-left-color: #b48cff; }
+.guide-rank-row.tier-gabo { border-left-color: #2fd97e; }
+.guide-rank-row.tier-kkeut { border-left-color: #4a92ff; }
+.guide-rank-row.tier-mangtong { border-left-color: rgba(220,194,135,.35); }
+.guide-rank-row.poker-tier-5 { border-left-color: #ffd24a; background: linear-gradient(90deg, rgba(255,210,74,.14), rgba(255,255,255,.02)); }
+.guide-rank-row.poker-tier-4 { border-left-color: #ff6b74; }
+.guide-rank-row.poker-tier-3 { border-left-color: #b48cff; }
+.guide-rank-row.poker-tier-2 { border-left-color: #2fd97e; }
+.guide-rank-row.poker-tier-1 { border-left-color: #4a92ff; }
+.guide-special-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.guide-special-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid rgba(180,140,255,.35); border-radius: var(--radius-sm); background: rgba(107,75,171,.12); }
+
+@media (max-width: 620px) {
+  .guide-rank-row { gap: 8px; padding: 5px 7px 5px 6px; }
+  .guide-rank-cards-hwatu .hwatu-card { width: 26px; height: 41px; }
+  .guide-poker-card { width: 22px; height: calc(22px * 1.4); }
+  .guide-rank-text strong { font-size: 12.5px; }
+  .guide-rank-text small { font-size: 10.5px; }
+  .guide-term { grid-template-columns: 80px 1fr; }
+  .guide-actions li { grid-template-columns: 68px 1fr; }
+}

@@ -21,6 +21,7 @@ import { PlayingCard } from "../components/PlayingCard";
 import { RoomChat } from "../components/RoomChat";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
 import { WinnerFeed } from "../components/WinnerFeed";
+import { dragonTigerGuide } from "../lib/guides/houseGames";
 import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/betting";
 import { playSound } from "../lib/sound";
 import { randomRequestId } from "../lib/requestId";
@@ -257,6 +258,7 @@ export function DragonTigerRoomPage({ token, onLogout }: { token: string; onLogo
       isFullscreen={isFullscreen}
       onToggleFullscreen={() => void (document.fullscreenElement ? document.exitFullscreen() : shellRef.current?.requestFullscreen())}
       shellRef={shellRef}
+      guide={dragonTigerGuide}
     >
       <div className="room-shell">
         <section className="ot-stage">

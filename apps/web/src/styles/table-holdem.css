@@ -433,3 +433,10 @@
   .game-shell .holdem-room-shell .room-chat-panel,
   .game-shell .holdem-room-shell .poker-guide-panel { right: 8px; bottom: 8px; }
 }
+
+/* ── Beginner layer (see table-pvp.css for the shared pieces) ────────────── */
+/* Main/side pot breakdown under the pot total, only when a side pot exists. */
+.holdem-pot { display: grid; justify-items: center; gap: 1px; }
+.holdem-pot-split { color: rgba(255,244,214,.62); font-family: var(--ui-font); font-size: 9.5px; font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
+/* Presets carry a one-word meaning in their title; the visible chip stays two lines. */
+.game-shell .holdem-rail-v4 .holdem-preset { cursor: pointer; }

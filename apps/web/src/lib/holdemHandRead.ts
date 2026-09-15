@@ -1,5 +1,5 @@
 import type { Card } from "@golden/contracts";
-import { evaluateBestHoldemHand } from "@golden/game-core/holdem";
+import { evaluateBestHoldemHand, HOLDEM_CATEGORY_LABEL, holdemCategoryTier, holdemPreflopTier, readHoldemDraws } from "@golden/game-core/holdem";
 
 /**
  * The viewer's live read of their OWN hand, for the on-felt hand panel.
@@ -11,22 +11,14 @@ import { evaluateBestHoldemHand } from "@golden/game-core/holdem";
  * of waiting for the server's showdown reveal.
  */
 
-export const HOLDEM_HAND_LABEL: Record<string, string> = {
-  high_card: "하이카드",
-  pair: "원페어",
-  two_pair: "투페어",
-  three_of_a_kind: "트리플",
-  straight: "스트레이트",
-  flush: "플러시",
-  full_house: "풀하우스",
-  four_of_a_kind: "포카드",
-  straight_flush: "스트레이트 플러시",
-};
+export const HOLDEM_HAND_LABEL: Record<string, string> = HOLDEM_CATEGORY_LABEL;
 
 const RANK_LABEL: Record<Card["rank"], string> = {
   A: "A", K: "K", Q: "Q", J: "J", "10": "10",
   "9": "9", "8": "8", "7": "7", "6": "6", "5": "5", "4": "4", "3": "3", "2": "2",
 };
+
+const SUIT_GLYPH: Record<Card["suit"], string> = { S: "♠", H: "♥", D: "♦", C: "♣" };
 
 export interface HoldemHandRead {
   /** "투페어" — or a pre-flop hint ("포켓 페어", "A 하이") when the board is too short to evaluate. */
@@ -37,6 +29,11 @@ export interface HoldemHandRead {
   usedKeys: Set<string>;
   /** False while this is only a pre-flop read, so the UI can present it as a hint. */
   evaluated: boolean;
+  /** 1–5 strength for the meter, and the word that goes with it. */
+  tier: number;
+  tierLabel: string;
+  /** "♠ 플러시까지 1장" / "5 또는 10이 오면 스트레이트" — only on the flop and turn. */
+  draws: string[];
 }
 
 /** Stable identity for a card, used to match evaluated cards back to rendered ones. */
@@ -86,6 +83,19 @@ function rankOrder(rank: Card["rank"]): number {
   return ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"].indexOf(rank);
 }
 
+function drawLines(known: Card[], category: string): string[] {
+  const draws = readHoldemDraws(known);
+  const lines: string[] = [];
+  // A made flush/straight (or better) makes the corresponding draw moot.
+  const madeValue = ["high_card", "pair", "two_pair", "three_of_a_kind", "straight", "flush"].indexOf(category);
+  if (draws.flush && (madeValue < 5 && madeValue !== -1)) lines.push(`${SUIT_GLYPH[draws.flush.suit]} 한 장 더 오면 플러시`);
+  if (draws.straight && madeValue >= 0 && madeValue < 4) {
+    const needed = draws.straight.needed.map((rank) => RANK_LABEL[rank]).join(" 또는 ");
+    lines.push(`${needed}${draws.straight.needed.length > 1 ? " 중 하나가" : "이(가)"} 오면 스트레이트${draws.straight.kind === "open" ? " (양방)" : ""}`);
+  }
+  return lines;
+}
+
 /**
  * Returns null only when there's nothing to read at all (no hole cards, or the
  * viewer has folded) — otherwise there is always something to show, including
@@ -99,8 +109,9 @@ export function readHoldemHand(holeCards: Card[] | null, board: Card[]): HoldemH
     // showing — an empty panel here reads as "the feature is broken".
     const [first, second] = holeCards as [Card, Card];
     const suited = first.suit === second.suit;
+    const tier = holdemPreflopTier([first, second]);
     if (first.rank === second.rank) {
-      return { label: "포켓 페어", detail: `${RANK_LABEL[first.rank]} 포켓`, usedKeys: new Set(), evaluated: false };
+      return { label: "포켓 페어", detail: `${RANK_LABEL[first.rank]} 포켓`, usedKeys: new Set(), evaluated: false, tier: tier.tier, tierLabel: tier.label, draws: [] };
     }
     const high = rankOrder(first.rank) >= rankOrder(second.rank) ? first : second;
     const low = high === first ? second : first;
@@ -109,16 +120,23 @@ export function readHoldemHand(holeCards: Card[] | null, board: Card[]): HoldemH
       detail: `${RANK_LABEL[high.rank]}${RANK_LABEL[low.rank]}${suited ? " 수딧" : " 오프수트"}`,
       usedKeys: new Set(),
       evaluated: false,
+      tier: tier.tier,
+      tierLabel: tier.label,
+      draws: [],
     };
   }
   const best = evaluateBestHoldemHand(known);
   const label = best.category === "straight_flush" && isRoyal(best.cards)
     ? "로열 플러시"
     : HOLDEM_HAND_LABEL[best.category] ?? best.category;
+  const tier = holdemCategoryTier(best.category);
   return {
     label,
     detail: detailFor(best.category, best.cards),
     usedKeys: new Set(best.cards.map(cardKey)),
     evaluated: true,
+    tier: tier.tier,
+    tierLabel: tier.label,
+    draws: drawLines(known, best.category),
   };
 }

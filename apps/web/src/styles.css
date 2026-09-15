@@ -2977,7 +2977,9 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
     transform: none;
     display: flex;
     flex-wrap: wrap;
-    align-content: flex-start;
+    /* The other seats' rows spread over the middle band (space-evenly), not packed under the
+       dealer with a hole above my hand — the hole was the "big empty felt" of the old portrait. */
+    align-content: space-evenly;
     justify-content: center;
     gap: 4px;
     padding-bottom: 150px; /* band reserved for .bj-seat.mine below */
@@ -3186,6 +3188,18 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   .game-shell .ot-felt.baccarat .ot-print .bet-zone.tie .bet-zone-surface,
   .game-shell .ot-felt.baccarat .ot-print .bet-zone.pair .bet-zone-surface { min-height: 48px; }
   .game-shell .ot-felt.baccarat .ot-message { bottom: 58px; }
+  /* The WIN / 베팅 마감 banner: absolute in the clear band between the cards and the bet
+     zones, not static at the top of the felt where it covered the PLAYER/BANKER heads. */
+  .game-shell .ot-felt.baccarat .ot-banner {
+    position: absolute;
+    top: 55%;
+    left: 50%;
+    width: auto;
+    margin: 0;
+    padding: 6px 16px;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+  }
 
   .game-shell .bj-dealer-row {
     top: 50%;
@@ -4172,71 +4186,6 @@ body, #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
   }
   .game-shell .bj-lightning-status span,
   .game-shell .bj-lightning-status em { font-size: 8px; }
-}
-
-/* =============================================================================
-   Orientation gate — Blackjack and Hold'em are landscape-only on mobile (no
-   portrait layout exists for either), so this overlay blocks play until the
-   player rotates. Portalled onto document.body by OrientationGate.tsx, so it
-   sits above game-shell's overflow:hidden regardless of DOM position.
-   ============================================================================= */
-.orientation-gate {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 10px;
-  padding: 40px 28px;
-  text-align: center;
-  background: radial-gradient(circle at 50% 30%, rgba(240,180,28,.1), transparent 60%),
-              linear-gradient(160deg, #120c05, #08050299 60%, #050301);
-  backdrop-filter: blur(6px);
-}
-.orientation-gate-icon {
-  display: grid;
-  place-items: center;
-  width: 58px;
-  height: 58px;
-  margin-bottom: 6px;
-  border: 1px solid var(--gold-line);
-  border-radius: 50%;
-  background: var(--gold-wash);
-  color: var(--gold-light);
-  animation: orientation-gate-spin 1.8s ease-in-out infinite;
-}
-@keyframes orientation-gate-spin {
-  0%, 20% { transform: rotate(0deg); }
-  50%, 70% { transform: rotate(-90deg); }
-  100% { transform: rotate(-90deg); }
-}
-.orientation-gate strong {
-  font-family: var(--display-font);
-  font-size: 19px;
-  color: var(--gold-light);
-  letter-spacing: .02em;
-}
-.orientation-gate p {
-  max-width: 320px;
-  margin: 0;
-  color: var(--muted);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-.orientation-gate-button {
-  margin-top: 8px;
-  padding: 11px 22px;
-  border: 1px solid var(--gold-light);
-  border-radius: var(--radius-sm);
-  background: linear-gradient(to bottom, var(--gold), var(--gold-deep));
-  color: var(--on-gold);
-  font-size: 13px;
-  font-weight: 800;
-  box-shadow: 0 6px 18px rgba(240,180,28,.32);
-}
-@media (prefers-reduced-motion: reduce) {
-  .orientation-gate-icon { animation: none; }
 }
 
 /* =============================================================================
