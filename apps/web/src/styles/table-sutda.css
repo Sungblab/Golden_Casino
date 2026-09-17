@@ -36,13 +36,16 @@
    only my own hand reads larger (same rule as Hold'em's .is-mine). */
 .game-shell .sutda-shell .sutda-cards { height: auto; min-height: 56px; align-items: flex-end; gap: 0; }
 .game-shell .sutda-shell .sutda-cards .hwatu-card { width: 34px; height: 53px; }
+.game-shell .sutda-shell .sutda-cards .hwatu-month { font-size: 9px; }
 .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards { min-height: 74px; }
 .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-card { width: 46px; height: 71px; }
+.game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-month { font-size: 11px; }
 .game-shell .sutda-shell .sutda-cards .sutda-fly + .sutda-fly { margin-left: -8px; }
 .game-shell .sutda-shell .sutda-cards .sutda-fly + .sutda-fly .hwatu-card { transform: rotate(4deg); }
 
 /* Rail hand panel minis. */
 .game-shell .sutda-shell .sutda-panel-cards .hwatu-card { width: 22px; height: 34px; border-radius: 3px; }
+.game-shell .sutda-shell .sutda-panel-cards .hwatu-month { top: 1px; left: 1px; padding: 0 .2em; border-width: .5px; font-size: 7px; }
 
 /* ── The deck on the felt ─────────────────────────────────────────────────────
    Sits where Hold'em parks its deck (inside the action line, the dealer's
@@ -106,8 +109,10 @@
 @media (max-width: 900px), (max-height: 560px) {
   .game-shell .sutda-shell .sutda-cards { min-height: 40px; }
   .game-shell .sutda-shell .sutda-cards .hwatu-card { width: 24px; height: 37px; }
+  .game-shell .sutda-shell .sutda-cards .hwatu-month { font-size: 7px; }
   .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards { min-height: 50px; }
   .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-card { width: 31px; height: 48px; }
+  .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-month { font-size: 8px; }
   .sutda-deck { width: 24px; height: 37px; }
   .game-shell .sutda-shell .sutda-guide .outline-button { min-height: 30px; padding: 0 7px; font-size: 10px; }
 }

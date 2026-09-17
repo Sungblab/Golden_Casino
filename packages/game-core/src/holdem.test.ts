@@ -34,8 +34,23 @@ describe("holdem evaluator", () => {
       { userId: "b", amount: 250, folded: false },
       { userId: "c", amount: 250, folded: true },
     ])).toEqual([
-      { amount: 300, eligibleUserIds: ["a", "b"] },
-      { amount: 300, eligibleUserIds: ["b"] },
+      { amount: 300, eligibleUserIds: ["a", "b"], contributorUserIds: ["a", "b", "c"] },
+      { amount: 300, eligibleUserIds: ["b"], contributorUserIds: ["b", "c"] },
+    ]);
+  });
+
+  it("keeps a pot's contributors even when every one of them folded", () => {
+    // "b" raises to 250 with nothing left to call (toCall is 0 on their own bet), then folds
+    // anyway — applyAction's fold has no toCall guard, so this is reachable in real play, not
+    // just a theoretical input. The top 150 of that raise was never matched by "a", so it has
+    // zero eligible winners; settle() needs contributorUserIds to refund it to "b" instead of
+    // silently dropping it (which used to unbalance the ledger and crash the hand).
+    expect(buildHoldemPots([
+      { userId: "a", amount: 100, folded: false },
+      { userId: "b", amount: 250, folded: true },
+    ])).toEqual([
+      { amount: 200, eligibleUserIds: ["a"], contributorUserIds: ["a", "b"] },
+      { amount: 150, eligibleUserIds: [], contributorUserIds: ["b"] },
     ]);
   });
 

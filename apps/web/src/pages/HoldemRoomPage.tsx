@@ -110,8 +110,19 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
     const me = snapshot.seats.find((seat) => seat.seatNumber === snapshot.mySeatNumber);
     const mine = snapshot.lastWinners.find((winner) => winner.seatNumber === snapshot.mySeatNumber);
     if (mine) {
-      setResultNotice({ net: mine.amount, amount: mine.amount, title: mine.handCategory ? `${HOLDEM_HAND_LABEL[mine.handCategory]}로 승리` : "승리했습니다" });
-      playSound("win");
+      // Rake comes out of the pot before a tie splits it, so a tied winner's share can land at
+      // or below their own contribution — that's a split pot, not a loss, and must not read as
+      // one. net:0 keeps the notice's tone neutral (push) while `amount` still shows the true,
+      // possibly-negative number the rake left them with.
+      const tied = mine.amount <= 0;
+      setResultNotice({
+        net: tied ? 0 : mine.amount,
+        amount: mine.amount,
+        title: tied
+          ? (mine.handCategory ? `${HOLDEM_HAND_LABEL[mine.handCategory]} 무승부 · 팟 분할` : "무승부 · 팟 분할")
+          : (mine.handCategory ? `${HOLDEM_HAND_LABEL[mine.handCategory]}로 승리` : "승리했습니다"),
+      });
+      playSound(tied ? "tie" : "win");
     } else if (me && me.dealtIn && !me.folded && me.totalContributed > 0) {
       const winner = snapshot.lastWinners[0]!;
       setResultNotice({

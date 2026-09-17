@@ -27,6 +27,15 @@ export interface HoldemContribution {
 export interface HoldemPot {
   amount: number;
   eligibleUserIds: string[];
+  /**
+   * Everyone who put money into this slice, folded or not — unlike `eligibleUserIds`, kept even
+   * when every one of them has folded. A raiser can fold their own bet when nothing is owed
+   * (holdem-room-manager's applyAction places no toCall guard on "fold"), so the top slice of
+   * their raise can end up with zero eligible winners even though real coins are sitting in it.
+   * Settlement needs this list to refund that slice to whoever contributed it instead of quietly
+   * dropping it — the room account still gets debited the full pot regardless of eligibility.
+   */
+  contributorUserIds: string[];
 }
 
 function rankValue(card: Card): number {
@@ -116,7 +125,13 @@ export function buildHoldemPots(contributions: HoldemContribution[]): HoldemPot[
   for (const level of levels) {
     const contributors = contributions.filter((entry) => entry.amount >= level);
     const amount = (level - previous) * contributors.length;
-    if (amount > 0) pots.push({ amount, eligibleUserIds: contributors.filter((entry) => !entry.folded).map((entry) => entry.userId) });
+    if (amount > 0) {
+      pots.push({
+        amount,
+        eligibleUserIds: contributors.filter((entry) => !entry.folded).map((entry) => entry.userId),
+        contributorUserIds: contributors.map((entry) => entry.userId),
+      });
+    }
     previous = level;
   }
   return pots;

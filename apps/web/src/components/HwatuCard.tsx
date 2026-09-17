@@ -7,5 +7,10 @@ export function hwatuFaceUrl(card: Hwatu): string { return `/cards/hwatu/Hwatu_$
 
 export function HwatuCard({ card, hidden = false }: { card?: Hwatu; hidden?: boolean }) {
   if (hidden || !card) return <span className="hwatu-card hwatu-back" aria-label="상대 패" />;
-  return <img className="hwatu-card" src={hwatuFaceUrl(card)} draggable={false} alt={`${card.month}월 화투`} />;
+  return (
+    <span className="hwatu-card">
+      <img src={hwatuFaceUrl(card)} draggable={false} alt={`${card.month}월 화투`} />
+      <b className="hwatu-month" aria-hidden="true">{card.month}</b>
+    </span>
+  );
 }

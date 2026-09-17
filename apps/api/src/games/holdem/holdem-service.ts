@@ -97,8 +97,29 @@ export class HoldemService {
 
     const payouts = new Map<string, number>();
     const winnerCategory = new Map<string, PokerHandRank["category"]>();
+    // Who actually won a pot — distinct from "payout > contribution", which a tied (split) pot
+    // fails even for the players who tied for the best hand: the house rake comes out of the pot
+    // before the split, so each tied winner's share is mathematically guaranteed to land below
+    // their own contribution. Using payout-vs-contribution here mislabeled every split pot as a
+    // loss for both players and left them out of the settlement's winners list entirely.
+    const potWinnerIds = new Set<string>();
     for (const pot of pots) {
-      if (pot.amount <= 0 || pot.eligibleUserIds.length === 0) continue;
+      if (pot.amount <= 0) continue;
+      if (pot.eligibleUserIds.length === 0) {
+        // Every contributor who reached this pot's level folded — reachable because a raiser can
+        // fold their own bet when nothing is owed (applyAction places no toCall guard on "fold").
+        // Nobody ever contested this slice, so unlike a real loss it was never actually at risk:
+        // refund it unraked to whoever put it in, the same as any other uncalled amount. The old
+        // code `continue`'d past it and dropped it from `payouts` entirely, while the room-account
+        // debit below (`totalPotMinor`) still included it — the mismatch is exactly what tripped
+        // assertBalancedEntries and crashed the hand.
+        const refundShare = Math.floor(pot.amount / pot.contributorUserIds.length);
+        const remainder = pot.amount - refundShare * pot.contributorUserIds.length;
+        pot.contributorUserIds.forEach((userId, index) => {
+          payouts.set(userId, (payouts.get(userId) ?? 0) + refundShare + (index === 0 ? remainder : 0));
+        });
+        continue;
+      }
       const rake = rakeFor(pot.amount, maxBetMinor);
       const distributable = pot.amount - rake;
       let winnerIds: string[];
@@ -113,6 +134,7 @@ export class HoldemService {
       const remainder = distributable - share * winnerIds.length;
       winnerIds.forEach((userId, index) => {
         payouts.set(userId, (payouts.get(userId) ?? 0) + share + (index === 0 ? remainder : 0));
+        potWinnerIds.add(userId);
         const hand = handByUser.get(userId);
         if (hand) winnerCategory.set(userId, hand.category);
       });
@@ -157,12 +179,13 @@ export class HoldemService {
 
       for (const entry of contributions) {
         const payoutMinor = payouts.get(entry.userId) ?? 0;
-        const outcome = payoutMinor === entry.amountMinor ? "push" : payoutMinor > entry.amountMinor ? "win" : "lose";
+        const won = potWinnerIds.has(entry.userId);
+        const outcome = won ? "win" : payoutMinor === entry.amountMinor ? "push" : "lose";
         await client.query(
           "UPDATE holdem_contributions SET payout_minor=$2,outcome=$3,settled_at=now() WHERE round_id=$1 AND user_id=$4",
           [roundId, payoutMinor, outcome, entry.userId],
         );
-        if (payoutMinor > entry.amountMinor) winners.push({ userId: entry.userId, amountMinor: payoutMinor - entry.amountMinor, handCategory: winnerCategory.get(entry.userId) ?? null });
+        if (won) winners.push({ userId: entry.userId, amountMinor: payoutMinor - entry.amountMinor, handCategory: winnerCategory.get(entry.userId) ?? null });
         // Wagering credit is capped to this hand's share of rake, not the full pot — crediting
         // the whole stake would let two colluding accounts launder deposits by playing each other.
         if (rakeMinor > 0 && totalPotMinor > 0) {

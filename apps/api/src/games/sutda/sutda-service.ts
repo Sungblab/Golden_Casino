@@ -45,7 +45,13 @@ export class SutdaService {
         entries: [{ accountId: room, amountMinor: -total }, ...(rake ? [{ accountId: house, amountMinor: rake }] : []), ...winnerIds.map((id) => ({ accountId: users.get(id)!, amountMinor: payouts.get(id)! }))], metadata: { rakeMinor: rake }, });
       for (const item of contributions) {
         const payout = payouts.get(item.userId) ?? 0;
-        await client.query("UPDATE sutda_contributions SET payout_minor=$2,outcome=$3,settled_at=now() WHERE id=$1", [item.id, payout, payout === item.amountMinor ? "push" : payout > item.amountMinor ? "win" : "lose"]);
+        // Same fix as holdem-service's settle(): a raked split pot pays tied winners less than
+        // their own contribution, so comparing payout-vs-contribution mislabels a tie as a loss.
+        // takeRake is false only for the redeal/멍텅구리 refund, where winnerIds is every active
+        // player and "push" (got your money back, nobody won) is still the right label.
+        const won = takeRake && winnerIds.includes(item.userId);
+        const outcome = won ? "win" : payout === item.amountMinor ? "push" : "lose";
+        await client.query("UPDATE sutda_contributions SET payout_minor=$2,outcome=$3,settled_at=now() WHERE id=$1", [item.id, payout, outcome]);
         // Wagering credit is capped to this contribution's share of rake, not its full stake —
         // crediting the whole stake would let two colluding accounts launder deposits by playing
         // each other (mirrors holdem-service's identical guard).

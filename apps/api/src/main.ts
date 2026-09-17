@@ -160,7 +160,7 @@ const ALL_BETS_CTE = `
 app.get("/api/v1/admin/overview", requireAuth, requireAdmin, async (_req, res) => {
   const [roomRows, userRows, roundRows, cashRows, supportRows, houseTotalsRows, houseByGameRows, trendRows, cashFlowRows] = await Promise.all([
     pool.query<{ id: string; game_type: GameType; code: string; name: string; min_bet: number; max_bet: number; enabled: boolean }>(
-      "SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms ORDER BY min_bet,game_type",
+      "SELECT id,game_type,code,name,min_bet,max_bet,enabled FROM game_rooms WHERE game_type <> 'casino_holdem' ORDER BY min_bet,game_type",
     ),
     pool.query<{
       id: string;
