@@ -23,7 +23,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
       API_PORT: 5100
-      WEB_ORIGIN: https://gc.sungblab.com
+      WEB_ORIGIN: https://test.sungblab.com
     ports:
       - "127.0.0.1:5100:5100"
     depends_on:
