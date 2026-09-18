@@ -1,0 +1,1259 @@
+<title>장판 섯다</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Nanum+Myeongjo:wght@400;700;800&display=swap">
+<style>
+/* ────────────────────────────────────────────────────────────────────────────
+   장판 섯다 — 시각 방향 목업
+   전제: 섯다는 카지노 테이블에서 하는 게임이 아니다. 방바닥에 깐 초록 극세사
+   장판 위에서, 백열등 하나 밑에서 한다. 그래서 이 화면에는 테이블도, 레일도,
+   범퍼도, 펠트 패널도 없다. 장판이 곧 배경이고 패는 장판 위에 그냥 놓인다.
+   단일 테마로 의도적으로 고정(어두운 방 하나) — 라이트/다크 토글 없음.
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* 방 */
+  --ink:        #080604;
+  --ink-soft:   #120d09;
+  /* 장판 — 백열등 밑의 초록. 카지노 에메랄드가 아니라 노란빛이 도는 짙은 녹색 */
+  --mat-lit:    #2f7048;
+  --mat-mid:    #1d5334;
+  --mat-dim:    #0e2b1c;
+  --mat-edge:   #071510;
+  /* 빛 */
+  --lamp:       #ffd28a;
+  --lamp-soft:  rgba(255,210,138,.14);
+  /* 글자 — 텅스텐 조명 밑이라 순백이 아니라 뼈색 */
+  --bone:       #efe4ce;
+  --bone-dim:   rgba(239,228,206,.56);
+  --bone-faint: rgba(239,228,206,.3);
+  /* 놋쇠 — 우리 카지노 골드(#F0B41C)보다 한 톤 낮춘 고재(古材) 금속 */
+  --brass:      #c9a227;
+  --brass-lit:  #e8c65a;
+  /* 화투 */
+  --vermilion:  #cf3520;
+  --ivory:      #f4ead5;
+  --sumi:       #241a13;
+
+  --card-w: clamp(38px, 4.3vw, 52px);
+  --card-r: 4px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--bone);
+  font-family: "IBM Plex Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--brass-lit); outline-offset: 2px; }
+
+/* ── 방 전체 ──────────────────────────────────────────────────────────────── */
+.room {
+  position: fixed; inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--ink);
+}
+
+/* ── 상단 정보 띠: 장판 바깥, 방의 어둠 쪽에 얹힌다 ─────────────────────── */
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(180deg, var(--ink) 40%, rgba(8,6,4,.7));
+  border-bottom: 1px solid rgba(201,162,39,.16);
+  z-index: 6;
+}
+.room-name {
+  font-family: "Nanum Myeongjo", serif;
+  font-weight: 800; font-size: 17px; letter-spacing: .04em;
+  color: var(--bone);
+}
+.room-meta {
+  display: flex; gap: 10px; align-items: baseline;
+  color: var(--bone-dim); font-size: 11.5px; letter-spacing: .02em;
+}
+.room-meta b { color: var(--brass-lit); font-weight: 600; font-variant-numeric: tabular-nums; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.purse {
+  display: flex; align-items: baseline; gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.purse span { color: var(--bone-faint); font-size: 10.5px; letter-spacing: .08em; }
+.purse b { color: var(--bone); font-weight: 600; font-size: 15px; }
+.ghost-btn {
+  padding: 5px 11px; border-radius: 3px;
+  border: 1px solid rgba(239,228,206,.22);
+  color: var(--bone-dim); font-size: 12px;
+}
+.ghost-btn:hover { border-color: var(--brass); color: var(--brass-lit); }
+
+/* ── 무대 = 장판 ──────────────────────────────────────────────────────────
+   여기가 핵심. .mat 은 카드형 패널이 아니라 무대 전체를 덮는 바닥이다.
+   경계선·테두리·라운드 없음. 빛이 가운데로 떨어지고 가장자리는 어둠으로 죽는다. */
+.stage { position: relative; overflow: hidden; }
+
+.mat { position: absolute; inset: 0; }
+/* 1) 등불 웅덩이 + 가장자리 falloff */
+.mat::before {
+  content: ""; position: absolute; inset: 0;
+  background:
+    /* 접었다 편 자국 — 장판은 말아두었다 펴는 물건이라 결이 남는다 */
+    linear-gradient(90deg, transparent 27.6%, rgba(255,255,255,.045) 27.9%, transparent 28.2%),
+    linear-gradient(90deg, transparent 71.8%, rgba(0,0,0,.07) 72.1%, transparent 72.4%),
+    radial-gradient(118% 82% at 50% 34%,
+      var(--mat-lit) 0%,
+      var(--mat-mid) 34%,
+      var(--mat-dim) 62%,
+      var(--mat-edge) 100%);
+}
+/* 2) 극세사 결 — feTurbulence 노이즈를 낮은 불투명도로 겹쳐 융 느낌을 낸다.
+      여기에 한 방향 결(sheen)을 더해 천이 눕는 방향을 만든다. */
+.mat::after {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    repeating-linear-gradient(101deg, rgba(255,255,255,.028) 0 2px, rgba(0,0,0,.028) 2px 4px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
+  background-size: auto, 180px 180px;
+  mix-blend-mode: overlay;
+  opacity: .5;
+  pointer-events: none;
+}
+/* 3) 등불 자체의 훈기 — 위에서 내려오는 따뜻한 빛 */
+.lamp-haze {
+  position: absolute; left: 50%; top: -14%;
+  width: min(760px, 88%); aspect-ratio: 1 / .62;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, var(--lamp-soft), transparent 72%);
+  pointer-events: none;
+}
+/* 4) 방 구석의 어둠이 장판 위로 번지는 비네트 */
+.room-dark {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(130% 96% at 50% 40%, transparent 46%, rgba(4,3,2,.62) 100%),
+    linear-gradient(180deg, rgba(4,3,2,.42), transparent 22%, transparent 74%, rgba(4,3,2,.5));
+}
+
+/* ── 판돈: 장판 한가운데 쌓인 현금 ─────────────────────────────────────── */
+.pot {
+  position: absolute; left: 50%; top: 44%;
+  transform: translate(-50%, -50%);
+  display: grid; justify-items: center; gap: 9px;
+  z-index: 3;
+}
+.cash-pile { position: relative; width: 124px; height: 66px; }
+.bill {
+  position: absolute; left: 50%; top: 50%;
+  width: 70px; height: 31px; border-radius: 2px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.2), transparent 40%),
+    linear-gradient(94deg, #c8bf96, #ab9f74 46%, #bdb187);
+  box-shadow: 0 1px 0 rgba(0,0,0,.35), 0 3px 7px rgba(0,0,0,.4);
+  transform-origin: center;
+}
+.bill::after { /* 지폐 다발 띠지 */
+  content: ""; position: absolute; left: 34%; top: -1px; bottom: -1px; width: 8px;
+  background: rgba(186,64,44,.82);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.18);
+}
+.pot-readout { text-align: center; line-height: 1.25; }
+.pot-readout .k { display: block; font-size: 10px; letter-spacing: .22em; color: var(--bone-faint); }
+.pot-readout .v {
+  font-family: "Nanum Myeongjo", serif; font-weight: 800;
+  font-size: clamp(20px, 2.6vw, 29px); color: var(--lamp);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 22px rgba(255,210,138,.35);
+}
+.pot-readout .rake { display: block; font-size: 10px; color: var(--bone-faint); margin-top: 2px; }
+
+/* 판 진행 단계 — 장판 위에 찍힌 표시처럼 옅게 */
+.street-mark {
+  position: absolute; left: 50%; top: 13%;
+  transform: translateX(-50%);
+  display: flex; gap: 14px; align-items: center;
+  font-size: 10.5px; letter-spacing: .2em; color: rgba(239,228,206,.24);
+  z-index: 2; white-space: nowrap;
+}
+.street-mark b { font-weight: 600; color: var(--lamp); letter-spacing: .2em; }
+.street-mark i { width: 16px; height: 1px; background: rgba(239,228,206,.18); font-style: normal; }
+
+/* ── 사람 ────────────────────────────────────────────────────────────────
+   장판 위에 "앉은 사람"을 그리지 않는다. 패는 장판 위에 놓이고,
+   사람은 그 패 바깥(어둠 쪽)에 이름표로만 존재한다. */
+.seat {
+  position: absolute; z-index: 4;
+  display: grid; justify-items: center; gap: 7px;
+  transform: translate(-50%, -50%);
+  transition: opacity .35s ease;
+}
+.seat.is-out { opacity: .32; }
+.seat.is-turn .nameplate { border-color: rgba(201,162,39,.7); background: rgba(24,17,9,.9); }
+.seat.is-turn .nameplate::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 4px;
+  border: 1px solid rgba(232,198,90,.35);
+  animation: breathe 1.7s ease-in-out infinite;
+}
+@keyframes breathe { 0%,100% { opacity: .25; } 50% { opacity: .85; } }
+
+.nameplate {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px 5px 5px; border-radius: 3px;
+  background: rgba(12,9,6,.72);
+  border: 1px solid rgba(239,228,206,.14);
+  backdrop-filter: blur(2px);
+}
+.face {
+  width: 26px; height: 26px; border-radius: 2px; flex: none;
+  display: grid; place-items: center;
+  font-family: "Nanum Myeongjo", serif; font-weight: 800; font-size: 13px;
+  color: rgba(10,7,5,.78);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.3);
+}
+.who { display: grid; gap: 1px; min-width: 0; }
+.who .nm { font-size: 12px; font-weight: 500; color: var(--bone); white-space: nowrap; }
+.who .st { font-size: 10.5px; color: var(--bone-faint); font-variant-numeric: tabular-nums; }
+.seat.is-me .who .nm { color: var(--brass-lit); }
+
+.badge-seon {
+  position: absolute; top: -7px; right: -7px;
+  width: 19px; height: 19px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: "Nanum Myeongjo", serif; font-size: 11px; font-weight: 800;
+  color: #241a13;
+  background: linear-gradient(160deg, var(--brass-lit), var(--brass));
+  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+}
+
+/* 이번 판에 낸 돈 — 패 옆에 놓인 지폐 몇 장 */
+.wager { display: flex; align-items: center; gap: 5px; height: 15px; }
+.wager .chipstack { display: flex; }
+.wager .chipstack i {
+  display: block; width: 13px; height: 6px; border-radius: 1px; margin-right: -6px;
+  background: linear-gradient(94deg, #c8bf96, #a99d70);
+  box-shadow: 0 1px 0 rgba(0,0,0,.4);
+}
+.wager b { font-size: 11px; font-weight: 600; color: var(--bone-dim); font-variant-numeric: tabular-nums; }
+
+/* 말풍선 — 상대가 행동할 때 사람 옆에서 말이 나온다 */
+.bubble {
+  position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 10px; border-radius: 3px;
+  background: rgba(244,234,213,.94); color: #20160f;
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+  box-shadow: 0 3px 12px rgba(0,0,0,.5);
+  animation: bubble-in .2s ease-out;
+}
+.bubble::after {
+  content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: rgba(244,234,213,.94);
+}
+@keyframes bubble-in { from { opacity: 0; transform: translate(-50%, 5px); } }
+
+/* ── 화투 ────────────────────────────────────────────────────────────────
+   장판 위에 툭 던져진 것처럼 살짝 비뚤게 눕는다. */
+.hand { display: flex; gap: 5px; }
+.card {
+  position: relative;
+  width: var(--card-w); aspect-ratio: 62 / 94;
+  border-radius: var(--card-r);
+  transform: rotate(var(--tilt, 0deg));
+  /* 장판에 눕힌 패 — 세워둔 것처럼 길게 떨어지는 그림자가 아니라 바닥에 닿은 접지 그림자 */
+  box-shadow: 0 1px 1px rgba(0,0,0,.5), 0 5px 9px -4px rgba(0,0,0,.6);
+  transform-style: preserve-3d;
+  transition: transform .2s ease;
+}
+.card.dealt { animation: toss .42s cubic-bezier(.2,.9,.25,1) backwards; }
+@keyframes toss {
+  from { transform: translate(var(--fx, 0), var(--fy, -160px)) rotate(-24deg) scale(.86); opacity: .2; }
+}
+.seat.is-me .card { --card-w: clamp(50px, 5.6vw, 68px); }
+
+.card-face, .card-back {
+  position: absolute; inset: 0; border-radius: var(--card-r);
+  overflow: hidden; backface-visibility: hidden;
+}
+/* 앞면: 상아색 바닥 + 월별 문양 띠 + 월 숫자. 실제 앱에서는 보유 중인
+   화투 PNG 에셋으로 교체된다(여기선 자립형 목업이라 CSS로 그림). */
+.card-face {
+  background: linear-gradient(176deg, #fbf4e6, var(--ivory) 55%, #e6d8bc);
+  box-shadow: inset 0 0 0 1px rgba(36,26,19,.5), inset 0 0 0 3px rgba(255,255,255,.5);
+  display: grid; grid-template-rows: 1fr auto;
+}
+.motif { position: relative; overflow: hidden; }
+.motif .field { position: absolute; inset: 0; }
+.motif .glyph {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: "Nanum Myeongjo", serif; font-weight: 800;
+  font-size: calc(var(--card-w) * .34); line-height: 1;
+  color: rgba(36,26,19,.82);
+  text-shadow: 0 1px 0 rgba(255,255,255,.5);
+}
+.motif .gwang {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%,-50%);
+  width: 46%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #e8563c, var(--vermilion));
+  display: grid; place-items: center;
+  font-family: "Nanum Myeongjo", serif; font-weight: 800;
+  font-size: calc(var(--card-w) * .22); color: #fff6e4;
+  box-shadow: inset 0 -2px 5px rgba(0,0,0,.28), 0 1px 2px rgba(0,0,0,.2);
+}
+.motif .ribbon {
+  position: absolute; left: 6%; right: 6%; top: 60%; height: 15%;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #d94a32, #b62d1a);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.25);
+}
+.motif .ribbon.blue { background: linear-gradient(180deg, #3f6fb5, #274d86); }
+/* 띠 카드는 문양을 띠 위로 올려 띠와 겹치지 않게 한다 */
+.motif:has(.ribbon) .glyph { align-items: start; padding-top: 12%; }
+.card-num {
+  padding: 1px 0 2px;
+  text-align: center;
+  font-family: "Nanum Myeongjo", serif; font-weight: 800;
+  font-size: calc(var(--card-w) * .2);
+  color: var(--sumi);
+  border-top: 1px solid rgba(36,26,19,.16);
+  background: rgba(255,255,255,.35);
+  letter-spacing: .04em;
+}
+.card-kind {
+  position: absolute; top: 2px; left: 3px;
+  font-size: calc(var(--card-w) * .15); font-weight: 700;
+  color: rgba(36,26,19,.5);
+}
+
+/* 뒷면: 진짜 화투 뒷면은 단색 적색. 굵은 사선 줄무늬 대신 고운 격자 + 안쪽 테두리 */
+.card-back {
+  background:
+    repeating-linear-gradient(45deg, rgba(0,0,0,.14) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,.14) 0 1px, transparent 1px 5px),
+    linear-gradient(168deg, #b2251c, #8d1712 60%, #7a120f);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.45), inset 0 0 0 4px rgba(244,234,213,.14);
+  transform-origin: bottom left;
+  transition: transform .18s ease, box-shadow .18s ease;
+  z-index: 2;
+}
+.card-back::after { /* 가운데 매듭 문양 */
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 36%; aspect-ratio: 1; transform: translate(-50%,-50%) rotate(45deg);
+  border: 1.5px solid rgba(244,234,213,.2);
+  border-radius: 2px;
+}
+.card.peeling .card-back { box-shadow: inset 0 0 0 1px rgba(0,0,0,.45), 4px -4px 14px rgba(0,0,0,.55); }
+.card.open .card-back { display: none; }
+
+/* 쪼기 유도 */
+.card.peelable { cursor: grab; }
+.card.peelable::after {
+  content: "눌러서 쪼기";
+  position: absolute; left: 50%; bottom: -19px; transform: translateX(-50%);
+  font-size: 10px; letter-spacing: .04em; color: var(--brass-lit);
+  white-space: nowrap;
+  animation: breathe 1.6s ease-in-out infinite;
+}
+.card.peeling::after, .card.open::after { content: none; }
+
+/* 족보가 드러난 패: 승자는 놋쇠 테, 그 아래 족보 이름표 */
+.card.in-hand .card-face { box-shadow: inset 0 0 0 2px var(--brass-lit), inset 0 0 0 4px rgba(255,255,255,.4); }
+.hand-name {
+  margin-top: 2px;
+  padding: 3px 11px; border-radius: 2px;
+  font-family: "Nanum Myeongjo", serif; font-weight: 800; font-size: 13px;
+  letter-spacing: .04em; white-space: nowrap;
+  background: linear-gradient(180deg, rgba(24,17,9,.94), rgba(14,10,6,.94));
+  border: 1px solid rgba(201,162,39,.5);
+  color: var(--bone);
+}
+.hand-name.win {
+  background: linear-gradient(180deg, var(--brass-lit), var(--brass));
+  color: #1b1309; border-color: rgba(255,240,200,.6);
+  box-shadow: 0 0 18px rgba(232,198,90,.35);
+}
+.hand-name.special { border-color: rgba(207,53,32,.75); color: #ffbfae; }
+.status-fill {
+  padding: 2px 9px; border-radius: 2px; font-size: 11px; font-weight: 600;
+  background: rgba(10,7,5,.8); border: 1px solid rgba(239,228,206,.16); color: var(--bone-dim);
+}
+
+/* 자리 배치 — 나는 아래, 나머지는 장판 둘레 어둠 쪽 */
+.pos-me { left: 50%; top: 78%; }
+.pos-1  { left: 17%; top: 57%; }
+.pos-2  { left: 31%; top: 20%; }
+.pos-3  { left: 69%; top: 20%; }
+.pos-4  { left: 83%; top: 57%; }
+.pos-me .hand { order: -1; margin-bottom: 4px; }
+
+/* ── 족보판: 장판 옆에 펼쳐둔 종이 ────────────────────────────────────── */
+.ledger {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  width: 172px; z-index: 5;
+  padding: 11px 12px 12px;
+  border-radius: 2px;
+  background: linear-gradient(176deg, rgba(20,15,9,.9), rgba(10,7,5,.92));
+  border: 1px solid rgba(201,162,39,.22);
+  box-shadow: 0 10px 34px rgba(0,0,0,.55);
+  backdrop-filter: blur(3px);
+}
+.ledger h2 {
+  margin: 0 0 8px; padding-bottom: 7px;
+  font-family: "Nanum Myeongjo", serif; font-size: 13px; font-weight: 800;
+  letter-spacing: .12em; color: var(--brass-lit);
+  border-bottom: 1px solid rgba(201,162,39,.24);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.ledger h2 span { font-family: "IBM Plex Sans KR", sans-serif; font-size: 9.5px; font-weight: 400; letter-spacing: .1em; color: var(--bone-faint); }
+.rank-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: baseline;
+  padding: 3px 5px; border-radius: 2px;
+  font-size: 11.5px; color: var(--bone-dim);
+}
+.rank-row b { font-weight: 500; }
+.rank-row em { font-style: normal; font-size: 10.5px; color: var(--bone-faint); font-variant-numeric: tabular-nums; }
+.rank-row.mine { background: rgba(201,162,39,.16); color: var(--bone); box-shadow: inset 0 0 0 1px rgba(201,162,39,.4); }
+.rank-row.mine b { font-weight: 700; color: var(--brass-lit); }
+.rank-row.beaten { opacity: .42; }
+.ledger-foot {
+  margin-top: 8px; padding-top: 7px;
+  border-top: 1px solid rgba(239,228,206,.1);
+  font-size: 10.5px; line-height: 1.5; color: var(--bone-faint);
+}
+.ledger-toggle { display: none; }
+
+/* ── 아래 행동줄: 장판 밖, 방바닥 어둠 위 ──────────────────────────────── */
+.dock {
+  position: relative; z-index: 7;
+  padding: 11px 16px;
+  padding-bottom: calc(11px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(8,6,4,.86), var(--ink) 55%);
+  border-top: 1px solid rgba(201,162,39,.2);
+  display: grid; gap: 9px;
+}
+.turn-line {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 17px;
+  font-size: 12px; color: var(--bone-dim);
+}
+.turn-line .me-hand {
+  font-family: "Nanum Myeongjo", serif; font-weight: 800; font-size: 14px;
+  color: var(--lamp); letter-spacing: .03em;
+}
+.turn-line .sep { width: 1px; height: 12px; background: rgba(239,228,206,.18); }
+.clock {
+  margin-left: auto; display: flex; align-items: center; gap: 7px;
+  font-variant-numeric: tabular-nums; color: var(--bone-dim); font-size: 12px;
+}
+.clock .bar { width: 76px; height: 2px; background: rgba(239,228,206,.14); overflow: hidden; }
+.clock .bar i { display: block; height: 100%; background: var(--brass-lit); transition: width .25s linear; }
+.clock.urgent { color: #ff9b83; }
+.clock.urgent .bar i { background: #e0503a; }
+
+.acts { display: flex; gap: 7px; flex-wrap: wrap; }
+/* 버튼은 색으로 소리치지 않는다. 장판 위 패가 주인공이고 여기는 어두운 톤으로 눕는다. */
+.act {
+  flex: 1 1 0; min-width: 76px;
+  display: grid; gap: 1px; justify-items: center;
+  padding: 9px 8px 8px; border-radius: 3px;
+  background: linear-gradient(180deg, rgba(34,25,16,.94), rgba(17,12,8,.94));
+  border: 1px solid rgba(239,228,206,.16);
+  transition: border-color .14s ease, background .14s ease, transform .1s ease;
+}
+.act:hover:not(:disabled) { border-color: rgba(201,162,39,.65); background: linear-gradient(180deg, rgba(48,35,20,.96), rgba(22,16,10,.96)); }
+.act:active:not(:disabled) { transform: translateY(1px); }
+.act:disabled { opacity: .3; cursor: not-allowed; }
+.act .t {
+  font-family: "Nanum Myeongjo", serif; font-weight: 800; font-size: 15px; letter-spacing: .06em;
+  color: var(--bone);
+}
+.act .v { font-size: 10.5px; color: var(--bone-faint); font-variant-numeric: tabular-nums; }
+.act.die .t { color: #e3927f; }
+.act.primary { border-color: rgba(201,162,39,.5); }
+.act.primary .t { color: var(--brass-lit); }
+
+.wait-note { text-align: center; font-size: 12px; color: var(--bone-faint); padding: 7px 0; }
+
+/* ── 판 결과 ─────────────────────────────────────────────────────────── */
+.verdict {
+  position: absolute; left: 50%; top: 44%;
+  transform: translate(-50%, -50%);
+  z-index: 8; text-align: center;
+  padding: 16px 30px;
+  background: rgba(8,6,4,.86);
+  border: 1px solid rgba(201,162,39,.4);
+  border-radius: 3px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.7);
+  animation: bubble-in .25s ease-out;
+  pointer-events: none;
+}
+.verdict .who-won {
+  font-family: "Nanum Myeongjo", serif; font-weight: 800;
+  font-size: clamp(19px, 2.6vw, 26px); color: var(--lamp); letter-spacing: .03em;
+}
+.verdict .detail { margin-top: 5px; font-size: 12.5px; color: var(--bone-dim); }
+.verdict .amt { margin-top: 7px; font-size: 13px; color: var(--brass-lit); font-variant-numeric: tabular-nums; }
+
+/* ── 좁은 화면(세로 폰) ──────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  :root { --card-w: clamp(38px, 11vw, 50px); }
+  .topbar { padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); gap: 9px; }
+  .room-name { font-size: 15px; }
+  .room-meta { font-size: 10.5px; gap: 7px; }
+  .pos-me { left: 50%; top: 77%; }
+  .pos-1  { left: 14%; top: 57%; }
+  .pos-2  { left: 23%; top: 19%; }
+  .pos-3  { left: 77%; top: 19%; }
+  .pos-4  { left: 86%; top: 57%; }
+  .nameplate { padding: 4px 8px 4px 4px; gap: 6px; }
+  .face { width: 22px; height: 22px; font-size: 11px; }
+  .who .nm { font-size: 11px; } .who .st { font-size: 9.5px; }
+  .seat.is-me .card { --card-w: clamp(50px, 15vw, 66px); }
+  .cash-pile { width: 84px; height: 48px; }
+
+  /* 족보판은 접어서 필요할 때만 편다 */
+  .ledger {
+    right: 10px; top: auto; bottom: 10px; transform: none;
+    width: min(214px, 62vw);
+  }
+  .ledger[hidden] { display: none !important; }
+  .ledger-toggle {
+    display: inline-flex; align-items: center; gap: 5px;
+    position: absolute; right: 10px; bottom: 10px; z-index: 5;
+    padding: 6px 11px; border-radius: 3px;
+    background: rgba(12,9,6,.86); border: 1px solid rgba(201,162,39,.32);
+    color: var(--brass-lit); font-size: 11.5px;
+  }
+  .act { min-width: 0; flex-basis: calc(33.333% - 5px); padding: 8px 4px 7px; }
+  .act .t { font-size: 13.5px; }
+  .act .v { font-size: 9.5px; }
+  .street-mark { font-size: 9px; gap: 9px; top: 10%; }
+}
+@media (max-height: 560px) {
+  .pos-me { top: 74%; }
+  .street-mark { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+</style>
+
+<div class="room">
+  <header class="topbar">
+    <div class="room-name">초심자방</div>
+    <div class="room-meta">
+      <span>삥 <b id="m-ante">1</b></span>
+      <span>1인 한도 <b id="m-cap">100</b></span>
+      <span>딜러비 <b>5%</b></span>
+    </div>
+    <div class="topbar-right">
+      <div class="purse"><span>내 돈</span><b id="m-purse">0</b></div>
+      <button class="ghost-btn" id="btn-new">새 판</button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="mat"></div>
+    <div class="lamp-haze"></div>
+
+    <div class="street-mark" id="street-mark"></div>
+
+    <div class="pot">
+      <div class="cash-pile" id="cash-pile"></div>
+      <div class="pot-readout">
+        <span class="k">판돈</span>
+        <span class="v" id="pot-amount">0</span>
+        <span class="rake" id="pot-rake"></span>
+      </div>
+    </div>
+
+    <div id="seats"></div>
+
+    <div class="room-dark"></div>
+
+    <button class="ledger-toggle" id="ledger-toggle" aria-expanded="false" aria-controls="ledger">족보 보기</button>
+    <aside class="ledger" id="ledger">
+      <h2>족보 <span id="ledger-count"></span></h2>
+      <div id="rank-list"></div>
+      <div class="ledger-foot" id="ledger-foot"></div>
+    </aside>
+  </main>
+
+  <footer class="dock">
+    <div class="turn-line" id="turn-line"></div>
+    <div class="acts" id="acts"></div>
+  </footer>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   섯다 규칙 — 우리 packages/game-core/src/sutda.ts 의 판정과 같은 서열을 쓴다.
+   덱은 1~10월 × 2장 = 20장. 1·3월은 광+띠, 8월은 광+열끗, 나머지는 띠+열끗.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const KINDS = { 1: ["광", "띠"], 3: ["광", "띠"], 8: ["광", "열끗"] };
+const kindsOf = (m) => KINDS[m] || ["띠", "열끗"];
+
+/* 월별 문양 색 — 실제 화투의 인상(송학 적백, 흑싸리 먹빛, 국화 노랑…)을 옮겼다 */
+const MONTH = {
+  1:  { name: "송학",   a: "#d94a32", b: "#f0d9c0", glyph: "松" },
+  2:  { name: "매조",   a: "#d1607f", b: "#f2dfd4", glyph: "梅" },
+  3:  { name: "벚꽃",   a: "#e07a8c", b: "#f7e7e2", glyph: "櫻" },
+  4:  { name: "흑싸리", a: "#3d3630", b: "#cdc6ba", glyph: "黑" },
+  5:  { name: "난초",   a: "#7b5aa6", b: "#e3dced", glyph: "蘭" },
+  6:  { name: "모란",   a: "#b5306b", b: "#f0d6e0", glyph: "牡" },
+  7:  { name: "홍싸리", a: "#c0392b", b: "#efd9ce", glyph: "紅" },
+  8:  { name: "공산",   a: "#6c7b8a", b: "#e6e9ec", glyph: "月" },
+  9:  { name: "국화",   a: "#d8a021", b: "#f6ecd0", glyph: "菊" },
+  10: { name: "단풍",   a: "#d2622a", b: "#f3ddc9", glyph: "楓" },
+};
+
+const NAMED = {
+  "1,2": ["알리", 800], "1,4": ["독사", 799], "1,9": ["구삥", 798],
+  "1,10": ["장삥", 797], "4,10": ["장사", 796], "4,6": ["세륙", 795],
+};
+const TTAENG = { 10: "장땡", 9: "구땡", 8: "팔땡", 7: "칠땡", 6: "육땡", 5: "오땡", 4: "사땡", 3: "삼땡", 2: "두땡", 1: "삥땡" };
+
+function has(cards, m, k) { return cards.some((c) => c.m === m && c.k === k); }
+
+/** 우리 game-core 의 evaluateSutdaHand 와 같은 서열을 낸다. */
+function evaluate(cards) {
+  if (cards.length < 2) return { rank: -1, label: "패를 기다린다" };
+  const [x, y] = cards;
+  const months = [x.m, y.m].sort((a, b) => a - b);
+
+  // 특수패는 일반 족보보다 먼저 가려낸다(3광+7열끗은 망통이 아니라 땡잡이다).
+  if (has(cards, 4, "열끗") && has(cards, 9, "열끗"))
+    return { rank: 3, label: "멍텅구리 구사", special: "gusa9", note: "9땡 이하면 재경기 · 아니면 3끗" };
+  if (has(cards, 4, "띠") && has(cards, 9, "띠"))
+    return { rank: 3, label: "구사", special: "gusa", note: "알리 이하면 재경기 · 아니면 3끗" };
+  if (has(cards, 4, "열끗") && has(cards, 7, "열끗"))
+    return { rank: 1, label: "암행어사", special: "amhaeng", note: "13·18광땡을 잡는다 · 못 잡으면 1끗" };
+  if (has(cards, 3, "광") && has(cards, 7, "열끗"))
+    return { rank: 0, label: "땡잡이", special: "ttaengjabi", note: "1~9땡을 잡는다 · 못 잡으면 망통" };
+
+  if (x.k === "광" && y.k === "광") {
+    if (months[0] === 3 && months[1] === 8) return { rank: 1000, label: "삼팔광땡" };
+    if (months[0] === 1 && months[1] === 3) return { rank: 990, label: "십삼광땡" };
+    if (months[0] === 1 && months[1] === 8) return { rank: 990, label: "십팔광땡" };
+  }
+  if (x.m === y.m) return { rank: 900 + x.m, label: TTAENG[x.m] };
+
+  const named = NAMED[months.join(",")];
+  if (named) return { rank: named[1], label: named[0] };
+
+  const kkeut = (x.m + y.m) % 10;
+  if (kkeut === 9) return { rank: 700, label: "갑오" };
+  return { rank: kkeut, label: kkeut === 0 ? "망통" : `${kkeut}끗` };
+}
+
+/** 살아남은 사람들끼리 승부를 가린다. 우리 resolveSutdaWinners 와 같은 우선순위. */
+function resolve(live) {
+  const hands = live.map((p) => ({ p, h: evaluate(p.cards) }));
+  const best = Math.max(...hands.map((e) => e.h.rank));
+
+  const gusa9 = hands.filter((e) => e.h.special === "gusa9");
+  if (gusa9.length && best <= 909) return { redeal: true, reason: "멍텅구리 구사 — 9땡 이하라 재경기" };
+  const gusa = hands.filter((e) => e.h.special === "gusa");
+  if (gusa.length && best <= 800) return { redeal: true, reason: "구사 — 알리 이하라 재경기" };
+
+  const amhaeng = hands.filter((e) => e.h.special === "amhaeng");
+  if (amhaeng.length && best === 990)
+    return { winners: amhaeng.map((e) => e.p), hands, reason: "암행어사가 광땡을 잡았다" };
+
+  const jabi = hands.filter((e) => e.h.special === "ttaengjabi");
+  if (jabi.length && best >= 901 && best <= 909)
+    return { winners: jabi.map((e) => e.p), hands, reason: "땡잡이가 땡을 잡았다" };
+
+  const winners = hands.filter((e) => e.h.rank === best).map((e) => e.p);
+  return { winners, hands, reason: winners.length > 1 ? "같은 족보 — 판돈을 나눈다" : null };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   판 진행
+   ═══════════════════════════════════════════════════════════════════════════ */
+const ANTE = 1, CAP = 100, RAKE = 0.05;
+const NAMES = ["평양감사", "목포주먹", "곽철용", "마카오박"];
+const TAUNT = {
+  삥:   ["삥.", "간 좀 보자.", "얼마 안 걸었다."],
+  따당: ["따당!", "두 배로 가자.", "겁나?"],
+  쿼터: ["쿼터.", "슬슬 올려볼까."],
+  하프: ["하프다.", "판돈 절반 간다.", "이쯤에서 접든가."],
+  콜:   ["콜.", "받는다.", "그래 보자."],
+  체크: ["체크.", "……", "넘어가자."],
+  다이: ["죽었다.", "에라, 못 먹겠다.", "다음 판에 보자."],
+};
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const won = (n) => n.toLocaleString("ko-KR");
+
+let state = null;
+let peelState = null;
+
+function freshDeck() {
+  const d = [];
+  for (let m = 1; m <= 10; m++) for (const k of kindsOf(m)) d.push({ m, k, id: `${m}${k}` });
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  return d;
+}
+
+function newHand(keepPot = 0, carryReason = null) {
+  const prev = state;
+  const players = (prev ? prev.players : [
+    { id: 0, name: "나", stack: 320, isMe: true, hue: 44 },
+    { id: 1, name: NAMES[0], stack: 280, hue: 8 },
+    { id: 2, name: NAMES[1], stack: 410, hue: 200 },
+    { id: 3, name: NAMES[2], stack: 195, hue: 120 },
+    { id: 4, name: NAMES[3], stack: 350, hue: 300 },
+  ]).map((p) => ({ ...p, cards: [], folded: false, street: 0, total: 0, bubble: null, revealed: false, hand: null }));
+
+  const seon = prev ? (prev.seon + 1) % players.length : 0;
+  state = {
+    players, seon, deck: freshDeck(), pot: keepPot, currentBet: ANTE,
+    street: "ante", turn: null, raises: 0, verdict: null, carryReason,
+    deadline: 0, myPeeled: false,
+  };
+
+  // 삥(앤티) — 전원이 기본 판돈을 깐다. 이 금액이 첫 스트리트의 기준이 된다.
+  for (const p of players) {
+    const a = Math.min(ANTE, p.stack);
+    p.stack -= a; p.street = a; p.total = a; state.pot += a;
+  }
+  render();
+  runHand();
+}
+
+async function runHand() {
+  const s = state;
+  s.street = "first";
+  await wait(340);
+  // 첫 장
+  for (const p of order(s.seon)) {
+    p.cards.push(s.deck.pop());
+    render(); await wait(120);
+  }
+  await wait(260);
+  await bettingRound();
+  if (s.verdict) return;
+
+  if (live().length > 1) {
+    s.street = "final";
+    s.currentBet = 0;
+    for (const p of s.players) p.street = 0;
+    s.raises = 0;
+    await wait(240);
+    for (const p of order(s.seon)) {
+      if (p.folded) continue;
+      p.cards.push(s.deck.pop());
+      render(); await wait(140);
+    }
+    await wait(300);
+    await bettingRound();
+    if (s.verdict) return;
+  }
+  showdown();
+}
+
+const live = () => state.players.filter((p) => !p.folded && p.cards.length);
+function order(from) {
+  const n = state.players.length, out = [];
+  for (let i = 0; i < n; i++) out.push(state.players[(from + i) % n]);
+  return out;
+}
+
+/** 선은 마지막에 행동한다 — 선 다음 사람부터 돈다. */
+async function bettingRound() {
+  const s = state;
+  const seq = order(s.seon + 1);
+  const acted = new Set();
+  let guard = 0;
+
+  while (guard++ < 40) {
+    const pending = seq.filter((p) => !p.folded && p.cards.length && (!acted.has(p.id) || p.street < s.currentBet));
+    if (live().length <= 1) break;
+    if (!pending.length) break;
+
+    const p = pending[0];
+    s.turn = p.id;
+    render();
+
+    const act = p.isMe ? await myTurn(p) : await botTurn(p);
+    acted.add(p.id);
+    applyAction(p, act);
+    if (act.kind === "raise") { for (const q of s.players) if (q.id !== p.id) acted.delete(q.id); }
+    render();
+    await wait(p.isMe ? 180 : 420);
+    p.bubble = null;
+
+    if (live().length <= 1) break;
+  }
+  s.turn = null;
+  render();
+
+  if (live().length === 1) {
+    const w = live()[0];
+    settle([w], "상대가 모두 죽었다", null);
+  }
+}
+
+function betOptions(p) {
+  const s = state;
+  const toCall = Math.max(0, s.currentBet - p.street);
+  const room = Math.max(0, CAP - p.total - toCall);      // 1인 1판 한도
+  const opts = [];
+  if (toCall === 0) {
+    opts.push({ kind: "check", label: "체크", amount: 0 });
+    if (room >= ANTE) opts.push({ kind: "raise", label: "삥", amount: ANTE });
+  } else {
+    opts.push({ kind: "call", label: "콜", amount: toCall });
+    const dd = Math.min(toCall, room);
+    if (dd > 0) opts.push({ kind: "raise", label: "따당", amount: dd, note: "앞사람 2배" });
+  }
+  const q = Math.min(Math.max(ANTE, Math.round(s.pot / 4)), room);
+  const h = Math.min(Math.max(ANTE, Math.round(s.pot / 2)), room);
+  if (q > 0 && s.raises < 4) opts.push({ kind: "raise", label: "쿼터", amount: q, note: "판돈 ¼" });
+  if (h > 0 && s.raises < 4) opts.push({ kind: "raise", label: "하프", amount: h, note: "판돈 ½" });
+  opts.push({ kind: "die", label: "다이", amount: 0 });
+  return { toCall, opts };
+}
+
+function applyAction(p, act) {
+  const s = state;
+  const { toCall } = betOptions(p);
+  if (act.kind === "die") {
+    p.folded = true; p.bubble = pick(TAUNT.다이);
+    return;
+  }
+  if (act.kind === "check") { p.bubble = pick(TAUNT.체크); return; }
+  const put = act.kind === "call" ? Math.min(toCall, p.stack) : Math.min(toCall + act.amount, p.stack);
+  p.stack -= put; p.street += put; p.total += put; s.pot += put;
+  if (act.kind === "raise") { s.currentBet = p.street; s.raises++; }
+  p.bubble = pick(TAUNT[act.label] || TAUNT.콜);
+}
+
+/* ── 사람 차례 ───────────────────────────────────────────────────────── */
+let resolveMyTurn = null;
+function myTurn(p) {
+  const s = state;
+  s.deadline = Date.now() + 20000;
+  return new Promise((res) => {
+    resolveMyTurn = (act) => {
+      resolveMyTurn = null; s.deadline = 0; clearInterval(clockTimer); res(act);
+    };
+    // 버튼은 resolveMyTurn 이 잡힌 뒤에야 그릴 수 있다 — 여기서 다시 그린다.
+    renderDock();
+    tickClock();
+  });
+}
+let clockTimer = null;
+function tickClock() {
+  clearInterval(clockTimer);
+  clockTimer = setInterval(() => {
+    if (!state.deadline) { clearInterval(clockTimer); return; }
+    const left = state.deadline - Date.now();
+    if (left <= 0) {
+      clearInterval(clockTimer);
+      const me = state.players[0];
+      const { toCall } = betOptions(me);
+      resolveMyTurn && resolveMyTurn(toCall === 0 ? { kind: "check", label: "체크", amount: 0 } : { kind: "die", label: "다이", amount: 0 });
+      return;
+    }
+    renderClock(left);
+  }, 200);
+}
+
+/* ── 상대 차례 ───────────────────────────────────────────────────────── */
+async function botTurn(p) {
+  await wait(520 + Math.random() * 620);
+  const { toCall, opts } = betOptions(p);
+  const h = p.cards.length === 2 ? evaluate(p.cards).rank : -1;
+  const strength = p.cards.length < 2
+    ? (p.cards[0].k === "광" ? .62 : p.cards[0].m >= 8 ? .5 : .38)
+    : h >= 900 ? .96 : h >= 795 ? .8 : h >= 700 ? .62 : h >= 6 ? .5 : h >= 3 ? .34 : .18;
+
+  const r = Math.random();
+  const raises = opts.filter((o) => o.kind === "raise");
+  if (strength > .72 && raises.length && r < .62) return pick(raises);
+  if (strength > .46 && raises.length && r < .2) return pick(raises);
+  if (toCall === 0) return opts.find((o) => o.kind === "check");
+  const odds = toCall / (state.pot + toCall);
+  if (strength > odds * 1.15 || r < .14) return opts.find((o) => o.kind === "call");
+  return opts.find((o) => o.kind === "die");
+}
+
+/* ── 승부 ────────────────────────────────────────────────────────────── */
+function showdown() {
+  const s = state;
+  s.street = "showdown";
+  for (const p of live()) { p.revealed = true; p.hand = evaluate(p.cards); }
+  const r = resolve(live());
+  if (r.redeal) {
+    render();
+    s.verdict = { redeal: true, text: "재경기", detail: r.reason, amount: null };
+    render();
+    setTimeout(() => newHand(s.pot, r.reason), 2600);   // 판돈은 그대로 이월된다
+    return;
+  }
+  settle(r.winners, r.reason, r.hands);
+}
+
+function settle(winners, reason, hands) {
+  const s = state;
+  s.street = "showdown";
+  for (const p of winners) { p.revealed = true; p.hand = p.hand || evaluate(p.cards); }
+  const rake = Math.floor(s.pot * RAKE);
+  const take = s.pot - rake;
+  const share = Math.floor(take / winners.length);
+  for (const w of winners) w.stack += share;
+
+  const me = s.players[0];
+  const iWon = winners.includes(me);
+  s.verdict = {
+    text: winners.length > 1 ? "판돈을 나눈다" : `${winners[0].name}${winners[0].isMe ? "" : " 님"} 승`,
+    detail: reason || (winners[0].hand ? winners[0].hand.label : ""),
+    amount: iWon ? share - me.total : -me.total,
+    rake,
+  };
+  s.turn = null;
+  render();
+  setTimeout(() => { if (state === s) { s.verdict = null; newHand(); } }, 3600);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   그리기
+   ═══════════════════════════════════════════════════════════════════════════ */
+const seatsEl = document.getElementById("seats");
+const POS = ["pos-me", "pos-1", "pos-2", "pos-3", "pos-4"];
+
+function cardEl(card, opts = {}) {
+  const el = document.createElement("div");
+  el.className = "card" + (opts.dealt ? " dealt" : "") + (opts.inHand ? " in-hand" : "");
+  el.style.setProperty("--tilt", `${opts.tilt ?? 0}deg`);
+
+  if (card) {
+    const m = MONTH[card.m];
+    const face = document.createElement("div");
+    face.className = "card-face";
+    const motif = document.createElement("div");
+    motif.className = "motif";
+    motif.innerHTML =
+      `<div class="field" style="background:linear-gradient(168deg, ${m.b}, #ffffff 55%, ${m.b})"></div>` +
+      (card.k === "광"
+        ? `<div class="gwang">光</div>`
+        : card.k === "띠"
+        ? `<div class="ribbon${card.m === 4 || card.m === 5 || card.m === 8 ? " blue" : ""}"></div><div class="glyph" style="color:${m.a}">${m.glyph}</div>`
+        : `<div class="glyph" style="color:${m.a}">${m.glyph}</div>`);
+    const num = document.createElement("div");
+    num.className = "card-num";
+    num.textContent = `${card.m}월`;
+    const kind = document.createElement("div");
+    kind.className = "card-kind";
+    kind.textContent = card.k === "열끗" ? "열" : card.k;
+    face.append(motif, num, kind);
+    el.append(face);
+  }
+  if (opts.back) {
+    const back = document.createElement("div");
+    back.className = "card-back";
+    el.append(back);
+    if (opts.peelable) {
+      el.classList.add("peelable");
+      attachPeel(el, back);
+    }
+  }
+  return el;
+}
+
+/* 쪼기 — 섯다의 그 동작. 뒷장을 모서리부터 들어올린다. */
+function attachPeel(cardEl, backEl) {
+  let raf = null, peel = 0, holding = false;
+  const draw = () => {
+    backEl.style.transform = `rotate(${-peel * 62}deg)`;
+    if (peel >= 1) {
+      cardEl.classList.remove("peeling", "peelable");
+      cardEl.classList.add("open");
+      state.myPeeled = true;
+      renderDock();
+      return;
+    }
+    if (holding) { peel = Math.min(1, peel + 0.045); raf = requestAnimationFrame(draw); }
+    else if (peel > 0) { peel = Math.max(0, peel - 0.07); raf = requestAnimationFrame(draw); }
+  };
+  const start = (e) => {
+    e.preventDefault();
+    // 포인터를 카드에 묶어둔다 — window 리스너를 매 렌더마다 쌓지 않기 위해서.
+    try { cardEl.setPointerCapture(e.pointerId); } catch {}
+    holding = true; cardEl.classList.add("peeling");
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(draw);
+  };
+  const stop = () => { holding = false; cardEl.classList.remove("peeling"); cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); };
+  cardEl.addEventListener("pointerdown", start);
+  cardEl.addEventListener("pointerup", stop);
+  cardEl.addEventListener("pointercancel", stop);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    cardEl.classList.remove("peelable"); cardEl.classList.add("open");
+    state.myPeeled = true;
+  }
+}
+
+function render() {
+  const s = state;
+  if (!s) return;
+  seatsEl.textContent = "";
+
+  s.players.forEach((p, i) => {
+    const seat = document.createElement("div");
+    seat.className = `seat ${POS[i]}` + (p.isMe ? " is-me" : "") + (p.folded ? " is-out" : "") + (s.turn === p.id ? " is-turn" : "");
+
+    // 이름표
+    const plate = document.createElement("div");
+    plate.className = "nameplate";
+    const face = document.createElement("div");
+    face.className = "face";
+    face.style.background = `linear-gradient(150deg, hsl(${p.hue} 42% 62%), hsl(${p.hue} 34% 40%))`;
+    face.textContent = p.name.slice(0, 1);
+    const who = document.createElement("div");
+    who.className = "who";
+    who.innerHTML = `<div class="nm">${p.name}</div><div class="st">${won(p.stack)}</div>`;
+    plate.append(face, who);
+    if (i === s.seon) {
+      const b = document.createElement("div");
+      b.className = "badge-seon"; b.textContent = "선"; b.title = "선 — 이번 판 마지막에 행동한다";
+      plate.append(b);
+    }
+    if (p.bubble) {
+      const bub = document.createElement("div");
+      bub.className = "bubble"; bub.textContent = p.bubble;
+      plate.append(bub);
+    }
+
+    // 패
+    const hand = document.createElement("div");
+    hand.className = "hand";
+    const winning = s.verdict && !s.verdict.redeal && p.hand && s.verdict.text.startsWith(p.name);
+    p.cards.forEach((c, ci) => {
+      const tilt = (ci === 0 ? -3.5 : 3) + (p.isMe ? 0 : (p.id % 2 ? 1.5 : -1.5));
+      const mineVisible = p.isMe;
+      const show = mineVisible || p.revealed;
+      // 내 둘째 장은 엎어서 와서 쪼는 맛을 준다.
+      const needsPeel = p.isMe && ci === 1 && !s.myPeeled && s.street !== "showdown";
+      hand.append(cardEl(show ? c : null, {
+        dealt: true, tilt,
+        back: !show || needsPeel,
+        peelable: needsPeel,
+        inHand: winning,
+      }));
+    });
+    // 죽은 사람은 패를 엎어둔 채로 남긴다
+    if (p.folded && p.cards.length) hand.style.opacity = ".55";
+
+    // 이번 스트리트에 낸 돈
+    const wager = document.createElement("div");
+    wager.className = "wager";
+    if (p.street > 0 && s.street !== "showdown") {
+      const n = Math.min(5, Math.ceil(p.street / 3));
+      wager.innerHTML = `<span class="chipstack">${"<i></i>".repeat(n)}</span><b>${won(p.street)}</b>`;
+    }
+
+    seat.append(plate, hand, wager);
+
+    // 족보 이름표 / 상태
+    if (p.folded) {
+      const f = document.createElement("div");
+      f.className = "status-fill"; f.textContent = "다이";
+      seat.append(f);
+    } else if (p.revealed && p.hand) {
+      const n = document.createElement("div");
+      n.className = "hand-name" + (winning ? " win" : "") + (p.hand.special ? " special" : "");
+      n.textContent = p.hand.label;
+      seat.append(n);
+    } else if (p.isMe && p.cards.length === 2 && s.myPeeled) {
+      const n = document.createElement("div");
+      const h = evaluate(p.cards);
+      n.className = "hand-name" + (h.special ? " special" : "");
+      n.textContent = h.label;
+      seat.append(n);
+    }
+    seatsEl.append(seat);
+  });
+
+  renderPot();
+  renderStreet();
+  renderLedger();
+  renderDock();
+  renderVerdict();
+  document.getElementById("m-purse").textContent = won(s.players[0].stack);
+  document.getElementById("m-ante").textContent = ANTE;
+  document.getElementById("m-cap").textContent = CAP;
+}
+
+function renderPot() {
+  const s = state;
+  const pile = document.getElementById("cash-pile");
+  const n = Math.max(1, Math.min(16, Math.round(s.pot / 2)));
+  if (pile.childElementCount !== n) {
+    pile.textContent = "";
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement("div");
+      b.className = "bill";
+      const rot = (Math.random() * 30 - 15).toFixed(1);
+      const dx = (Math.random() * 26 - 13).toFixed(1);
+      const dy = (Math.random() * 13 - 6 - i * 1.15).toFixed(1);
+      b.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) rotate(${rot}deg)`;
+      pile.append(b);
+    }
+  }
+  document.getElementById("pot-amount").textContent = won(s.pot);
+  document.getElementById("pot-rake").textContent = s.pot > 0 ? `딜러비 ${won(Math.floor(s.pot * RAKE))} 제외 후 분배` : "";
+}
+
+function renderStreet() {
+  const s = state;
+  const steps = [["첫 패", "first"], ["1차 베팅", "first"], ["둘째 패", "final"], ["2차 베팅", "final"], ["승부", "showdown"]];
+  const cur = s.street;
+  document.getElementById("street-mark").innerHTML = steps
+    .map(([label, key], i) => {
+      const on = key === cur;
+      return `${i ? "<i></i>" : ""}${on ? `<b>${label}</b>` : `<span>${label}</span>`}`;
+    })
+    .join("");
+}
+
+/* 족보판 — 내 패가 전체 서열 어디쯤인지 그 자리에서 보여준다. */
+const LADDER = [
+  ["삼팔광땡", 1000, "3광 8광"], ["십팔·십삼광땡", 990, "1광 8광 / 1광 3광"],
+  ["장땡", 910, "10 10"], ["구땡~삥땡", 901, "같은 월"],
+  ["알리", 800, "1 2"], ["독사", 799, "1 4"], ["구삥", 798, "1 9"],
+  ["장삥", 797, "1 10"], ["장사", 796, "4 10"], ["세륙", 795, "4 6"],
+  ["갑오", 700, "합 9끗"], ["8끗~1끗", 8, "합의 끝자리"], ["망통", 0, "합 0끗"],
+];
+function renderLedger() {
+  const s = state;
+  const me = s.players[0];
+  const mine = me.cards.length === 2 && (s.myPeeled || s.street === "showdown") ? evaluate(me.cards) : null;
+  const list = document.getElementById("rank-list");
+  list.textContent = "";
+
+  let markedMine = false;
+  LADDER.forEach(([label, rank, hint]) => {
+    const row = document.createElement("div");
+    row.className = "rank-row";
+    let isMine = false;
+    if (mine && !mine.special) {
+      if (rank === 901 && mine.rank >= 901 && mine.rank <= 909) isMine = true;
+      else if (rank === 8 && mine.rank >= 1 && mine.rank <= 8) isMine = true;
+      else if (mine.rank === rank) isMine = true;
+    }
+    if (isMine && !markedMine) { row.classList.add("mine"); markedMine = true; }
+    else if (mine && !mine.special && rank > mine.rank) row.classList.add("beaten");
+    row.innerHTML = `<b>${label}</b><em>${hint}</em>`;
+    list.append(row);
+  });
+
+  document.getElementById("ledger-count").textContent = mine ? "내 패 위치" : "20장 · 2장 섯다";
+  const foot = document.getElementById("ledger-foot");
+  if (mine && mine.special) foot.textContent = `${mine.label} — ${mine.note}`;
+  else if (mine) foot.textContent = `내 패: ${mine.label}`;
+  else foot.textContent = "땡잡이 3광+7열끗 · 암행어사 4열끗+7열끗 · 구사 4·9";
+}
+
+function renderClock(leftMs) {
+  const el = document.querySelector(".clock");
+  if (!el) return;
+  const sec = Math.max(0, Math.ceil(leftMs / 1000));
+  el.querySelector("span").textContent = `${sec}초`;
+  el.querySelector("i").style.width = `${(leftMs / 20000) * 100}%`;
+  el.classList.toggle("urgent", sec <= 5);
+}
+
+function renderDock() {
+  const s = state;
+  const me = s.players[0];
+  const line = document.getElementById("turn-line");
+  const acts = document.getElementById("acts");
+  const myTurnNow = s.turn === me.id && resolveMyTurn;
+
+  // 내 패 읽기
+  const parts = [];
+  if (me.cards.length === 2 && s.myPeeled) {
+    const h = evaluate(me.cards);
+    parts.push(`<span class="me-hand">${h.label}</span>`);
+    if (h.special) parts.push(`<span>${h.note}</span>`);
+  } else if (me.cards.length === 1) {
+    parts.push(`<span class="me-hand">${me.cards[0].m}월 ${me.cards[0].k}</span>`, `<span>둘째 장을 받으면 족보가 정해진다</span>`);
+  } else if (me.cards.length === 2) {
+    parts.push(`<span class="me-hand">둘째 장이 엎어져 있다</span>`, `<span>눌러서 쪼아보자</span>`);
+  }
+  if (me.folded) parts.push(`<span>이번 판은 죽었다</span>`);
+
+  let right = "";
+  if (myTurnNow) right = `<div class="clock"><span>20초</span><div class="bar"><i style="width:100%"></i></div></div>`;
+  line.innerHTML = parts.map((p, i) => (i ? `<div class="sep"></div>` : "") + p).join("") + right;
+
+  acts.textContent = "";
+  if (!myTurnNow) {
+    const note = document.createElement("div");
+    note.className = "wait-note";
+    note.textContent = s.verdict ? "" : s.turn !== null ? `${s.players.find((p) => p.id === s.turn)?.name || ""} 님이 생각 중이다` : "패를 돌리는 중";
+    acts.append(note);
+    return;
+  }
+
+  const { toCall, opts } = betOptions(me);
+  opts.forEach((o) => {
+    const b = document.createElement("button");
+    b.className = "act" + (o.kind === "die" ? " die" : "") + (o.kind === "call" || (o.kind === "check" && toCall === 0) ? " primary" : "");
+    const amount =
+      o.kind === "call" ? `${won(Math.min(toCall, me.stack))}` :
+      o.kind === "raise" ? `${won(Math.min(toCall + o.amount, me.stack))}` :
+      o.kind === "check" ? "돈 안 걸고" : "판돈 포기";
+    b.innerHTML = `<span class="t">${o.label}</span><span class="v">${amount}</span>`;
+    if (o.note) b.title = o.note;
+    b.disabled = (o.kind !== "die" && o.kind !== "check") && me.stack <= 0;
+    b.onclick = () => { acts.textContent = ""; resolveMyTurn && resolveMyTurn(o); };
+    acts.append(b);
+  });
+}
+
+function renderVerdict() {
+  const s = state;
+  document.querySelectorAll(".verdict").forEach((n) => n.remove());
+  if (!s.verdict) return;
+  const v = document.createElement("div");
+  v.className = "verdict";
+  v.innerHTML =
+    `<div class="who-won">${s.verdict.text}</div>` +
+    (s.verdict.detail ? `<div class="detail">${s.verdict.detail}</div>` : "") +
+    (s.verdict.amount != null
+      ? `<div class="amt">${s.verdict.amount >= 0 ? "+" : ""}${won(s.verdict.amount)} · 딜러비 ${won(s.verdict.rake || 0)}</div>`
+      : `<div class="amt">판돈 ${won(s.pot)}은 그대로 넘어간다</div>`);
+  document.getElementById("stage").append(v);
+}
+
+/* ── 조작 ────────────────────────────────────────────────────────────── */
+document.getElementById("btn-new").onclick = () => { clearInterval(clockTimer); resolveMyTurn = null; newHand(); };
+const ledger = document.getElementById("ledger");
+const ledgerToggle = document.getElementById("ledger-toggle");
+function syncLedger() {
+  const narrow = window.matchMedia("(max-width: 760px)").matches;
+  if (!narrow) { ledger.hidden = false; ledgerToggle.setAttribute("aria-expanded", "true"); }
+  else if (!ledgerToggle.dataset.touched) { ledger.hidden = true; ledgerToggle.setAttribute("aria-expanded", "false"); }
+}
+ledgerToggle.onclick = () => {
+  ledgerToggle.dataset.touched = "1";
+  ledger.hidden = !ledger.hidden;
+  ledgerToggle.setAttribute("aria-expanded", String(!ledger.hidden));
+  ledgerToggle.textContent = ledger.hidden ? "족보 보기" : "족보 닫기";
+};
+window.addEventListener("resize", syncLedger);
+syncLedger();
+
+newHand();
+</script>

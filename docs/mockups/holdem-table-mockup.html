@@ -1,0 +1,1255 @@
+<title>딜러 버튼</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* ────────────────────────────────────────────────────────────────────────────
+   홀덤 — 시각 방향 목업
+   섯다와 정반대의 전제: 홀덤은 진짜 테이블에서 하는 게임이다. 그래서 여기엔
+   가죽 레일과 스피드클로스와 클레이 칩이 있다. 대신 섯다(초록 장판)와 한눈에
+   구별되도록 천을 청록으로 잡고 레일을 적갈색 가죽으로 둔다 — 지금처럼 두 게임이
+   같은 판처럼 보이는 문제를 색에서부터 끊는다.
+   단일 테마 고정(조명 내린 포커룸).
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  --room:        #06090c;
+  --room-soft:   #0c1319;
+  /* 스피드클로스 — 포커룸에서 쓰는 매끈한 나일론 천. 초록이 아니라 청록으로 */
+  --cloth-lit:   #17475a;
+  --cloth-mid:   #103546;
+  --cloth-dim:   #0a2432;
+  /* 레일 가죽 — 적갈색, 손 닿는 자리라 위쪽이 밝다 */
+  --hide-lit:    #6a3630;
+  --hide-mid:    #47211f;
+  --hide-dim:    #2a1213;
+  --brass:       #c9a227;
+  --brass-lit:   #e8c65a;
+  --bone:        #e9e4da;
+  --bone-dim:    rgba(233,228,218,.56);
+  --bone-faint:  rgba(233,228,218,.3);
+  --felt-print:  rgba(233,228,218,.09);
+  /* 카드 4색덱 */
+  --s-spade:   #1a1a1a;
+  --s-heart:   #c8342b;
+  --s-diamond: #2668b8;
+  --s-club:    #1f7a46;
+  --win:       #59c98a;
+  --lose:      #d86a55;
+
+  --card-w: clamp(30px, 3.2vw, 40px);
+  --board-w: clamp(40px, 4.3vw, 54px);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--room); color: var(--bone);
+  font-family: "IBM Plex Sans KR", system-ui, -apple-system, sans-serif;
+  font-size: 14px; -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--brass-lit); outline-offset: 2px; }
+.num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+
+.room { position: fixed; inset: 0; display: grid; grid-template-rows: auto 1fr; }
+
+/* ── 상단 ─────────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 9px 16px; padding-top: calc(9px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(180deg, #05080a, rgba(6,9,12,.72));
+  border-bottom: 1px solid rgba(201,162,39,.16);
+  z-index: 8;
+}
+.room-name {
+  font-family: "IBM Plex Sans Condensed", sans-serif;
+  font-weight: 700; font-size: 17px; letter-spacing: .04em; text-transform: uppercase;
+}
+.room-meta { display: flex; gap: 11px; color: var(--bone-dim); font-size: 11.5px; }
+.room-meta b { color: var(--brass-lit); font-weight: 600; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 9px; }
+.chip-toggle {
+  display: flex; border: 1px solid rgba(233,228,218,.18); border-radius: 3px; overflow: hidden;
+}
+.chip-toggle button {
+  padding: 4px 9px; font-size: 11px; color: var(--bone-faint);
+  font-family: "IBM Plex Sans Condensed", sans-serif; letter-spacing: .06em;
+}
+.chip-toggle button.on { background: rgba(201,162,39,.2); color: var(--brass-lit); }
+.purse { display: flex; align-items: baseline; gap: 5px; }
+.purse span { color: var(--bone-faint); font-size: 10px; letter-spacing: .08em; }
+.purse b { font-size: 15px; font-weight: 600; }
+.ghost-btn { padding: 5px 10px; border-radius: 3px; border: 1px solid rgba(233,228,218,.2); color: var(--bone-dim); font-size: 12px; }
+.ghost-btn:hover { border-color: var(--brass); color: var(--brass-lit); }
+
+/* ── 본문: 테이블 + 레일(사이드) ──────────────────────────────────────── */
+.body { display: grid; grid-template-columns: 1fr 268px; min-height: 0; }
+.stage { position: relative; overflow: hidden; background: var(--room); }
+/* 방 조명 — 테이블 위로 떨어지는 키라이트 */
+.keylight {
+  position: absolute; left: 50%; top: -22%; width: min(920px, 96%); aspect-ratio: 1/.7;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(255,214,150,.13), transparent 72%);
+  pointer-events: none; z-index: 1;
+}
+
+/* ── 테이블 ───────────────────────────────────────────────────────────
+   바깥은 가죽 레일(패딩된 롤), 안쪽은 한 단 꺼진 천. */
+.table {
+  position: absolute; left: 50%; top: 47%;
+  transform: translate(-50%, -50%);
+  width: min(86%, 900px); aspect-ratio: 16 / 9.4;
+  border-radius: 46% / 50%;
+  background: linear-gradient(176deg, var(--hide-lit) 0%, var(--hide-mid) 26%, var(--hide-dim) 100%);
+  box-shadow:
+    0 0 0 1.5px rgba(201,162,39,.4),
+    0 32px 70px -20px rgba(0,0,0,.9),
+    inset 0 3px 5px rgba(255,190,150,.22),
+    inset 0 -7px 14px rgba(0,0,0,.6);
+  z-index: 2;
+}
+/* 가죽 박음질 */
+.table::before {
+  content: ""; position: absolute; inset: 9px;
+  border-radius: 46% / 50%;
+  border: 1px dashed rgba(255,205,170,.16);
+  pointer-events: none;
+}
+/* 천 — 레일 안쪽으로 한 단 내려앉는다 */
+.cloth {
+  position: absolute; inset: clamp(13px, 2.1vw, 26px);
+  border-radius: 45% / 49%;
+  background:
+    radial-gradient(112% 88% at 50% 32%, var(--cloth-lit), var(--cloth-mid) 52%, var(--cloth-dim) 100%);
+  box-shadow:
+    inset 0 8px 18px rgba(0,0,0,.55),
+    inset 0 -4px 12px rgba(0,0,0,.4),
+    0 0 0 1.5px rgba(201,162,39,.28);
+  overflow: hidden;
+}
+/* 스피드클로스의 고운 결 */
+.cloth::before {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    repeating-linear-gradient(97deg, rgba(255,255,255,.022) 0 1px, rgba(0,0,0,.022) 1px 3px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.34'/%3E%3C/svg%3E");
+  background-size: auto, 200px 200px;
+  mix-blend-mode: overlay; opacity: .55;
+}
+/* 실크스크린 베팅 라인 — 실제 테이블에 인쇄된 선 */
+.betting-line {
+  position: absolute; left: 50%; top: 50%;
+  width: 74%; height: 62%;
+  transform: translate(-50%, -46%);
+  border: 1.5px solid var(--felt-print);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.betting-line::after {
+  content: ""; position: absolute; inset: 7px;
+  border: 1px solid rgba(233,228,218,.05); border-radius: 50%;
+}
+/* 천에 인쇄된 상호 */
+.table-print {
+  position: absolute; left: 50%; top: 72%;
+  transform: translate(-50%, -50%);
+  font-family: "IBM Plex Sans Condensed", sans-serif;
+  font-size: clamp(11px, 1.4vw, 17px); font-weight: 600;
+  letter-spacing: .44em; color: var(--felt-print);
+  white-space: nowrap; pointer-events: none;
+}
+
+/* ── 보드 / 팟 ─────────────────────────────────────────────────────── */
+.board {
+  position: absolute; left: 50%; top: 41%;
+  transform: translate(-50%, -50%);
+  display: flex; gap: 6px; z-index: 5;
+}
+.pot-zone {
+  position: absolute; left: 50%; top: 61%;
+  transform: translate(-50%, -50%);
+  display: grid; justify-items: center; gap: 5px; z-index: 5;
+}
+.pot-chips { display: flex; align-items: flex-end; gap: 4px; height: 34px; }
+.pot-label {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 2px 10px; border-radius: 2px;
+  background: rgba(4,7,9,.72); border: 1px solid rgba(201,162,39,.3);
+}
+.pot-label span { font-size: 9.5px; letter-spacing: .18em; color: var(--bone-faint); }
+.pot-label b { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 17px; font-weight: 700; color: var(--brass-lit); }
+.side-pots { display: flex; gap: 7px; font-size: 10px; color: var(--bone-faint); }
+.side-pots i { font-style: normal; }
+
+/* ── 칩 ───────────────────────────────────────────────────────────────
+   클레이 칩: 몸통 + 가장자리 인서트(스팟) + 안쪽 링. 이 스팟이 진짜 칩처럼 보이게 한다. */
+.chip {
+  position: relative; width: 22px; height: 22px; border-radius: 50%;
+  background:
+    repeating-conic-gradient(from 0deg, var(--spot, #fff) 0deg 11deg, transparent 11deg 45deg),
+    radial-gradient(circle at 34% 30%, rgba(255,255,255,.35), transparent 46%),
+    var(--body, #b9302a);
+  box-shadow: 0 1px 0 rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.45), inset 0 0 0 1px rgba(0,0,0,.3);
+  flex: none;
+}
+.chip::after {
+  content: ""; position: absolute; inset: 4px; border-radius: 50%;
+  background: var(--body, #b9302a);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), inset 0 -2px 3px rgba(0,0,0,.25);
+}
+.chip-stack { position: relative; display: grid; }
+.chip-stack .chip { grid-area: 1 / 1; }
+.bet-chips { display: flex; align-items: center; gap: 5px; }
+.bet-chips b {
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 13px; font-weight: 600;
+  color: var(--bone); text-shadow: 0 1px 3px rgba(0,0,0,.9);
+}
+
+/* ── 카드 ─────────────────────────────────────────────────────────── */
+.pcard {
+  position: relative; width: var(--w, var(--card-w)); aspect-ratio: 5 / 7.2;
+  border-radius: 3px;
+  background: linear-gradient(174deg, #fff 0%, #f3efe6 62%, #e2dbcc);
+  box-shadow: 0 1px 1px rgba(0,0,0,.45), 0 5px 10px -5px rgba(0,0,0,.7), inset 0 0 0 1px rgba(0,0,0,.3);
+  display: grid; align-content: space-between;
+  padding: 3px 2px 2px;
+  font-family: "IBM Plex Sans Condensed", sans-serif;
+  color: var(--ink, #1a1a1a);
+  overflow: hidden;
+}
+.pcard .r { font-size: calc(var(--w, var(--card-w)) * .46); font-weight: 700; line-height: .84; text-align: center; }
+.pcard .p { font-size: calc(var(--w, var(--card-w)) * .42); line-height: .86; text-align: center; }
+.pcard.back {
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.055) 0 2px, transparent 2px 6px),
+    linear-gradient(168deg, #23405a, #16293a 62%, #0f1d2a);
+  box-shadow: 0 1px 1px rgba(0,0,0,.5), 0 5px 10px -5px rgba(0,0,0,.7), inset 0 0 0 1px rgba(0,0,0,.45), inset 0 0 0 3px rgba(201,162,39,.2);
+}
+.pcard.board-card { --w: var(--board-w); }
+.pcard.dealt { animation: fly .38s cubic-bezier(.2,.9,.25,1) backwards; }
+@keyframes fly { from { transform: translate(var(--fx, 0), -120px) rotate(-14deg) scale(.9); opacity: 0; } }
+.pcard.plays { box-shadow: 0 0 0 2px var(--brass-lit), 0 0 16px rgba(232,198,90,.45), 0 5px 10px -5px rgba(0,0,0,.7); }
+.pcard.muted { opacity: .4; filter: saturate(.4); }
+
+/* 쪼기 — 내 홀카드는 엎어져 오고, 눌러서 들어올린다 */
+.squeeze { position: relative; }
+.squeeze .cover {
+  position: absolute; inset: 0; border-radius: 3px; z-index: 2;
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.055) 0 2px, transparent 2px 6px),
+    linear-gradient(168deg, #23405a, #16293a 62%, #0f1d2a);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.45), inset 0 0 0 3px rgba(201,162,39,.2);
+  transform-origin: bottom left;
+  transition: transform .16s ease;
+}
+.squeeze.lifting .cover { box-shadow: inset 0 0 0 1px rgba(0,0,0,.45), 5px -5px 14px rgba(0,0,0,.6); }
+.squeeze.open .cover { display: none; }
+.squeeze-hint {
+  position: absolute; left: 50%; bottom: -17px; transform: translateX(-50%);
+  font-size: 10px; color: var(--brass-lit); white-space: nowrap;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+/* ── 좌석 ─────────────────────────────────────────────────────────── */
+.seat {
+  position: absolute; z-index: 6;
+  display: grid; justify-items: center; gap: 5px;
+  transform: translate(-50%, -50%);
+  transition: opacity .3s ease;
+}
+.seat.folded { opacity: .38; }
+.seat.folded .hole { filter: grayscale(1); }
+.plate {
+  position: relative; display: flex; align-items: center; gap: 7px;
+  padding: 4px 10px 4px 4px; border-radius: 3px;
+  background: linear-gradient(180deg, rgba(14,20,26,.94), rgba(6,9,12,.94));
+  border: 1px solid rgba(233,228,218,.14);
+  min-width: 104px;
+}
+.seat.turn .plate { border-color: var(--brass-lit); box-shadow: 0 0 0 1px rgba(232,198,90,.3), 0 0 20px rgba(232,198,90,.22); }
+.avatar {
+  width: 27px; height: 27px; border-radius: 3px; flex: none;
+  display: grid; place-items: center;
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-weight: 700; font-size: 13px;
+  color: rgba(6,9,12,.8);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.35);
+}
+.who { display: grid; gap: 0; min-width: 0; }
+.who .nm { font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.who .st { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--brass-lit); font-variant-numeric: tabular-nums; }
+.seat.me .who .nm { color: var(--brass-lit); }
+.seat.allin .who .st { color: var(--lose); }
+
+/* 진행 표시 링 — 내 차례일 때 이름표를 두르며 줄어든다 */
+.turn-ring {
+  position: absolute; left: -3px; right: -3px; top: -3px; bottom: -3px;
+  border-radius: 4px; pointer-events: none;
+  background: linear-gradient(90deg, var(--brass-lit) var(--pct, 100%), transparent 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  padding: 1.5px;
+}
+.turn-ring.bank { background: linear-gradient(90deg, var(--lose) var(--pct, 100%), transparent 0); }
+
+.pos-badge {
+  position: absolute; top: -8px; left: -8px;
+  padding: 1px 5px; border-radius: 2px;
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 9.5px; font-weight: 700;
+  letter-spacing: .06em;
+  background: rgba(6,9,12,.94); border: 1px solid rgba(233,228,218,.25); color: var(--bone-dim);
+}
+.dealer-btn {
+  position: absolute; top: -9px; right: -9px;
+  width: 21px; height: 21px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 10px; font-weight: 700;
+  color: #1a1512;
+  background: radial-gradient(circle at 34% 28%, #fffdf6, #ddd2b8 62%, #b8ab8d);
+  box-shadow: 0 2px 5px rgba(0,0,0,.6), inset 0 0 0 1px rgba(0,0,0,.25);
+}
+.hole { display: flex; gap: 3px; }
+.seat.me .hole .pcard { --w: clamp(42px, 4.4vw, 56px); }
+
+/* 마지막 액션 꼬리표 — 지금 우리 앱에 없는 것 */
+.last-act {
+  padding: 1.5px 8px; border-radius: 2px;
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .04em;
+  background: rgba(6,9,12,.86); border: 1px solid rgba(233,228,218,.18); color: var(--bone-dim);
+}
+.last-act.raise { border-color: rgba(232,198,90,.55); color: var(--brass-lit); }
+.last-act.fold { color: var(--lose); border-color: rgba(216,106,85,.4); }
+.last-act.allin { background: var(--lose); color: #1a0d0a; border-color: transparent; }
+.result-tag {
+  padding: 2px 9px; border-radius: 2px;
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 11.5px; font-weight: 700;
+  background: rgba(6,9,12,.9); border: 1px solid rgba(233,228,218,.2); color: var(--bone-dim);
+}
+.result-tag.win { background: linear-gradient(180deg, var(--brass-lit), var(--brass)); color: #17120a; border-color: transparent; }
+
+/* 좌석 자리 — 타원 위. 나는 아래 가운데. */
+.p0 { left: 50%; top: 87%; }
+.p1 { left: 12%; top: 66%; }
+.p2 { left: 14%; top: 27%; }
+.p3 { left: 50%; top: 12%; }
+.p4 { left: 86%; top: 27%; }
+.p5 { left: 88%; top: 66%; }
+.seat.me .hole { order: -1; }
+/* 베팅한 칩은 좌석과 테이블 중앙 사이, 베팅 라인 안쪽에 놓인다 */
+.bet-spot { position: absolute; z-index: 5; transform: translate(-50%, -50%); }
+.b0 { left: 50%; top: 74%; } .b1 { left: 25%; top: 62%; } .b2 { left: 27%; top: 34%; }
+.b3 { left: 50%; top: 24%; } .b4 { left: 73%; top: 34%; } .b5 { left: 75%; top: 62%; }
+
+/* ── 오른쪽 레일(액션) ─────────────────────────────────────────────── */
+.rail {
+  display: grid; align-content: start; gap: 10px;
+  padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, #080c10, #05080a);
+  border-left: 1px solid rgba(201,162,39,.18);
+  overflow-y: auto; min-height: 0;
+}
+.street-bar { display: flex; gap: 0; }
+.street-bar div {
+  flex: 1; text-align: center; padding: 4px 0 6px;
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 10px; letter-spacing: .1em;
+  color: var(--bone-faint); border-bottom: 2px solid rgba(233,228,218,.1);
+}
+.street-bar div.on { color: var(--brass-lit); border-bottom-color: var(--brass-lit); }
+.street-bar div.done { color: var(--bone-dim); border-bottom-color: rgba(201,162,39,.4); }
+
+.hand-panel {
+  padding: 9px 11px; border-radius: 3px;
+  background: linear-gradient(165deg, rgba(23,71,90,.32), rgba(6,9,12,.5));
+  border: 1px solid rgba(201,162,39,.32);
+}
+.hand-panel .k { font-size: 9.5px; letter-spacing: .16em; color: var(--bone-faint); }
+.hand-panel .v {
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 21px; font-weight: 700;
+  color: var(--brass-lit); line-height: 1.15; margin-top: 1px;
+}
+.hand-panel .sub { font-size: 11px; color: var(--bone-dim); margin-top: 2px; }
+.meter { display: flex; gap: 2px; margin-top: 7px; }
+.meter i { flex: 1; height: 4px; border-radius: 1px; background: rgba(233,228,218,.12); }
+.meter i.on { background: var(--brass-lit); }
+.meter.t1 i.on { background: #6e8ab5; } .meter.t2 i.on { background: #4a92ff; }
+.meter.t3 i.on { background: var(--win); } .meter.t4 i.on { background: var(--brass-lit); }
+.meter.t5 i.on { background: var(--lose); }
+.draws { margin-top: 6px; display: grid; gap: 3px; }
+.draws div { font-size: 11px; color: var(--bone-dim); }
+.draws div::before { content: "· "; color: var(--brass); }
+
+.meta-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  background: rgba(233,228,218,.1); border: 1px solid rgba(233,228,218,.1); border-radius: 3px;
+  overflow: hidden;
+}
+.meta-row div { background: #070b0e; padding: 6px 8px; display: grid; gap: 1px; }
+.meta-row span { font-size: 9px; letter-spacing: .12em; color: var(--bone-faint); }
+.meta-row b { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 14px; font-weight: 600; }
+
+.presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.preset {
+  display: grid; gap: 0; justify-items: center; padding: 6px 2px 5px; border-radius: 3px;
+  background: rgba(16,22,28,.9); border: 1px solid rgba(233,228,218,.14);
+}
+.preset:hover:not(:disabled) { border-color: var(--brass); background: rgba(28,38,46,.95); }
+.preset:disabled { opacity: .28; cursor: not-allowed; }
+.preset span { font-size: 9px; color: var(--bone-faint); letter-spacing: .04em; }
+.preset b { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 13px; font-weight: 700; }
+
+.acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.act {
+  padding: 11px 6px 10px; border-radius: 3px; display: grid; gap: 1px; justify-items: center;
+  background: linear-gradient(180deg, rgba(20,28,35,.95), rgba(9,13,17,.95));
+  border: 1px solid rgba(233,228,218,.16);
+  transition: border-color .14s, transform .1s;
+}
+.act:hover:not(:disabled) { border-color: rgba(201,162,39,.65); }
+.act:active:not(:disabled) { transform: translateY(1px); }
+.act:disabled { opacity: .3; cursor: not-allowed; }
+.act .t { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+.act .v { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--bone-faint); }
+.act.fold .t { color: var(--lose); }
+.act.raise { border-color: rgba(201,162,39,.45); }
+.act.raise .t { color: var(--brass-lit); }
+.stepper { display: grid; grid-template-columns: 34px 1fr 34px; gap: 5px; align-items: stretch; }
+.stepper button { border: 1px solid rgba(233,228,218,.16); border-radius: 3px; font-size: 16px; color: var(--bone-dim); }
+.stepper button:hover { border-color: var(--brass); color: var(--brass-lit); }
+.stepper .amt {
+  display: grid; place-items: center; border-radius: 3px;
+  background: rgba(6,9,12,.8); border: 1px solid rgba(233,228,218,.14);
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 17px; font-weight: 700; color: var(--brass-lit);
+}
+.rail-note { font-size: 11.5px; color: var(--bone-faint); line-height: 1.5; text-align: center; padding: 6px 0; }
+
+/* ── 결과 ─────────────────────────────────────────────────────────── */
+.verdict {
+  position: absolute; left: 50%; top: 47%; transform: translate(-50%, -50%);
+  z-index: 9; text-align: center; padding: 15px 28px;
+  background: rgba(5,8,10,.9); border: 1px solid rgba(201,162,39,.42); border-radius: 3px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.75); pointer-events: none;
+  animation: pop .22s ease-out;
+}
+@keyframes pop { from { opacity: 0; transform: translate(-50%, -46%); } }
+.verdict .h {
+  font-family: "IBM Plex Sans Condensed", sans-serif; font-weight: 700;
+  font-size: clamp(19px, 2.4vw, 26px); color: var(--brass-lit); letter-spacing: .03em;
+}
+.verdict .d { margin-top: 4px; font-size: 12.5px; color: var(--bone-dim); }
+.verdict .a { margin-top: 6px; font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+.verdict .a.up { color: var(--win); } .verdict .a.down { color: var(--lose); }
+
+/* ── 세로 / 좁은 화면 ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  :root { --card-w: clamp(26px, 6.6vw, 34px); --board-w: clamp(32px, 8.4vw, 44px); }
+  .body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .rail {
+    border-left: 0; border-top: 1px solid rgba(201,162,39,.2);
+    max-height: 47dvh; gap: 8px; padding: 9px 12px;
+    padding-bottom: calc(9px + env(safe-area-inset-bottom, 0px));
+  }
+  .table { width: min(96%, 560px); aspect-ratio: 16 / 12.4; top: 45%; }
+  .plate { min-width: 0; padding: 3px 7px 3px 3px; gap: 5px; }
+  .avatar { width: 21px; height: 21px; font-size: 11px; }
+  .who .nm { font-size: 10px; } .who .st { font-size: 9.5px; }
+  .seat.me .hole .pcard { --w: clamp(38px, 11vw, 50px); }
+  .p1 { left: 9%; top: 62%; } .p2 { left: 11%; top: 28%; }
+  .p4 { left: 89%; top: 28%; } .p5 { left: 91%; top: 62%; }
+  .b1 { left: 27%; top: 58%; } .b2 { left: 28%; top: 36%; }
+  .b4 { left: 72%; top: 36%; } .b5 { left: 73%; top: 58%; }
+  .hand-panel .v { font-size: 18px; }
+  .act { padding: 9px 4px 8px; } .act .t { font-size: 13.5px; }
+  .table-print { font-size: 10px; letter-spacing: .3em; }
+}
+@media (max-height: 620px) {
+  .street-bar, .draws { display: none; }
+  .rail { max-height: 50dvh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+</style>
+
+<div class="room">
+  <header class="topbar">
+    <div class="room-name">MICRO 1 / 2</div>
+    <div class="room-meta">
+      <span>블라인드 <b id="m-blinds">1 / 2</b></span>
+      <span>레이크 <b>5% · 상한 3</b></span>
+      <span>6-MAX 노리밋</span>
+    </div>
+    <div class="topbar-right">
+      <div class="chip-toggle" id="unit-toggle">
+        <button data-unit="chip" class="on">칩</button>
+        <button data-unit="bb">BB</button>
+      </div>
+      <div class="purse"><span>내 스택</span><b class="num" id="m-stack">0</b></div>
+      <button class="ghost-btn" id="btn-new">새 핸드</button>
+    </div>
+  </header>
+
+  <div class="body">
+    <main class="stage" id="stage">
+      <div class="keylight"></div>
+      <div class="table">
+        <div class="cloth">
+          <div class="betting-line"></div>
+          <div class="table-print">GOLDEN CASINO</div>
+        </div>
+      </div>
+      <div class="board" id="board"></div>
+      <div class="pot-zone">
+        <div class="pot-chips" id="pot-chips"></div>
+        <div class="pot-label"><span>팟</span><b class="num" id="pot-amount">0</b></div>
+        <div class="side-pots" id="side-pots"></div>
+      </div>
+      <div id="bets"></div>
+      <div id="seats"></div>
+    </main>
+
+    <aside class="rail">
+      <div class="street-bar" id="street-bar"></div>
+      <div class="hand-panel" id="hand-panel"></div>
+      <div class="meta-row" id="meta-row"></div>
+      <div id="controls"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   카드 · 족보 — 7장 중 최선의 5장. 우리 evaluateBestHoldemHand 와 같은 서열.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const SUITS = [
+  { s: "S", pip: "♠", v: "--s-spade" },
+  { s: "H", pip: "♥", v: "--s-heart" },
+  { s: "D", pip: "♦", v: "--s-diamond" },
+  { s: "C", pip: "♣", v: "--s-club" },
+];
+const RANKS = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"];
+const rv = (r) => RANKS.indexOf(r) + 2;
+const CAT = ["하이카드","원페어","투페어","트리플","스트레이트","플러시","풀하우스","포카드","스트레이트 플러시"];
+
+function evaluate5(cs) {
+  const vs = cs.map((c) => rv(c.r)).sort((a, b) => b - a);
+  const flush = cs.every((c) => c.s === cs[0].s);
+  const uniq = [...new Set(vs)];
+  let straightTop = 0;
+  if (uniq.length === 5) {
+    if (uniq[0] - uniq[4] === 4) straightTop = uniq[0];
+    else if (uniq[0] === 14 && uniq[1] === 5) straightTop = 5;          // 휠 A-5
+  }
+  const counts = {};
+  for (const v of vs) counts[v] = (counts[v] || 0) + 1;
+  const groups = Object.entries(counts)
+    .map(([v, n]) => [Number(v), n])
+    .sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+  const shape = groups.map((g) => g[1]).join("");
+  const ordered = groups.map((g) => g[0]);
+
+  if (flush && straightTop) return { cat: 8, key: [straightTop] };
+  if (shape.startsWith("4")) return { cat: 7, key: ordered };
+  if (shape === "32") return { cat: 6, key: ordered };
+  if (flush) return { cat: 5, key: vs };
+  if (straightTop) return { cat: 4, key: [straightTop] };
+  if (shape.startsWith("3")) return { cat: 3, key: ordered };
+  if (shape.startsWith("22")) return { cat: 2, key: ordered };
+  if (shape.startsWith("2")) return { cat: 1, key: ordered };
+  return { cat: 0, key: vs };
+}
+function cmp(a, b) {
+  if (a.cat !== b.cat) return a.cat - b.cat;
+  const n = Math.max(a.key.length, b.key.length);
+  for (let i = 0; i < n; i++) {
+    const d = (a.key[i] || 0) - (b.key[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+function best7(cards) {
+  let best = null, bestCards = null;
+  const n = cards.length;
+  for (let a = 0; a < n - 4; a++) for (let b = a + 1; b < n - 3; b++)
+    for (let c = b + 1; c < n - 2; c++) for (let d = c + 1; d < n - 1; d++)
+      for (let e = d + 1; e < n; e++) {
+        const five = [cards[a], cards[b], cards[c], cards[d], cards[e]];
+        const sc = evaluate5(five);
+        if (!best || cmp(sc, best) > 0) { best = sc; bestCards = five; }
+      }
+  let label = CAT[best.cat];
+  if (best.cat === 8 && best.key[0] === 14) label = "로열 플러시";
+  return { ...best, label, cards: bestCards };
+}
+/** 5단계 강도 — 우리 holdemCategoryTier 와 같은 취지 */
+const tierOf = (cat) => (cat >= 6 ? 5 : cat >= 4 ? 4 : cat >= 2 ? 3 : cat >= 1 ? 2 : 1);
+
+/** 드로우 읽기 — 플랍·턴에서만 의미가 있다 */
+function readDraws(hole, board) {
+  const all = [...hole, ...board];
+  const out = [];
+  if (board.length === 3 || board.length === 4) {
+    for (const su of SUITS) {
+      const n = all.filter((c) => c.s === su.s).length;
+      if (n === 4) out.push(`${su.pip} 한 장 더 오면 플러시`);
+    }
+    // A 는 14 이면서 휠(A-2-3-4-5)의 1 이기도 하다
+    const vs = [...new Set(all.flatMap((c) => (c.r === "A" ? [14, 1] : [rv(c.r)])))].sort((a, b) => a - b);
+    const outs = new Set();
+    for (let t = 5; t <= 14; t++) {
+      const need = [t - 4, t - 3, t - 2, t - 1, t];
+      const missing = need.filter((v) => !vs.includes(v));
+      if (missing.length === 1 && missing[0] >= 2) outs.add(missing[0]);
+    }
+    if (outs.size >= 2) out.push(`${[...outs].map((v) => RANKS[v - 2]).join(" 또는 ")} 오면 스트레이트 (양방)`);
+    else if (outs.size === 1) out.push(`${RANKS[[...outs][0] - 2]} 오면 스트레이트 (백도어)`);
+  }
+  return out;
+}
+/** 프리플랍 시작 패 등급 */
+function preflopRead(hole) {
+  const [a, b] = hole;
+  const hi = Math.max(rv(a.r), rv(b.r)), lo = Math.min(rv(a.r), rv(b.r));
+  const pair = a.r === b.r, suited = a.s === b.s, gap = hi - lo;
+  let tier, txt;
+  if (pair && hi >= 10) { tier = 5; txt = "높은 포켓 페어"; }
+  else if (pair) { tier = 4; txt = "포켓 페어"; }
+  else if (hi === 14 && lo >= 12) { tier = 5; txt = suited ? "높은 브로드웨이 · 수딧" : "높은 브로드웨이"; }
+  else if (hi >= 13 && lo >= 10) { tier = 4; txt = suited ? "브로드웨이 · 수딧" : "브로드웨이"; }
+  else if (suited && gap <= 2) { tier = 3; txt = "수딧 커넥터"; }
+  else if (hi === 14) { tier = 3; txt = suited ? "A 하이 · 수딧" : "A 하이"; }
+  else if (hi >= 11) { tier = 2; txt = `${RANKS[hi - 2]} 하이`; }
+  else { tier = 1; txt = "낮은 패"; }
+  const label = pair ? `포켓 ${a.r}` : `${RANKS[hi - 2]}${RANKS[lo - 2]}${suited ? "s" : "o"}`;
+  return { label, txt, tier };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   판 진행 — 6-max 노리밋
+   ═══════════════════════════════════════════════════════════════════════════ */
+const SB = 1, BB = 2, RAKE = .05, RAKE_CAP = 3;
+const ACTION_MS = { preflop: 10000, flop: 15000, turn: 15000, river: 15000 };
+const BANK_MS = 15000;
+const NAMES = ["도현", "세라", "민규", "유진", "태오"];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const STREETS = [["preflop", "프리플랍"], ["flop", "플랍"], ["turn", "턴"], ["river", "리버"], ["showdown", "쇼다운"]];
+
+let S = null, resolveTurn = null, clockTimer = null, unit = "chip", raiseTo = 0;
+
+const fmt = (n) => unit === "bb" ? `${(n / BB).toFixed(n % BB ? 1 : 0)}BB` : n.toLocaleString("ko-KR");
+
+function freshDeck() {
+  const d = [];
+  for (const su of SUITS) for (const r of RANKS) d.push({ r, s: su.s });
+  for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; }
+  return d;
+}
+
+function newHand() {
+  const prev = S;
+  const players = (prev ? prev.players : [
+    { i: 0, name: "나", stack: 200, me: true, hue: 44 },
+    { i: 1, name: NAMES[0], stack: 200, hue: 8 },
+    { i: 2, name: NAMES[1], stack: 200, hue: 190 },
+    { i: 3, name: NAMES[2], stack: 200, hue: 120 },
+    { i: 4, name: NAMES[3], stack: 200, hue: 280 },
+    { i: 5, name: NAMES[4], stack: 200, hue: 330 },
+  ]).map((p) => ({
+    ...p, hole: [], folded: false, allin: false, street: 0, total: 0,
+    lastAct: null, revealed: false, hand: null, sitOut: p.stack <= 0,
+  }));
+
+  const btn = prev ? nextSeat(prev.btn, players) : 0;
+  S = {
+    players, btn, deck: freshDeck(), board: [], pot: 0, currentBet: 0, minRaise: BB,
+    street: "preflop", turn: null, verdict: null, squeezed: false, deadline: 0, bank: false,
+    lastAggressor: null,
+  };
+
+  const sb = nextSeat(btn, players), bbSeat = nextSeat(sb, players);
+  post(players[sb], SB); post(players[bbSeat], BB);
+  S.currentBet = BB; S.minRaise = BB;
+  S.sbSeat = sb; S.bbSeat = bbSeat;
+  render();
+  run();
+}
+function nextSeat(from, players) {
+  for (let k = 1; k <= players.length; k++) {
+    const i = (from + k) % players.length;
+    if (!players[i].sitOut) return i;
+  }
+  return from;
+}
+function post(p, amt) {
+  const a = Math.min(amt, p.stack);
+  p.stack -= a; p.street += a; p.total += a; S.pot += a;
+  if (p.stack === 0) p.allin = true;
+}
+
+const contenders = () => S.players.filter((p) => !p.folded && p.hole.length);
+const canAct = () => contenders().filter((p) => !p.allin);
+
+async function run() {
+  await wait(120);
+  // 홀카드 두 장씩 — 첫 화면이 빈 테이블로 남지 않게 시작 딜은 빠르게 돈다
+  for (let round = 0; round < 2; round++) {
+    for (const p of orderFrom(S.sbSeat)) {
+      if (p.sitOut) continue;
+      p.hole.push(S.deck.pop());
+      render(); await wait(42);
+    }
+  }
+  await wait(240);
+  await betting("preflop");
+  for (const [key, count] of [["flop", 3], ["turn", 1], ["river", 1]]) {
+    if (S.verdict) return;
+    if (contenders().length < 2) break;
+    S.street = key;
+    S.currentBet = 0; S.minRaise = BB;
+    for (const p of S.players) { p.street = 0; if (!p.folded) p.lastAct = null; }
+    await wait(300);
+    for (let k = 0; k < count; k++) { S.board.push(S.deck.pop()); render(); await wait(170); }
+    await wait(260);
+    if (canAct().length >= 2) await betting(key);
+    else await wait(500);           // 전원 올인이면 그냥 런아웃
+  }
+  if (!S.verdict) showdown();
+}
+function orderFrom(seat) {
+  const out = [];
+  for (let k = 0; k < S.players.length; k++) out.push(S.players[(seat + k) % S.players.length]);
+  return out;
+}
+
+async function betting(street) {
+  const first = street === "preflop" ? nextSeat(S.bbSeat, S.players) : nextSeat(S.btn, S.players);
+  const seq = orderFrom(first).filter((p) => !p.sitOut);
+  const acted = new Set();
+  let guard = 0;
+
+  while (guard++ < 60) {
+    if (contenders().length < 2) break;
+    const pending = seq.filter((p) => !p.folded && !p.allin && (!acted.has(p.i) || p.street < S.currentBet));
+    if (!pending.length) break;
+    const p = pending[0];
+    S.turn = p.i;
+    render();
+
+    const act = p.me ? await humanTurn(p) : await botTurn(p);
+    acted.add(p.i);
+    apply(p, act);
+    if (act.kind === "raise") for (const q of S.players) if (q.i !== p.i) acted.delete(q.i);
+    render();
+    await wait(p.me ? 140 : 320);
+  }
+  S.turn = null; render();
+
+  if (contenders().length === 1) {
+    const w = contenders()[0];
+    settle([{ p: w, amount: S.pot }], "상대가 모두 폴드", null);
+  }
+}
+
+function options(p) {
+  const toCall = Math.max(0, S.currentBet - p.street);
+  const maxTo = p.street + p.stack;
+  const minTo = Math.min(maxTo, S.currentBet + S.minRaise);
+  return { toCall: Math.min(toCall, p.stack), maxTo, minTo, canRaise: maxTo > S.currentBet };
+}
+
+/** 표준 사이징. 프리플랍은 BB 배수, 포스트플랍은 팟 비율.
+ *  포스트플랍 팟 비율은 "콜한 뒤의 팟"을 기준으로 올린다(= 실제 팟 레이즈 공식).
+ *  지금 우리 앱은 raise-to 를 그냥 팟 총액으로 잡아서 작은 팟에서 전부 MIN 으로
+ *  뭉개지는데, 이게 그 공식을 바로잡은 모습이다. */
+function presetsFor(p) {
+  const { toCall, minTo, maxTo, canRaise } = options(p);
+  if (!canRaise) return [];
+  const list = [];
+  if (S.street === "preflop" && S.currentBet <= BB) {
+    for (const x of [2.5, 3, 4]) list.push({ label: `${x}x`, to: Math.round(x * BB) });
+  } else {
+    for (const [label, pct] of [["33%", .33], ["50%", .5], ["75%", .75], ["팟", 1]]) {
+      const potAfterCall = S.pot + toCall;
+      list.push({ label, to: Math.round(S.currentBet + toCall + pct * potAfterCall) });
+    }
+  }
+  list.push({ label: "올인", to: maxTo });
+  return list.map((o) => ({ ...o, to: Math.max(minTo, Math.min(maxTo, o.to)) }))
+             .filter((o, i, arr) => arr.findIndex((x) => x.to === o.to) === i);
+}
+
+function apply(p, act) {
+  const { toCall } = options(p);
+  if (act.kind === "fold") { p.folded = true; p.lastAct = { t: "폴드", c: "fold" }; return; }
+  if (act.kind === "check") { p.lastAct = { t: "체크", c: "" }; return; }
+  if (act.kind === "call") {
+    const a = Math.min(toCall, p.stack);
+    p.stack -= a; p.street += a; p.total += a; S.pot += a;
+    if (p.stack === 0) { p.allin = true; p.lastAct = { t: "올인", c: "allin" }; }
+    else p.lastAct = { t: `콜 ${fmt(a)}`, c: "" };
+    return;
+  }
+  // raise to — 이 스트리트에 앞선 베팅이 없었으면 "벳", 있었으면 "레이즈"
+  const opening = S.currentBet === 0;
+  const target = Math.min(act.to, p.street + p.stack);
+  const put = target - p.street;
+  p.stack -= put; p.street = target; p.total += put; S.pot += put;
+  const raiseSize = target - S.currentBet;
+  if (raiseSize >= S.minRaise) S.minRaise = raiseSize;
+  S.currentBet = target;
+  S.lastAggressor = p.i;
+  if (p.stack === 0) { p.allin = true; p.lastAct = { t: "올인", c: "allin" }; }
+  else p.lastAct = { t: `${opening ? "벳" : "레이즈"} ${fmt(target)}`, c: "raise" };
+}
+
+/* ── 내 차례 ─────────────────────────────────────────────────────── */
+function humanTurn(p) {
+  const { toCall, minTo } = options(p);
+  raiseTo = Math.min(p.street + p.stack, Math.max(minTo, toCall > 0 ? Math.round(S.currentBet * 2.5) : Math.round(S.pot * .5) + S.currentBet));
+  S.deadline = Date.now() + ACTION_MS[S.street];
+  S.bank = false;
+  return new Promise((res) => {
+    resolveTurn = (act) => { resolveTurn = null; S.deadline = 0; clearInterval(clockTimer); res(act); };
+    renderControls();
+    tick();
+  });
+}
+function tick() {
+  clearInterval(clockTimer);
+  clockTimer = setInterval(() => {
+    if (!S.deadline) { clearInterval(clockTimer); return; }
+    const left = S.deadline - Date.now();
+    const total = S.bank ? BANK_MS : ACTION_MS[S.street];
+    if (left <= 0) {
+      if (!S.bank) {                      // 타임뱅크가 자동으로 물린다
+        S.bank = true; S.deadline = Date.now() + BANK_MS; renderControls(); return;
+      }
+      clearInterval(clockTimer);
+      const me = S.players[0], { toCall } = options(me);
+      resolveTurn && resolveTurn(toCall === 0 ? { kind: "check" } : { kind: "fold" });
+      return;
+    }
+    const ring = document.querySelector(".seat.me .turn-ring");
+    if (ring) {
+      ring.style.setProperty("--pct", `${(left / total) * 100}%`);
+      ring.classList.toggle("bank", S.bank);
+    }
+    const c = document.getElementById("clock-val");
+    if (c) { c.textContent = `${Math.ceil(left / 1000)}초${S.bank ? " · 타임뱅크" : ""}`; c.style.color = S.bank ? "var(--lose)" : ""; }
+  }, 100);
+}
+
+/* ── 상대 ─────────────────────────────────────────────────────────── */
+async function botTurn(p) {
+  await wait(420 + Math.random() * 560);
+  const { toCall, canRaise } = options(p);
+  const made = S.board.length ? best7([...p.hole, ...S.board]) : null;
+  const pre = preflopRead(p.hole);
+  let strength = made ? Math.min(.97, .16 + made.cat * .115) : pre.tier / 5.6;
+  if (made && made.cat === 0) strength = .2;
+  strength += (Math.random() - .5) * .16;
+
+  const presets = presetsFor(p);
+  const potOdds = toCall / (S.pot + toCall || 1);
+  if (canRaise && presets.length && strength > .62 && Math.random() < .55)
+    return { kind: "raise", to: presets[Math.min(presets.length - 2, Math.floor(Math.random() * 2) + (strength > .82 ? 1 : 0))]?.to ?? presets[0].to };
+  if (canRaise && presets.length && strength < .3 && toCall === 0 && Math.random() < .18)
+    return { kind: "raise", to: presets[0].to };       // 블러프
+  if (toCall === 0) return { kind: "check" };
+  if (strength > potOdds * 1.25 || Math.random() < .12) return { kind: "call" };
+  return { kind: "fold" };
+}
+
+/* ── 쇼다운 · 정산 ───────────────────────────────────────────────── */
+function showdown() {
+  S.street = "showdown";
+  const live = contenders();
+  for (const p of live) { p.revealed = true; p.hand = best7([...p.hole, ...S.board]); }
+
+  // 사이드팟 — 기여액 구간별로 자른다
+  const levels = [...new Set(S.players.filter((p) => p.total > 0).map((p) => p.total))].sort((a, b) => a - b);
+  const pots = [];
+  let prev = 0;
+  for (const lv of levels) {
+    const contributors = S.players.filter((p) => p.total >= lv);
+    const amount = (lv - prev) * contributors.length;
+    const eligible = contributors.filter((p) => !p.folded && p.hole.length);
+    if (amount > 0) pots.push({ amount, eligible });
+    prev = lv;
+  }
+  const payouts = new Map();
+  for (const pot of pots) {
+    if (!pot.eligible.length) continue;
+    let best = null;
+    for (const p of pot.eligible) if (!best || cmp(p.hand, best.hand) > 0) best = p;
+    const winners = pot.eligible.filter((p) => cmp(p.hand, best.hand) === 0);
+    const each = Math.floor(pot.amount / winners.length);
+    winners.forEach((w, i) => payouts.set(w, (payouts.get(w) || 0) + each + (i === 0 ? pot.amount - each * winners.length : 0)));
+  }
+  const list = [...payouts.entries()].map(([p, amount]) => ({ p, amount }));
+  const top = list.sort((a, b) => b.amount - a.amount);
+  settle(top, null, live);
+}
+
+function settle(wins, reason, shown) {
+  S.street = "showdown"; S.turn = null;
+  const rake = Math.min(Math.floor(S.pot * RAKE), RAKE_CAP);
+  let paid = 0;
+  for (const w of wins) {
+    const cut = Math.min(rake - paid, Math.ceil(rake * (w.amount / S.pot)));
+    paid += cut;
+    w.net = w.amount - cut;
+    w.p.stack += w.net;
+    w.p.revealed = true;
+    w.p.hand = w.p.hand || (S.board.length >= 3 ? best7([...w.p.hole, ...S.board]) : null);
+  }
+  const me = S.players[0];
+  const mine = wins.find((w) => w.p.me);
+  const winner = wins[0];
+  S.verdict = {
+    head: wins.length > 1 ? "팟 분배" : `${winner.p.name}${winner.p.me ? "" : " 님"} 승`,
+    detail: reason || (winner.p.hand ? winner.p.hand.label : ""),
+    net: mine ? mine.net - me.total : -me.total,
+    rake,
+    loseTo: !mine && winner.p.hand && !me.folded && me.hole.length ? `${winner.p.name} 님의 ${winner.p.hand.label}에 패배` : null,
+  };
+  render();
+  setTimeout(() => { if (S.verdict) { S.verdict = null; newHand(); } }, 3800);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   그리기
+   ═══════════════════════════════════════════════════════════════════════════ */
+const suitOf = (s) => SUITS.find((x) => x.s === s);
+
+function cardNode(c, opts = {}) {
+  const el = document.createElement("div");
+  el.className = "pcard" + (opts.board ? " board-card" : "") + (opts.dealt ? " dealt" : "") +
+    (opts.plays ? " plays" : "") + (opts.muted ? " muted" : "");
+  if (!c) { el.classList.add("back"); return el; }
+  const su = suitOf(c.s);
+  el.style.setProperty("--ink", `var(${su.v})`);
+  el.innerHTML = `<div class="r">${c.r}</div><div class="p">${su.pip}</div>`;
+  return el;
+}
+
+function chipStackNode(amount) {
+  const wrap = document.createElement("div");
+  wrap.className = "bet-chips";
+  const DENOM = [
+    [100, "#171717", "#e8e8e8"], [25, "#1f7a46", "#f2f2f2"],
+    [5, "#b9302a", "#f7f2ea"], [1, "#cfc7b6", "#7c7364"],
+  ];
+  const stack = document.createElement("div");
+  stack.className = "chip-stack";
+  let left = amount, drawn = 0;
+  for (const [v, body, spot] of DENOM) {
+    while (left >= v && drawn < 5) {
+      const c = document.createElement("div");
+      c.className = "chip";
+      c.style.setProperty("--body", body); c.style.setProperty("--spot", spot);
+      c.style.transform = `translateY(${-drawn * 4}px)`;
+      stack.append(c); left -= v; drawn++;
+    }
+  }
+  if (!drawn) return wrap;
+  const b = document.createElement("b");
+  b.className = "num"; b.textContent = fmt(amount);
+  wrap.append(stack, b);
+  return wrap;
+}
+
+function render() {
+  if (!S) return;
+  const seats = document.getElementById("seats");
+  const bets = document.getElementById("bets");
+  seats.textContent = ""; bets.textContent = "";
+
+  const winnerSet = new Set();
+  if (S.verdict && S.verdict.head.includes("승")) {
+    for (const p of S.players) if (p.hand && S.verdict.head.startsWith(p.name)) winnerSet.add(p.i);
+  }
+
+  S.players.forEach((p, idx) => {
+    const seat = document.createElement("div");
+    seat.className = `seat p${idx}` + (p.me ? " me" : "") + (p.folded ? " folded" : "") +
+      (S.turn === p.i ? " turn" : "") + (p.allin ? " allin" : "");
+
+    const plate = document.createElement("div");
+    plate.className = "plate";
+    const av = document.createElement("div");
+    av.className = "avatar";
+    av.style.background = `linear-gradient(150deg, hsl(${p.hue} 44% 64%), hsl(${p.hue} 36% 42%))`;
+    av.textContent = p.name.slice(0, 1);
+    const who = document.createElement("div");
+    who.className = "who";
+    who.innerHTML = `<div class="nm">${p.name}</div><div class="st num">${p.allin ? "올인" : fmt(p.stack)}</div>`;
+    plate.append(av, who);
+
+    const pos = p.i === S.sbSeat ? "SB" : p.i === S.bbSeat ? "BB" : null;
+    if (pos) { const b = document.createElement("div"); b.className = "pos-badge"; b.textContent = pos; plate.append(b); }
+    if (p.i === S.btn) { const d = document.createElement("div"); d.className = "dealer-btn"; d.textContent = "D"; d.title = "딜러 버튼"; plate.append(d); }
+    if (S.turn === p.i) { const r = document.createElement("div"); r.className = "turn-ring"; plate.append(r); }
+
+    const hole = document.createElement("div");
+    hole.className = "hole";
+    const show = p.me || p.revealed;
+    const playing = p.hand ? new Set(p.hand.cards.map((c) => c.r + c.s)) : null;
+    p.hole.forEach((c, ci) => {
+      const needSqueeze = p.me && !S.squeezed && S.street === "preflop";
+      if (show && needSqueeze) {
+        const wrap = document.createElement("div");
+        wrap.className = "squeeze";
+        const card = cardNode(c, { dealt: true });
+        const cover = document.createElement("div");
+        cover.className = "cover";
+        wrap.append(card, cover);
+        if (ci === 1) { const h = document.createElement("div"); h.className = "squeeze-hint"; h.textContent = "눌러서 확인"; wrap.append(h); }
+        attachSqueeze(wrap, cover);
+        hole.append(wrap);
+      } else {
+        hole.append(cardNode(show ? c : null, {
+          dealt: true,
+          plays: show && playing && playing.has(c.r + c.s) && S.street === "showdown",
+          muted: show && playing && !playing.has(c.r + c.s) && S.street === "showdown",
+        }));
+      }
+    });
+
+    seat.append(plate, hole);
+
+    if (S.street === "showdown" && p.revealed && p.hand) {
+      const t = document.createElement("div");
+      t.className = "result-tag" + (winnerSet.has(p.i) ? " win" : "");
+      t.textContent = p.hand.label;
+      seat.append(t);
+    } else if (p.lastAct) {
+      const t = document.createElement("div");
+      t.className = `last-act ${p.lastAct.c}`;
+      t.textContent = p.lastAct.t;
+      seat.append(t);
+    }
+    seats.append(seat);
+
+    if (p.street > 0 && S.street !== "showdown") {
+      const spot = document.createElement("div");
+      spot.className = `bet-spot b${idx}`;
+      spot.append(chipStackNode(p.street));
+      bets.append(spot);
+    }
+  });
+
+  // 보드
+  const board = document.getElementById("board");
+  board.textContent = "";
+  const playingAll = new Set();
+  if (S.street === "showdown") for (const i of winnerSet) {
+    const p = S.players.find((x) => x.i === i);
+    if (p && p.hand) for (const c of p.hand.cards) playingAll.add(c.r + c.s);
+  }
+  S.board.forEach((c) => board.append(cardNode(c, { board: true, dealt: true, plays: playingAll.has(c.r + c.s) })));
+  for (let k = S.board.length; k < 5; k++) {
+    const ph = document.createElement("div");
+    ph.className = "pcard board-card";
+    ph.style.cssText = "background:none;box-shadow:inset 0 0 0 1px rgba(233,228,218,.07);border-radius:3px;";
+    board.append(ph);
+  }
+
+  renderPot();
+  renderStreetBar();
+  renderHandPanel();
+  renderMeta();
+  renderControls();
+  renderVerdict();
+  document.getElementById("m-stack").textContent = fmt(S.players[0].stack);
+  document.getElementById("m-blinds").textContent = `${SB} / ${BB}`;
+}
+
+function renderPot() {
+  const chips = document.getElementById("pot-chips");
+  chips.textContent = "";
+  const n = Math.max(0, Math.min(7, Math.round(S.pot / 6)));
+  for (let i = 0; i < n; i++) {
+    const st = document.createElement("div");
+    st.className = "chip-stack";
+    const h = 1 + ((i * 3) % 4);
+    for (let k = 0; k < h; k++) {
+      const c = document.createElement("div");
+      c.className = "chip";
+      const pal = [["#b9302a", "#f7f2ea"], ["#1f7a46", "#f2f2f2"], ["#171717", "#e8e8e8"], ["#2668b8", "#eef3fa"]][(i + k) % 4];
+      c.style.setProperty("--body", pal[0]); c.style.setProperty("--spot", pal[1]);
+      c.style.transform = `translateY(${-k * 4}px)`;
+      st.append(c);
+    }
+    chips.append(st);
+  }
+  document.getElementById("pot-amount").textContent = fmt(S.pot);
+
+  // 사이드팟 표시 — 올인이 끼었을 때만
+  const sp = document.getElementById("side-pots");
+  const allins = S.players.filter((p) => p.allin && !p.folded);
+  if (allins.length && contenders().length > 1) {
+    const levels = [...new Set(S.players.filter((p) => p.total > 0).map((p) => p.total))].sort((a, b) => a - b);
+    let prev = 0; const parts = [];
+    for (const lv of levels) {
+      const cs = S.players.filter((p) => p.total >= lv);
+      const amt = (lv - prev) * cs.length; prev = lv;
+      if (amt > 0) parts.push(amt);
+    }
+    sp.innerHTML = parts.map((a, i) => `<i>${i === 0 ? "메인" : `사이드 ${i}`} ${fmt(a)}</i>`).join("");
+  } else sp.textContent = "";
+}
+
+function renderStreetBar() {
+  const bar = document.getElementById("street-bar");
+  const order = STREETS.map(([k]) => k);
+  const cur = order.indexOf(S.street);
+  bar.innerHTML = STREETS.map(([k, label], i) =>
+    `<div class="${i === cur ? "on" : i < cur ? "done" : ""}">${label}</div>`).join("");
+}
+
+function renderHandPanel() {
+  const me = S.players[0];
+  const el = document.getElementById("hand-panel");
+  if (!me.hole.length) { el.innerHTML = `<div class="k">내 패</div><div class="sub">패를 받는 중</div>`; return; }
+  if (!S.squeezed && S.street === "preflop") {
+    el.innerHTML = `<div class="k">내 패</div><div class="v">아직 안 봤다</div><div class="sub">홀카드를 눌러 확인한다</div>`;
+    return;
+  }
+  if (!S.board.length) {
+    const pre = preflopRead(me.hole);
+    el.innerHTML =
+      `<div class="k">시작 패</div><div class="v">${pre.label}</div><div class="sub">${pre.txt}</div>` +
+      `<div class="meter t${pre.tier}">${Array.from({ length: 5 }, (_, i) => `<i class="${i < pre.tier ? "on" : ""}"></i>`).join("")}</div>`;
+    return;
+  }
+  const h = best7([...me.hole, ...S.board]);
+  const tier = tierOf(h.cat);
+  const draws = readDraws(me.hole, S.board);
+  el.innerHTML =
+    `<div class="k">내 족보</div><div class="v">${h.label}</div>` +
+    `<div class="sub">${h.cards.map((c) => c.r + suitOf(c.s).pip).join(" ")}</div>` +
+    `<div class="meter t${tier}">${Array.from({ length: 5 }, (_, i) => `<i class="${i < tier ? "on" : ""}"></i>`).join("")}</div>` +
+    (draws.length ? `<div class="draws">${draws.map((d) => `<div>${d}</div>`).join("")}</div>` : "");
+}
+
+function renderMeta() {
+  const me = S.players[0];
+  const { toCall } = options(me);
+  const odds = toCall > 0 ? Math.round((toCall / (S.pot + toCall)) * 100) : 0;
+  document.getElementById("meta-row").innerHTML =
+    `<div><span>팟</span><b class="num">${fmt(S.pot)}</b></div>` +
+    `<div><span>콜</span><b class="num">${toCall > 0 ? fmt(toCall) : "—"}</b></div>` +
+    `<div><span>팟 오즈</span><b class="num">${toCall > 0 ? odds + "%" : "—"}</b></div>`;
+}
+
+function renderControls() {
+  const box = document.getElementById("controls");
+  const me = S.players[0];
+  const mine = S.turn === me.i && resolveTurn;
+  box.textContent = "";
+
+  if (!mine) {
+    const n = document.createElement("div");
+    n.className = "rail-note";
+    n.textContent = S.verdict ? "다음 핸드를 준비한다"
+      : S.turn !== null ? `${S.players.find((p) => p.i === S.turn)?.name || ""} 님 차례`
+      : me.folded ? "이번 핸드는 폴드했다" : "카드를 돌리는 중";
+    box.append(n);
+    return;
+  }
+
+  const { toCall, minTo, maxTo, canRaise } = options(me);
+  raiseTo = Math.max(minTo, Math.min(maxTo, raiseTo || minTo));
+
+  // 타이머 표시
+  const clock = document.createElement("div");
+  clock.className = "rail-note";
+  clock.innerHTML = `<span id="clock-val" class="num"></span>`;
+  box.append(clock);
+
+  if (canRaise) {
+    const pres = document.createElement("div");
+    pres.className = "presets";
+    presetsFor(me).forEach((o) => {
+      const b = document.createElement("button");
+      b.className = "preset";
+      b.innerHTML = `<span>${o.label}</span><b class="num">${fmt(o.to)}</b>`;
+      b.onclick = () => resolveTurn && resolveTurn({ kind: "raise", to: o.to });
+      pres.append(b);
+    });
+    box.append(pres);
+
+    const step = document.createElement("div");
+    step.className = "stepper";
+    const minus = document.createElement("button"); minus.textContent = "−";
+    const amt = document.createElement("div"); amt.className = "amt num"; amt.textContent = fmt(raiseTo);
+    const plus = document.createElement("button"); plus.textContent = "+";
+    minus.onclick = () => { raiseTo = Math.max(minTo, raiseTo - BB); amt.textContent = fmt(raiseTo); };
+    plus.onclick = () => { raiseTo = Math.min(maxTo, raiseTo + BB); amt.textContent = fmt(raiseTo); };
+    step.append(minus, amt, plus);
+    box.append(step);
+  }
+
+  const acts = document.createElement("div");
+  acts.className = "acts";
+  const mk = (cls, t, v, on, disabled) => {
+    const b = document.createElement("button");
+    b.className = `act ${cls}`;
+    b.innerHTML = `<span class="t">${t}</span><span class="v">${v}</span>`;
+    b.disabled = !!disabled; b.onclick = on;
+    return b;
+  };
+  acts.append(mk("fold", "폴드", "패 포기", () => resolveTurn && resolveTurn({ kind: "fold" })));
+  if (toCall === 0) acts.append(mk("", "체크", "돈 없이", () => resolveTurn && resolveTurn({ kind: "check" })));
+  else acts.append(mk("", "콜", fmt(toCall), () => resolveTurn && resolveTurn({ kind: "call" })));
+  acts.append(mk("raise", toCall === 0 ? "벳" : "레이즈", fmt(raiseTo), () => resolveTurn && resolveTurn({ kind: "raise", to: raiseTo }), !canRaise));
+  box.append(acts);
+}
+
+function renderVerdict() {
+  document.querySelectorAll(".verdict").forEach((n) => n.remove());
+  if (!S.verdict) return;
+  const v = document.createElement("div");
+  v.className = "verdict";
+  const net = S.verdict.net;
+  v.innerHTML =
+    `<div class="h">${S.verdict.head}</div>` +
+    `<div class="d">${S.verdict.loseTo || S.verdict.detail || ""}</div>` +
+    `<div class="a ${net >= 0 ? "up" : "down"}">${net >= 0 ? "+" : ""}${fmt(net)} · 레이크 ${fmt(S.verdict.rake)}</div>`;
+  document.getElementById("stage").append(v);
+}
+
+/* 쪼기 — 홀카드를 모서리부터 들어올린다 */
+function attachSqueeze(wrap, cover) {
+  let raf = null, lift = 0, holding = false;
+  const draw = () => {
+    cover.style.transform = `rotate(${-lift * 58}deg)`;
+    if (lift >= 1) { wrap.classList.remove("lifting"); wrap.classList.add("open"); S.squeezed = true; render(); return; }
+    if (holding) { lift = Math.min(1, lift + .05); raf = requestAnimationFrame(draw); }
+    else if (lift > 0) { lift = Math.max(0, lift - .08); raf = requestAnimationFrame(draw); }
+  };
+  const start = (e) => {
+    e.preventDefault();
+    try { wrap.setPointerCapture(e.pointerId); } catch {}
+    holding = true; wrap.classList.add("lifting");
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(draw);
+  };
+  const stop = () => { holding = false; wrap.classList.remove("lifting"); cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); };
+  wrap.addEventListener("pointerdown", start);
+  wrap.addEventListener("pointerup", stop);
+  wrap.addEventListener("pointercancel", stop);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { S.squeezed = true; }
+}
+
+/* ── 조작 ─────────────────────────────────────────────────────────── */
+document.getElementById("btn-new").onclick = () => { clearInterval(clockTimer); resolveTurn = null; newHand(); };
+document.getElementById("unit-toggle").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  unit = b.dataset.unit;
+  document.querySelectorAll("#unit-toggle button").forEach((x) => x.classList.toggle("on", x === b));
+  render();
+};
+
+newHand();
+</script>

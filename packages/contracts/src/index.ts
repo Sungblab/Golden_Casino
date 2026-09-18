@@ -456,6 +456,10 @@ export const holdemSeatSchema = z.object({
   /** Sticky across hands once set (cleared only by un-readying or standing up) — only shown
    *  to the player pre-hand (room.phase WAITING); irrelevant once a hand is underway. */
   ready: z.boolean(),
+  /** 이 좌석이 방금 한 행동. 판 위에 말풍선으로 띄운다. 스트리트가 바뀌면 지워진다. */
+  lastAction: z.object({ action: holdemActionSchema, amount: z.number().int().nonnegative() }).nullable(),
+  /** 남은 타임뱅크(ms). 기본 시간이 끝나면 자동으로 물린다. */
+  timeBankMs: z.number().int().nonnegative(),
 });
 export type HoldemSeatSnapshot = z.infer<typeof holdemSeatSchema>;
 
@@ -466,6 +470,21 @@ export const holdemWinnerSchema = z.object({
   handCategory: pokerHandCategorySchema.nullable(),
 });
 export type HoldemWinnerSnapshot = z.infer<typeof holdemWinnerSchema>;
+
+/** 레일의 "지난 핸드"가 읽는 한 줄. */
+export const holdemHandHistorySchema = z.object({
+  handNumber: z.number().int().positive(),
+  board: z.array(cardSchema).max(5),
+  /** 패를 실제로 비교했는지. 폴드 승이면 false 이고 revealed 는 비어 있다. */
+  showdown: z.boolean(),
+  winners: z.array(holdemWinnerSchema),
+  revealed: z.array(z.object({ seatNumber: z.number().int().min(1).max(6), username: z.string(), holeCards: z.array(cardSchema).length(2) })),
+  myHoleCards: z.array(cardSchema).length(2).nullable(),
+  /** 레이크가 코인 단위로 딱 떨어지지 않아 소수가 나올 수 있다. */
+  myNet: z.number(),
+  played: z.boolean(),
+});
+export type HoldemHandHistory = z.infer<typeof holdemHandHistorySchema>;
 
 export const holdemRoomSnapshotSchema = z.object({
   room: gameRoomSchema,
@@ -482,6 +501,10 @@ export const holdemRoomSnapshotSchema = z.object({
   actingSeat: z.number().int().min(1).max(6).nullable(),
   lastWinners: z.array(holdemWinnerSchema),
   walletBalance: z.number().int().nonnegative(),
+  /** 지금 타임뱅크로 버티고 있는 좌석. 없으면 null. */
+  timeBankSeat: z.number().int().min(1).max(6).nullable(),
+  /** 이 방의 최근 핸드 기록(최신순). 본인 패와 손익은 보는 사람 것만 채워진다. */
+  recentHands: z.array(holdemHandHistorySchema),
 });
 export type HoldemRoomSnapshot = z.infer<typeof holdemRoomSnapshotSchema>;
 
@@ -523,8 +546,25 @@ export type HwatuCard = z.infer<typeof hwatuCardSchema>;
 
 export const sutdaStreetSchema = z.enum(["first", "final", "showdown"]);
 export type SutdaStreet = z.infer<typeof sutdaStreetSchema>;
-export const sutdaActionSchema = z.enum(["die", "check", "call", "half"]);
+/** 한국 온라인 섯다의 표준 베팅 세트. v1 은 다이/체크/콜/하프 넷뿐이라 삥도 따당도 없이,
+ *  잔액이 모자라면 다이 말고는 길이 없었다. 사이징 계산은 game-core 의 sutdaBetOptions 한 곳에
+ *  있고 서버와 클라이언트가 그걸 같이 쓴다. */
+export const sutdaActionSchema = z.enum(["die", "check", "call", "bbing", "ddadang", "quarter", "half", "allin"]);
 export type SutdaAction = z.infer<typeof sutdaActionSchema>;
+/** 서버가 계산해 내려주는 이번 차례의 선택지. 금액이 이미 들어 있으므로 클라이언트가
+ *  사이징을 다시 계산하다 서버와 어긋날 일이 없다. */
+export const sutdaBetOptionSchema = z.object({
+  action: sutdaActionSchema,
+  label: z.string(),
+  /** 이 선택으로 스택에서 빠져나가는 총액(콜 포함). */
+  amount: z.number().int().nonnegative(),
+  /** 그중 기준 금액 위로 올리는 몫. */
+  raiseBy: z.number().int().nonnegative(),
+  enabled: z.boolean(),
+  reason: z.string().nullable(),
+  allIn: z.boolean(),
+});
+export type SutdaBetOptionSnapshot = z.infer<typeof sutdaBetOptionSchema>;
 export const sutdaPotSchema = z.object({ amount: z.number().int().nonnegative() });
 export type SutdaPotSnapshot = z.infer<typeof sutdaPotSchema>;
 export const sutdaSeatSchema = z.object({
@@ -545,10 +585,29 @@ export const sutdaSeatSchema = z.object({
   cardCount: z.number().int().min(0).max(2),
   handLabel: z.string().nullable(),
   ready: z.boolean(),
+  /** 낼 수 있는 돈을 다 넣은 좌석. 이후 스트리트의 베팅에서 빠지고 사이드팟이 갈린다. */
+  allIn: z.boolean(),
+  /** 이 좌석이 방금 한 행동. 판 위에 말풍선으로 띄운다. 스트리트가 바뀌면 지워진다. */
+  lastAction: z.object({ action: sutdaActionSchema, amount: z.number().int().nonnegative() }).nullable(),
 });
 export type SutdaSeatSnapshot = z.infer<typeof sutdaSeatSchema>;
 export const sutdaWinnerSchema = z.object({ seatNumber: z.number().int().min(1).max(6), username: z.string(), amount: z.number().int().nonnegative(), handLabel: z.string() });
 export type SutdaWinnerSnapshot = z.infer<typeof sutdaWinnerSchema>;
+/** 판이 끝난 뒤 전원의 손익 한 줄씩 — 상용 섯다의 '게임결과' 패널에 해당한다. */
+export const sutdaResultRowSchema = z.object({
+  seatNumber: z.number().int().min(1).max(6),
+  username: z.string(),
+  handLabel: z.string().nullable(),
+  /** 이번 판에 낸 총액(땡값 포함). */
+  contributed: z.number().int().nonnegative(),
+  /** 돌려받은 총액. */
+  payout: z.number().int().nonnegative(),
+  /** 땡값으로 주고받은 몫. 받은 쪽은 양수, 낸 쪽은 음수. */
+  ddaeng: z.number().int(),
+  net: z.number().int(),
+  outcome: z.enum(["win", "lose", "push"]),
+});
+export type SutdaResultRow = z.infer<typeof sutdaResultRowSchema>;
 export const sutdaRoomSnapshotSchema = z.object({
   room: gameRoomSchema,
   roundId: z.string().uuid().nullable(),
@@ -560,7 +619,15 @@ export const sutdaRoomSnapshotSchema = z.object({
   mySeatNumber: z.number().int().min(1).max(6).nullable(),
   toCall: z.number().int().nonnegative(),
   actingSeat: z.number().int().min(1).max(6).nullable(),
+  /** 내 차례일 때만 채워진다 — 그 외에는 빈 배열. */
+  betOptions: z.array(sutdaBetOptionSchema),
   lastWinners: z.array(sutdaWinnerSchema),
+  /** 직전 판의 전원 손익. 다음 판이 시작될 때까지 남는다. */
+  lastResults: z.array(sutdaResultRowSchema),
+  /** 직전 판에서 딜러비로 빠진 금액. */
+  lastRake: z.number().int().nonnegative(),
+  /** 직전 판에 땡값이 붙었다면 그 이름(예: "장땡"). */
+  lastDdaeng: z.string().nullable(),
   walletBalance: z.number().int().nonnegative(),
 });
 export type SutdaRoomSnapshot = z.infer<typeof sutdaRoomSnapshotSchema>;

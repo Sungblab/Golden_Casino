@@ -101,6 +101,9 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
 
   return (
     <AppShell balance={balance} onLogout={onLogout}>
+      {/* flex:1 spacer so an empty/short filtered list doesn't leave the footer stranded
+          mid-page — .app-shell is a flex column and this wrapper eats the leftover height. */}
+      <div className="lobby-content">
       <div className="lobby-toolbar">
         <div className="game-switcher" role="tablist" aria-label="게임 선택">
           <button className={selectedGame === "all" ? "active" : ""} onClick={() => setSelectedGame("all")} role="tab" aria-selected={selectedGame === "all"}>
@@ -156,6 +159,7 @@ export function LobbyPage({ token, user, onLogout }: { token: string; user: Publ
         <div className="room-grid">{(selectedGame === "baccarat" ? baccaratRooms : selectedGame === "blackjack" ? blackjackRooms : selectedGame === "dragon_tiger" ? dragonTigerRooms : selectedGame === "holdem" ? holdemRooms : sutdaRooms).map(renderCard)}</div>
       )}
       {error && <p className="error-message">{error}</p>}
+      </div>
 
       <footer className="lobby-footer">
         <strong className="lobby-footer-brand">GOLDEN CASINO</strong>

@@ -55,16 +55,18 @@ function delay(milliseconds: number): Promise<void> {
  *
  * DEALING_MS is the one value that is not free to pick: the web client reveals the round's
  * cards one at a time (see DEAL_STEP_MS in BaccaratRoomPage.tsx) and a six-card round takes
- * ~5.1s to mount its last card. Anything shorter here and the table settles while the
- * player is still watching cards land, so the result banner flashes past.
+ * ~3.6s to mount its last card, whose own fly/flip finishes ~0.8s later, and the client
+ * waits ROAD_REVEAL_DELAY_MS (1s) past that mount before announcing the result — ~4.6s.
+ * Anything shorter here and the table settles while the player is still watching cards
+ * land, so the result banner flashes past.
  */
 const BETTING_MS = 12_000;
 const LOCKED_MS = 700;
-const DEALING_MS = 6_000;
-const SETTLING_MS = 1_000;
-/** Long enough that RESULT_NOTICE_MS (client's win banner, BaccaratRoomPage.tsx) finishes
- * with room to spare before the table moves on and the next round's betting starts. */
-const RESULT_MS = 5_500;
+const DEALING_MS = 4_800;
+const SETTLING_MS = 800;
+/** Long enough that RESULT_NOTICE_MS (client's win banner, BaccaratRoomPage.tsx, 3_200ms)
+ * finishes with room to spare before the table moves on and the next round's betting starts. */
+const RESULT_MS = 4_500;
 
 class AutomaticBaccaratRoomActor {
   private phase: RoomPhase = "WAITING";

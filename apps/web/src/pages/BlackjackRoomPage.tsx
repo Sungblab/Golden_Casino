@@ -280,8 +280,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
   // "why did my hit/stand buttons never show up" and clears itself once dealerCards resets.
   const dealerBlackjackEnd = !snapshot.dealerHoleHidden && snapshot.dealerCards.length === 2 && dealerLiveScore === 21;
   const canDouble = Boolean(myTurn && snapshot.myHand?.cards.length === 2 && !snapshot.myHand.fromSplit && snapshot.walletBalance >= snapshot.myHand.bet);
-  const canSplit = Boolean(myTurn && snapshot.myHand && snapshot.myHands.length < 4 && !snapshot.myHand.splitAces && snapshot.myHand.cards.length === 2 && cardPoint(snapshot.myHand.cards[0]!) === cardPoint(snapshot.myHand.cards[1]!) && snapshot.walletBalance >= snapshot.myHand.bet);
-  const canSurrender = Boolean(myTurn && snapshot.myHand?.cards.length === 2 && !snapshot.myHand.fromSplit && snapshot.myHands.length === 1 && snapshot.myHand.bet % 2 === 0);
+  const canSplit = Boolean(myTurn && snapshot.myHand && snapshot.myHands.length < 2 && !snapshot.myHand.splitAces && snapshot.myHand.cards.length === 2 && cardPoint(snapshot.myHand.cards[0]!) === cardPoint(snapshot.myHand.cards[1]!) && snapshot.walletBalance >= snapshot.myHand.bet);
   const insuranceAmount = snapshot.myHand ? Math.floor(snapshot.myHand.bet / 2) : 0;
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / BETTING_SECONDS));
   const canRepeat = Boolean(betting && snapshot.mySeat && !snapshot.myHand && lastBetAmount.current);
@@ -327,7 +326,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
                 </div>
               </div>
             </div>
-            <div className="bj-table-rules" aria-label="블랙잭 테이블 규칙"><strong>BLACKJACK PAYS 3 TO 2</strong><span>DEALER STANDS ON ALL 17 · INSURANCE PAYS 2 TO 1</span><small>SPLIT TO 4 HANDS · SPLIT ACES ONE CARD · NO DOUBLE AFTER SPLIT · LATE SURRENDER</small></div>
+            <div className="bj-table-rules" aria-label="블랙잭 테이블 규칙"><strong>BLACKJACK PAYS 3 TO 2</strong><span>DEALER STANDS ON ALL 17 · INSURANCE PAYS 2 TO 1</span><small>8 DECKS · ONE SPLIT PER HAND · SPLIT ACES ONE CARD · NO DOUBLE AFTER SPLIT</small></div>
             {betting && (
               <div className={`ot-timer bj-timer ${seconds <= 4 ? "closing" : ""}`} aria-label={`베팅 마감 ${seconds}초`}>
                 <svg viewBox="0 0 60 60" aria-hidden="true"><circle className="ot-timer-track" cx="30" cy="30" r="26" /><circle className="ot-timer-ring" cx="30" cy="30" r="26" style={{ strokeDashoffset: timerOffset }} /></svg>
@@ -371,7 +370,7 @@ export function BlackjackRoomPage({ token, onLogout }: { token: string; onLogout
                 ) : null}
               </div>
             ) : myTurn ? (
-              <div className="ot-acts bj-actions" aria-label="블랙잭 액션"><span className="bj-live-total">{snapshot.myHands.length > 1 ? `패 ${snapshot.myHand!.handIndex + 1}` : "합계"} <strong>{handValue(snapshot.myHand!.cards).total}</strong></span><button type="button" className="outline-button bj-act-hit" onClick={() => act("hit")}>히트</button><button type="button" className="outline-button bj-act-stand" onClick={() => act("stand")}>스탠드</button><button type="button" className="outline-button bj-act-double" disabled={!canDouble} onClick={() => act("double")}>더블</button><button type="button" className="outline-button bj-act-split" disabled={!canSplit} onClick={() => act("split")}>스플릿</button><button type="button" className="outline-button bj-act-surrender" disabled={!canSurrender} onClick={() => act("surrender")}>서렌더</button></div>
+              <div className="ot-acts bj-actions" aria-label="블랙잭 액션"><span className="bj-live-total">{snapshot.myHands.length > 1 ? `패 ${snapshot.myHand!.handIndex + 1}` : "합계"} <strong>{handValue(snapshot.myHand!.cards).total}</strong></span><button type="button" className="outline-button bj-act-hit" onClick={() => act("hit")}>히트</button><button type="button" className="outline-button bj-act-stand" onClick={() => act("stand")}>스탠드</button><button type="button" className="outline-button bj-act-double" disabled={!canDouble} onClick={() => act("double")}>더블</button><button type="button" className="outline-button bj-act-split" disabled={!canSplit} onClick={() => act("split")}>스플릿</button></div>
             ) : <div className="bj-phase-guide">{phaseGuide(snapshot, selected)}</div>}
             <div className="ot-money right bj-total-risk"><small>{snapshot.lightningFeePercent === 100 ? "베팅 + 수수료" : "총 베팅"}</small><strong>{totalRisk.toLocaleString()}</strong></div>
             <RoomChat socket={socket} roomId={roomId} token={token} />

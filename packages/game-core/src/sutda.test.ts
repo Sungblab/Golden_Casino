@@ -8,6 +8,8 @@ import {
   sutdaHandStrength,
   sutdaSecondCardOutlook,
   sutdaTierOf,
+  sutdaBetOptions,
+  sutdaDdaengRule,
 } from "./sutda.js";
 
 const card = (month: number, kind: "hikari" | "tanzaku" | "tane" | "kasu") => ({ id: `${month}-${kind}`, month, kind });
@@ -125,5 +127,79 @@ describe("Sutda", () => {
       expect(outlook.some((entry) => entry.cards.some((c) => c.id === three.id))).toBe(false);
       expect(outlook.reduce((sum, entry) => sum + entry.cards.length, 0)).toBe(19);
     });
+  });
+});
+
+describe("sutdaBetOptions", () => {
+  const base = { minBet: 1, maxBet: 100, pot: 8, currentBet: 2, seatStreet: 0, seatTotal: 1, balance: 500 };
+  const find = (ctx: Parameters<typeof sutdaBetOptions>[0], action: string) =>
+    sutdaBetOptions(ctx).find((option) => option.action === action)!;
+
+  it("sizes 하프 as the call plus half the pot", () => {
+    const half = find(base, "half");
+    expect(half.raiseBy).toBe(4);
+    expect(half.amount).toBe(6); // 콜 2 + 올리기 4
+  });
+
+  it("sizes 쿼터 as the call plus a quarter of the pot", () => {
+    expect(find(base, "quarter").raiseBy).toBe(2);
+  });
+
+  it("makes 따당 double the standing bet", () => {
+    const ddadang = find(base, "ddadang");
+    expect(ddadang.raiseBy).toBe(2);
+    expect(base.seatStreet + ddadang.amount).toBe(4); // 기준 2 → 총 4
+  });
+
+  it("offers 삥 as a one-unit raise and hides 따당 when nothing is owed", () => {
+    const opening = { ...base, currentBet: 0, pot: 2 };
+    expect(find(opening, "bbing").raiseBy).toBe(1);
+    expect(sutdaBetOptions(opening).some((o) => o.action === "ddadang")).toBe(false);
+    expect(sutdaBetOptions(opening).some((o) => o.action === "check")).toBe(true);
+  });
+
+  it("never lets a raise push the seat past the table's per-hand limit", () => {
+    const nearLimit = { ...base, maxBet: 10, seatTotal: 7, pot: 400 };
+    const half = find(nearLimit, "half");
+    expect(nearLimit.seatTotal + half.amount).toBe(10);
+    expect(half.allIn).toBe(true);
+  });
+
+  it("replaces an unaffordable 콜 with a short all-in instead of forcing a 다이", () => {
+    const short = { ...base, balance: 1 };
+    const call = find(short, "call");
+    expect(call.enabled).toBe(false);
+    const allin = find(short, "allin");
+    expect(allin.enabled).toBe(true);
+    expect(allin.amount).toBe(1);
+  });
+
+  it("caps 올인 at the smaller of the wallet and the table limit", () => {
+    expect(find({ ...base, balance: 4 }, "allin").amount).toBe(4);
+    expect(find({ ...base, maxBet: 6, seatTotal: 1 }, "allin").amount).toBe(5);
+  });
+});
+
+describe("sutdaDdaengRule", () => {
+  const hand = (a: [number, "hikari" | "tanzaku" | "tane"], b: [number, "hikari" | "tanzaku" | "tane"]) =>
+    evaluateSutdaHand([card(a[0], a[1]), card(b[0], b[1])]);
+
+  it("charges the most for 38광땡 and scales down through 광땡·장땡·땡", () => {
+    expect(sutdaDdaengRule(hand([3, "hikari"], [8, "hikari"]))!.rate).toBe(0.5);
+    expect(sutdaDdaengRule(hand([1, "hikari"], [8, "hikari"]))!.rate).toBe(0.3);
+    expect(sutdaDdaengRule(hand([10, "tanzaku"], [10, "tane"]))!.rate).toBe(0.2);
+    expect(sutdaDdaengRule(hand([9, "tanzaku"], [9, "tane"]))!.rate).toBe(0.1);
+  });
+
+  it("does not make one 땡 pay another", () => {
+    const rule = sutdaDdaengRule(hand([9, "tanzaku"], [9, "tane"]))!;
+    expect(hand([5, "tanzaku"], [5, "tane"]).rank).toBeGreaterThan(rule.payerMaxRank);
+    expect(hand([1, "tanzaku"], [2, "tane"]).rank).toBeLessThanOrEqual(rule.payerMaxRank); // 알리는 낸다
+  });
+
+  it("pays nothing on an ordinary 끗 win or a 특수패 catch", () => {
+    expect(sutdaDdaengRule(hand([4, "tanzaku"], [6, "tane"]))).toBeNull();   // 세륙
+    expect(sutdaDdaengRule(hand([4, "tane"], [7, "tane"]))).toBeNull();      // 암행어사
+    expect(sutdaDdaengRule(hand([3, "hikari"], [7, "tane"]))).toBeNull();    // 땡잡이
   });
 });

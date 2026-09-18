@@ -16,6 +16,8 @@
    decides the radii. Landscape keeps the tuned 45%/33% pair (see the comments in
    HoldemRoomPage), portrait swaps in a taller ellipse below. */
 .holdem-table { --seat-rx: 45%; --seat-ry: 33%; }
+/* 사각형 테이블이 된 홀덤은 세로로도 더 벌릴 수 있다(섯다 장판은 자기 값을 따로 쓴다). */
+.game-shell .holdem-room-shell .holdem-table:not(.sutda-mat) { --seat-rx: 43%; --seat-ry: 37%; }
 .holdem-seat[style*="--sx"] {
   left: calc(50% + var(--sx) * var(--seat-rx));
   top: calc(50% + var(--sy) * var(--seat-ry));
@@ -23,7 +25,7 @@
 
 /* ── Step bar ────────────────────────────────────────────────────────────── */
 .step-bar { display: flex; align-items: center; gap: 0; margin: 0; padding: 0; list-style: none; flex: none; }
-.step-bar li { position: relative; flex: 1 1 0; min-width: 0; display: grid; justify-items: center; gap: 3px; color: var(--muted-dim); font: 700 9px var(--ui-font); letter-spacing: .02em; text-align: center; }
+.step-bar li { position: relative; flex: 1 1 0; min-width: 0; display: grid; justify-items: center; gap: 3px; color: var(--muted-dim); font: 700 11px var(--ui-font); letter-spacing: .02em; text-align: center; }
 .step-bar li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1px solid rgba(220,194,135,.45); background: rgba(0,0,0,.35); }
 .step-bar li::after { content: ""; position: absolute; top: 3px; left: calc(50% + 6px); width: calc(100% - 12px); height: 1px; background: rgba(220,194,135,.25); }
 .step-bar li:last-child::after { display: none; }
@@ -32,27 +34,27 @@
 .step-bar li.is-done::before { background: var(--gold-deep); border-color: var(--gold); }
 .step-bar li.is-done::after { background: rgba(240,180,28,.5); }
 .step-bar li.is-current { color: var(--gold-light); }
-.step-bar li.is-current::before { background: var(--gold-light); border-color: var(--gold-light); box-shadow: 0 0 8px rgba(255,210,74,.75); }
+.step-bar li.is-current::before { background: var(--gold-light); border-color: var(--gold-light); box-shadow: 0 0 8px rgba(240,180,28,.75); }
 
 /* ── Hand strength meter ─────────────────────────────────────────────────── */
 .hand-meter { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 7px; min-width: 0; }
 .hand-meter-bars { display: inline-flex; gap: 2px; }
 .hand-meter-bars i { display: block; width: 9px; height: 8px; border-radius: 2px; background: rgba(255,255,255,.1); }
-.hand-meter-label { font: 800 10.5px var(--ui-font); white-space: nowrap; }
-.hand-meter-detail { min-width: 0; overflow: hidden; color: var(--muted); font: 10px var(--ui-font); white-space: nowrap; text-overflow: ellipsis; }
+.hand-meter-label { font: 600 12.5px var(--ui-font); white-space: nowrap; }
+.hand-meter-detail { min-width: 0; overflow: hidden; color: var(--muted); font: 12px var(--ui-font); white-space: nowrap; text-overflow: ellipsis; }
 .hand-meter.tier-1 .hand-meter-bars i.is-on { background: #6e8ab5; } .hand-meter.tier-1 .hand-meter-label { color: #9fb6d9; }
 .hand-meter.tier-2 .hand-meter-bars i.is-on { background: #4a92ff; } .hand-meter.tier-2 .hand-meter-label { color: #7fb2ff; }
 .hand-meter.tier-3 .hand-meter-bars i.is-on { background: #2fd97e; } .hand-meter.tier-3 .hand-meter-label { color: #5ee89a; }
 .hand-meter.tier-4 .hand-meter-bars i.is-on { background: #ff6b74; } .hand-meter.tier-4 .hand-meter-label { color: #ff8a91; }
-.hand-meter.tier-5 .hand-meter-bars i.is-on { background: #ffd24a; box-shadow: 0 0 6px rgba(255,210,74,.6); } .hand-meter.tier-5 .hand-meter-label { color: #ffd24a; }
+.hand-meter.tier-5 .hand-meter-bars i.is-on { background: var(--gold-light); box-shadow: 0 0 6px rgba(240,180,28,.6); } .hand-meter.tier-5 .hand-meter-label { color: var(--gold-light); }
 
 /* Extra lines under the meter: strength sentence, special-card effect, outlook. */
-.hand-panel-line { margin: 0; color: var(--muted); font: 10px/1.45 var(--ui-font); }
+.hand-panel-line { margin: 0; color: var(--muted); font: 12px/1.45 var(--ui-font); }
 .hand-panel-line.is-special { color: #d9c2ff; }
 .hand-panel-outlook { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; }
-.hand-panel-outlook > small { flex: 0 0 100%; color: var(--muted-dim); font: 700 9px var(--ui-font); letter-spacing: .08em; }
-.hand-panel-outlook span { padding: 2px 7px; border: 1px solid rgba(240,180,28,.35); border-radius: 999px; background: rgba(240,180,28,.1); color: var(--text); font: 700 10px var(--ui-font); white-space: nowrap; }
-.hand-panel-outlook span.tier-gwangddaeng { border-color: rgba(255,210,74,.7); color: var(--gold-light); }
+.hand-panel-outlook > small { flex: 0 0 100%; color: var(--muted-dim); font: 700 11px var(--ui-font); letter-spacing: .08em; }
+.hand-panel-outlook span { padding: 2px 7px; border: 1px solid rgba(240,180,28,.35); border-radius: 999px; background: rgba(240,180,28,.1); color: var(--text); font: 700 12px var(--ui-font); white-space: nowrap; }
+.hand-panel-outlook span.tier-gwangddaeng { border-color: rgba(240,180,28,.7); color: var(--gold-light); }
 .hand-panel-outlook span.tier-ddaeng { border-color: rgba(255,107,116,.55); color: #ff9ca3; }
 .hand-panel-outlook span.tier-named { border-color: rgba(180,140,255,.55); color: #d9c2ff; }
 .hand-panel-outlook span em { margin-left: 3px; color: var(--muted-dim); font-style: normal; font-weight: 600; }
@@ -62,17 +64,17 @@
   border: 0;
   background: none;
   color: var(--gold-light);
-  font: 700 10px var(--ui-font);
+  font: 700 12px var(--ui-font);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
 }
 .hand-panel-draws { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.hand-panel-draws li { position: relative; padding-left: 12px; color: #7fd6ff; font: 700 10px/1.4 var(--ui-font); }
-.hand-panel-draws li::before { content: "◆"; position: absolute; left: 0; top: 0; font-size: 8px; color: #4a92ff; }
+.hand-panel-draws li { position: relative; padding-left: 12px; color: #7fd6ff; font: 700 12px/1.4 var(--ui-font); }
+.hand-panel-draws li::before { content: "◆"; position: absolute; left: 0; top: 0; font-size: 12.5px; color: #4a92ff; }
 
 /* Cards in the panel that make the hand get the same gold ring as on the felt. */
-.holdem-hand-panel-card.is-in-hand { outline: 2px solid var(--gold-light); outline-offset: 1px; box-shadow: 0 0 10px rgba(255,210,74,.6); }
+.holdem-hand-panel-card.is-in-hand { outline: 2px solid var(--gold-light); outline-offset: 1px; box-shadow: 0 0 5px rgba(240,180,28,.3); }
 
 /* ── Turn strip ──────────────────────────────────────────────────────────── */
 .turn-strip {
@@ -84,14 +86,14 @@
   flex: none;
   padding: 7px 10px 9px;
   overflow: hidden;
-  border: 1px solid rgba(255,210,74,.75);
+  border: 1px solid rgba(240,180,28,.75);
   border-radius: var(--radius-sm);
   background: linear-gradient(90deg, rgba(240,180,28,.26), rgba(240,180,28,.1));
   color: var(--gold-light);
   font-family: var(--ui-font);
 }
-.turn-strip strong { font-size: 13px; font-weight: 900; }
-.turn-strip small { display: block; margin-top: 1px; color: #f5dea3; font-size: 10px; font-weight: 600; }
+.turn-strip strong { font-size: 13px; font-weight: 700; }
+.turn-strip small { display: block; margin-top: 1px; color: var(--gold-pale); font-size: 12px; font-weight: 600; }
 .turn-strip b { font-size: 18px; font-variant-numeric: tabular-nums; }
 .turn-strip.is-closing { border-color: rgba(255,107,116,.85); background: linear-gradient(90deg, rgba(204,10,28,.32), rgba(204,10,28,.12)); color: #ff8a8f; }
 .turn-strip.is-closing small { color: #ffc4c9; }
@@ -117,8 +119,8 @@
 .pvp-act:hover:not(:disabled) { filter: brightness(1.12); }
 .pvp-act:active:not(:disabled) { transform: translateY(1px); }
 .pvp-act:disabled { cursor: not-allowed; opacity: .42; filter: saturate(.4); }
-.pvp-act strong { font-size: 14px; font-weight: 900; white-space: nowrap; }
-.pvp-act small { max-width: 100%; overflow: hidden; font-size: 9.5px; font-weight: 600; opacity: .85; white-space: nowrap; text-overflow: ellipsis; }
+.pvp-act strong { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.pvp-act small { max-width: 100%; overflow: hidden; font-size: 11px; font-weight: 600; opacity: .85; white-space: nowrap; text-overflow: ellipsis; }
 .pvp-act.tone-red { background: linear-gradient(to bottom, #8a2028, #4d1015); border-color: var(--banker-light); color: #ffe9ea; }
 .pvp-act.tone-gold { background: linear-gradient(to bottom, var(--gold), var(--gold-deep)); border-color: var(--gold-light); color: var(--on-gold); }
 .pvp-act.tone-blue { background: linear-gradient(to bottom, #2970a8, #123b63); border-color: #4a93e0; color: #eef8ff; }
@@ -126,18 +128,18 @@
 .pvp-act.tone-purple { background: linear-gradient(to bottom, #6b4bab, #3b2765); border-color: #a184e0; color: #f2ecff; }
 
 /* The rail's own explanatory lines: rail hints (grey) and the ready dock's help text. */
-.rail-hint { margin: 0; color: var(--muted-dim); font: 10px/1.45 var(--ui-font); text-align: center; }
+.rail-hint { margin: 0; color: var(--muted-dim); font: 12px/1.45 var(--ui-font); text-align: center; }
 .rail-hint b { color: var(--muted); font-weight: 700; }
 
 /* ── Seat position badges ────────────────────────────────────────────────── */
 .holdem-seat-badges { display: inline-flex; gap: 2px; flex: 0 0 auto; }
-.seat-badge { display: grid; min-width: 15px; height: 14px; padding: 0 3px; place-items: center; border: 1px solid; border-radius: 999px; font: 800 7.5px var(--ui-font); letter-spacing: .02em; }
-.seat-badge.is-button { border-color: rgba(255,210,74,.7); background: rgba(240,180,28,.22); color: var(--gold-light); }
+.seat-badge { display: grid; min-width: 15px; height: 14px; padding: 0 3px; place-items: center; border: 1px solid; border-radius: 999px; font: 600 12.5px var(--ui-font); letter-spacing: .02em; }
+.seat-badge.is-button { border-color: rgba(240,180,28,.7); background: rgba(240,180,28,.22); color: var(--gold-light); }
 .seat-badge.is-sb { border-color: rgba(74,146,255,.7); background: rgba(15,79,216,.28); color: #9cc4ff; }
 .seat-badge.is-bb { border-color: rgba(255,107,116,.7); background: rgba(204,10,28,.28); color: #ffb0b6; }
 
 /* The "선" (dealer) pill on the 섯다 table, in place of the poker D. */
-.holdem-button-chip.is-seon { width: auto; min-width: 16px; padding: 0 4px; font-size: 8px; }
+.holdem-button-chip.is-seon { width: auto; min-width: 16px; padding: 0 4px; font-size: 12.5px; }
 
 /* Showdown: the winning seat's 족보 pill reads gold; a losing seat's stays quiet. */
 .holdem-seat-status.hand { padding: 1px 7px; border: 1px solid rgba(220,194,135,.35); border-radius: 999px; background: rgba(0,0,0,.35); color: #e8d7ab; text-transform: none; letter-spacing: .02em; }
@@ -162,7 +164,7 @@
   backdrop-filter: blur(4px);
   box-shadow: 0 10px 24px rgba(0,0,0,.45);
 }
-.felt-prompt small { display: block; margin-top: 1px; color: var(--muted); font-size: 9.5px; font-weight: 600; }
+.felt-prompt small { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 600; }
 
 /* Rail layout tweaks shared by both games: the top-of-rail step bar and sections. */
 .holdem-rail-v4 > .step-bar { padding: 2px 2px 4px; border-bottom: 1px solid rgba(240,180,28,.18); }
@@ -180,27 +182,27 @@
   /* 맥스 duplicates the 올인 button; dropping it makes the presets a clean 2×2. */
   .game-shell .holdem-rail-v4 .holdem-preset:last-child { display: none; }
   .game-shell .holdem-rail-v4 .holdem-preset:first-child { grid-column: auto; }
-  .step-bar li { font-size: 7.5px; gap: 2px; }
+  .step-bar li { font-size: 12.5px; gap: 2px; }
   .step-bar li::before { width: 6px; height: 6px; }
   .step-bar li::after { top: 3px; }
   .hand-meter { gap: 5px; }
   .hand-meter-bars i { width: 7px; height: 6px; }
-  .hand-meter-label { font-size: 9px; }
+  .hand-meter-label { font-size: 11px; }
   .hand-meter-detail, .hand-panel-line, .hand-panel-outlook > small { display: none; }
-  .hand-panel-outlook span { padding: 1px 5px; font-size: 8.5px; }
-  .hand-panel-draws li { font-size: 8.5px; }
-  .hand-panel-link { font-size: 9px; }
+  .hand-panel-outlook span { padding: 1px 5px; font-size: 12.5px; }
+  .hand-panel-draws li { font-size: 12.5px; }
+  .hand-panel-link { font-size: 11px; }
   .turn-strip { gap: 6px; padding: 4px 7px 6px; }
-  .turn-strip strong { font-size: 10.5px; }
-  .turn-strip small { font-size: 8px; }
+  .turn-strip strong { font-size: 12.5px; }
+  .turn-strip small { font-size: 12.5px; }
   .turn-strip b { font-size: 14px; }
   .pvp-act { min-height: 36px; padding: 3px 4px; }
   .pvp-act strong { font-size: 11px; }
-  .pvp-act small { font-size: 7.5px; }
+  .pvp-act small { font-size: 12.5px; }
   .game-shell .holdem-rail-v4 .holdem-act-row { gap: 4px; }
-  .rail-hint { font-size: 8.5px; }
-  .felt-prompt { bottom: 6px; padding: 4px 10px; font-size: 9px; }
-  .felt-prompt small { font-size: 8px; }
+  .rail-hint { font-size: 12.5px; }
+  .felt-prompt { bottom: 6px; padding: 4px 10px; font-size: 11px; }
+  .felt-prompt small { font-size: 12.5px; }
   .seat-badge { min-width: 13px; height: 12px; font-size: 6.5px; }
 }
 
@@ -233,9 +235,9 @@
   .game-shell .holdem-seat.is-mine .holdem-seat-cards { display: none; }
   .game-shell .holdem-seat.is-mine .holdem-seat-plate { margin-top: 0; }
   .holdem-seat-plate { min-width: 70px; padding: 3px 9px 4px; }
-  .holdem-seat-empty { width: 52px; height: 52px; font-size: 8.5px; }
-  .game-shell .holdem-seat-name { font-size: 9.5px; }
-  .game-shell .holdem-seat-stack { font-size: 10px; }
+  .holdem-seat-empty { width: 52px; height: 52px; font-size: 12.5px; }
+  .game-shell .holdem-seat-name { font-size: 11px; }
+  .game-shell .holdem-seat-stack { font-size: 12px; }
 
   /* The dock. */
   /* Stays a flex column: as a grid, the auto rows sized the overflow-hidden items (turn
@@ -261,28 +263,28 @@
   .game-shell .holdem-rail-v4 .holdem-stepper { display: none; }
   .holdem-rail-spacer { display: none; }
   .holdem-rail-v4 > .step-bar { padding: 0 2px 5px; }
-  .step-bar li { font-size: 9px; }
+  .step-bar li { font-size: 11px; }
   .hand-meter-detail, .hand-panel-line, .hand-panel-outlook > small { display: block; }
   .hand-panel-outlook > small { flex: 0 0 100%; }
   .holdem-hand-panel { padding: 8px 10px; gap: 5px; }
   .holdem-hand-panel-card { width: 34px; }
   .holdem-hand-panel-text strong { font-size: 19px; }
-  .holdem-hand-panel-text span { font-size: 10.5px; }
+  .holdem-hand-panel-text span { font-size: 12.5px; }
   .holdem-rail-meta { padding: 4px 0; font-size: 11px; }
   .holdem-rail-status { font-size: 11px; }
   .turn-strip { padding: 6px 10px 8px; }
   .turn-strip strong { font-size: 12.5px; }
-  .turn-strip small { font-size: 9.5px; }
+  .turn-strip small { font-size: 11px; }
   .turn-strip b { font-size: 17px; }
   .pvp-act { min-height: 42px; padding: 3px 6px; }
   .pvp-act strong { font-size: 13px; }
-  .pvp-act small { font-size: 9px; }
+  .pvp-act small { font-size: 11px; }
   .game-shell .holdem-rail-v4 .holdem-act-row { gap: 6px; }
   .game-shell .holdem-rail-v4 .holdem-presets { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .game-shell .holdem-rail-v4 .holdem-presets::-webkit-scrollbar { display: none; }
   .game-shell .holdem-rail-v4 .holdem-preset { flex: 1 0 auto; min-width: 58px; min-height: 34px; grid-column: auto; }
   .game-shell .holdem-rail-v4 .holdem-preset:first-child { grid-column: auto; }
-  .game-shell .holdem-rail-v4 .holdem-preset span { font-size: 7.5px; }
+  .game-shell .holdem-rail-v4 .holdem-preset span { font-size: 12.5px; }
   .game-shell .holdem-rail-v4 .holdem-preset b { font-size: 11px; }
   .game-shell .holdem-rail-v4 .holdem-ready-dock .outline-button { min-height: 44px; font-size: 13px; }
   .game-shell .holdem-rail-v4 .holdem-ready-status { font-size: 11px; }
@@ -291,10 +293,10 @@
   .game-shell .holdem-rail-footer .poker-guide-trigger { min-height: 34px; font-size: 11px; }
   .game-shell .holdem-rail-footer .room-chat-toggle { width: 34px; height: 34px; }
   .game-shell .holdem-room-shell .room-chat-panel { right: 8px; left: 8px; bottom: 8px; width: auto; height: min(60dvh, 420px); }
-  .rail-hint { font-size: 10px; }
-  .felt-prompt { bottom: 10px; padding: 6px 12px; font-size: 10.5px; }
-  .felt-prompt small { font-size: 9px; }
-  .seat-badge { min-width: 14px; height: 13px; font-size: 7px; }
+  .rail-hint { font-size: 12px; }
+  .felt-prompt { bottom: 10px; padding: 6px 12px; font-size: 12.5px; }
+  .felt-prompt small { font-size: 11px; }
+  .seat-badge { min-width: 14px; height: 13px; font-size: 12.5px; }
   .round-result-notice { top: 22%; }
 }
 
@@ -325,7 +327,7 @@
      the last button on its own full-width row. */
   .game-shell .holdem-rail-v4 .holdem-act-row.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .game-shell .holdem-rail-v4 .holdem-act-row.cols-3 > :nth-child(3) { grid-column: 1 / -1; }
-  .pvp-act strong { font-size: 10.5px; }
+  .pvp-act strong { font-size: 12.5px; }
 }
 /* Spectator prompt: centred in the open felt under the board, not over the bottom seat. */
 .felt-prompt { top: 60%; bottom: auto; transform: translate(-50%, -50%); }
@@ -343,3 +345,93 @@
   .pvp-act strong { font-size: 13px; }
   .felt-prompt { top: 58%; }
 }
+
+
+/* ═══ 공용: 쪼기와 말풍선 (섯다·홀덤) ═══════════════════════════════════════ */
+/* ── 쪼기 ─────────────────────────────────────────────────────────────────
+   둘째 장이 엎어져 오고, 누르고 있으면 왼쪽 아래 모서리부터 들린다. 손을 떼면
+   도로 덮이고, 끝까지 들면 그대로 열린다. */
+.table-squeeze { position: relative; display: inline-block; touch-action: none; }
+.table-squeeze-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: var(--radius-xs, 4px);
+  border: 1px solid #7c050a;
+  background: #a80f16 url("/cards/hwatu/back.svg") center / cover no-repeat;
+  transform-origin: bottom left;
+  transform: rotate(calc(var(--lift, 0) * -58deg));
+  transition: box-shadow .16s ease;
+  cursor: grab;
+}
+.table-squeeze.is-lifting .table-squeeze-cover {
+  box-shadow: 5px -6px 16px rgba(0, 0, 0, .6);
+  cursor: grabbing;
+}
+.table-squeeze.is-open .table-squeeze-cover { display: none; }
+.table-squeeze-hint {
+  position: absolute;
+  left: 50%;
+  /* 카드 아래가 아니라 위에 — 내 좌석은 패가 이름표 위에 놓이므로 아래로 내밀면 이름표를 덮는다. */
+  bottom: calc(100% + 5px);
+  z-index: 3;
+  transform: translateX(-50%);
+  color: var(--gold-light);
+  font: 600 11px var(--ui-font);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: table-hint 1.7s ease-in-out infinite;
+}
+@keyframes table-hint { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+/* ── 말풍선 ───────────────────────────────────────────────────────────────
+   이름표 위에서 톡 튀어나온다. 액션 성격에 따라 색만 살짝 달리해서, 누가 세게
+   지르고 누가 접었는지 판 위에서 바로 읽힌다. */
+.table-bubble {
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  z-index: 8;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 180px;
+  padding: 5px 11px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #fbf3e2, #ecdfc4);
+  color: #241a12;
+  font: 600 12px var(--ui-font);
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .55);
+  animation: table-bubble-in .26s cubic-bezier(.18, 1.3, .5, 1) backwards;
+}
+.table-bubble b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.table-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #ecdfc4;
+}
+.table-bubble.tone-push { background: linear-gradient(180deg, #ffe6a8, #f0c86a); }
+.table-bubble.tone-push::after { border-top-color: #f0c86a; }
+.table-bubble.tone-out { background: linear-gradient(180deg, #d9cfc4, #bfb2a4); color: #3a2f27; }
+.table-bubble.tone-out::after { border-top-color: #bfb2a4; }
+@keyframes table-bubble-in {
+  from { opacity: 0; transform: translate(-50%, 7px) scale(.86); }
+}
+
+
+/* 홀덤의 커버는 트럼프 카드 뒷면(.playing-card-back 과 같은 결). 화투 뒷면 이미지를 지운다. */
+.game-shell .holdem-room-shell:not(.sutda-shell) .table-squeeze-cover {
+  border: 1px solid rgba(0, 0, 0, .5);
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 6px),
+    linear-gradient(168deg, #23405a, #16293a 62%, #0f1d2a);
+  box-shadow: inset 0 0 0 2px rgba(240,180,28, .22);
+}
+/* 홀카드는 두 장이 붙어 있어 힌트가 겹친다 — 빈 힌트는 자리를 차지하지 않게. */
+.table-squeeze-hint:empty { display: none; }

@@ -53,8 +53,22 @@ export class HoldemService {
     return posted;
   }
 
-  async recordHoleCards(roundId: string, userId: string, holeCards: Card[]): Promise<void> {
-    await pool.query("UPDATE holdem_contributions SET hole_cards=$3 WHERE round_id=$1 AND user_id=$2", [roundId, userId, JSON.stringify(holeCards)]);
+  /**
+   * Must be an UPSERT, not a plain UPDATE: this runs at deal time, before any blind has been
+   * posted, so the (round, user) row in `holdem_contributions` does not exist yet — it is only
+   * created by `contribute()`'s own INSERT once the blind lands, seconds later. A plain UPDATE
+   * here matched zero rows and hole cards were silently lost forever, which made every showdown
+   * evaluate as "board only" for every survivor (identical hands) and settle as an even split
+   * regardless of what was actually dealt. `ON CONFLICT DO UPDATE` makes the two writers
+   * (this, and `contribute()`) commute regardless of which one creates the row first.
+   */
+  async recordHoleCards(roundId: string, roomId: string, userId: string, seatNumber: number, holeCards: Card[]): Promise<void> {
+    await pool.query(
+      `INSERT INTO holdem_contributions (round_id,room_id,user_id,seat_number,hole_cards)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (round_id,user_id) DO UPDATE SET hole_cards = EXCLUDED.hole_cards`,
+      [roundId, roomId, userId, seatNumber, JSON.stringify(holeCards)],
+    );
   }
 
   async markFolded(roundId: string, userId: string): Promise<void> {

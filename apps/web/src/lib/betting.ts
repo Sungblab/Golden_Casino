@@ -6,7 +6,7 @@ const CHIP_CANDIDATES = [1, 5, 10, 25, 50, 100, 250, 500] as const;
  * animation reads them from here. Keep the two in sync — a chip that changes colour
  * mid-flight is the tell that they drifted apart.
  */
-export const CHIP_TIER_COLORS = ["#b8761c", "#c2202f", "#1a5fb4", "#0f8a50", "#2f2620"] as const;
+export const CHIP_TIER_COLORS = ["#6e6e6e", "#a41600", "#038c20", "#141414", "#6b398d"] as const;
 
 /**
  * The lighter edge-spot colour printed around each tier's rim, mirroring --chip-N-rim.
@@ -14,7 +14,7 @@ export const CHIP_TIER_COLORS = ["#b8761c", "#c2202f", "#1a5fb4", "#0f8a50", "#2
  * an unsupported function parses fine and only fails once it is substituted into the chip's
  * `background`, which silently drops the whole disc and leaves just the amount label.
  */
-export const CHIP_TIER_RIM_COLORS = ["#e0a341", "#ee5464", "#4a93e0", "#34ba79", "#6b5a48"] as const;
+export const CHIP_TIER_RIM_COLORS = ["#f2f2f2", "#f2f2f2", "#f2f2f2", "#f2f2f2", "#f2f2f2"] as const;
 
 /** Lowest denomination each tier starts at, used to colour an arbitrary bet total. */
 const CHIP_TIER_FLOORS = [1, 5, 10, 50, 100] as const;

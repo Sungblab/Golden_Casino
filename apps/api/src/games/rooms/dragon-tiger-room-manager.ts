@@ -42,11 +42,14 @@ const CHOICE_LABEL: Record<DragonTigerBetChoice, string> = {
   suited_tie: "SUITED TIE",
 };
 
-const BETTING_MS = 12_000;
+// Evolution's Dragon Tiger opens betting for 15 s (~25 s round).
+const BETTING_MS = 15_000;
 const LOCKED_MS = 700;
-const DEALING_MS = 2_800;
-const SETTLING_MS = 900;
-const RESULT_MS = 4_000;
+/** Both cards fly (≤520ms), rest (120ms) and flip (520ms) together, then the client waits
+ * ROAD_REVEAL_DELAY_MS (900ms) before acknowledging the result — ~2.1s worst case. */
+const DEALING_MS = 2_400;
+const SETTLING_MS = 800;
+const RESULT_MS = 3_600;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));

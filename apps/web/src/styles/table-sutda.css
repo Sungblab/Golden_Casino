@@ -1,55 +1,215 @@
 /* =============================================================================
-   섯다 v2 — the Hold'em v4 table system with hwatu cards.
+   섯다 v3 — 장판.
 
-   The layout (two-column shell, right rail / mobile bottom bar, leather bumper,
-   recessed felt, nameplates, action-line geometry) all comes from
-   table-holdem.css via the shared holdem-* classes; this file only carries what
-   is different about 섯다: hwatu card sizing, the on-felt deck, its deal
-   animation, and the winner treatment.
+   v2는 홀덤 v4 테이블(가죽 레일 + 꺼진 펠트 + 타원 베팅 라인)을 그대로 빌려 쓰고
+   화투만 얹었다. 그게 틀렸다: 섯다는 카지노 테이블에서 하는 게임이 아니라 방바닥에
+   편 초록 극세사 장판 위에서, 등 하나 밑에서 하는 게임이다. 그래서 v3는 테이블을
+   통째로 걷어낸다 — 레일도, 인쇄된 베팅 라인도, 타원 테두리도 없다. 장판이 곧 화면을
+   덮고(사각형이라 타원이 버리던 네 귀퉁이를 그대로 쓴다) 패는 그 위에 놓인다.
 
-   The old .sutda-table / .sutda-center medallion rules in styles.css are dead
-   markup as of the v2 page and intentionally left untouched there.
+   아직 공유하는 것: 셸의 2단 배치(.ot-stage / .holdem-rail-v4 / 세로 독)와 좌석
+   위치 계산(--sx/--sy × --seat-rx/--seat-ry). 그 외 판을 그리는 요소는 전부 여기서
+   다시 칠한다. 홀덤은 진짜 테이블이 맞으므로 table-holdem.css 는 그대로 둔다.
+
+   styles.css 의 옛 .sutda-table / .sutda-center 메달리온 규칙은 v2부터 죽은 마크업이고
+   여기서도 건드리지 않는다.
    ============================================================================= */
 
-/* The felt panel chrome is off, same as Hold'em — the table IS the screen. */
-.game-shell .holdem-room-shell .sutda-felt { background: none; }
+/* 장판은 가장자리까지 가야 한다 — 스테이지 여백을 줄여 판을 넓힌다. */
+.game-shell .sutda-shell .ot-stage { gap: 8px; padding: 6px 8px 8px; }
+.game-shell .sutda-shell .sutda-felt { background: none; padding: 0; }
 
-/* The real hwatu back — quilted red lattice drawn in /cards/hwatu/back.svg —
-   replacing the base .hwatu-back's CSS stripe gradient, which read as UI
-   texture rather than a physical card. Applies everywhere a back is drawn
-   (seats, the on-felt deck). */
+/* 좌석 반경: 타원 테이블을 하던 시절엔 펠트 안쪽에 앉혀야 했지만, 장판은 사각형이라
+   좌우로 더 벌릴 수 있다. 41%는 가장 바깥 좌석의 이름표가 잘리지 않는 한계값. */
+.game-shell .sutda-shell .holdem-table.sutda-mat {
+  --seat-rx: 41%;
+  --seat-ry: 34%;
+}
+
+/* ── 장판 바닥 ──────────────────────────────────────────────────────────────
+   1) 등불 웅덩이에서 가장자리 어둠으로 떨어지는 그라데이션
+   2) 말았다 편 접힌 자국 두 줄 (장판은 깔아두는 물건이 아니라 펴는 물건이다)
+   3) feTurbulence 노이즈 + 한 방향 결 = 극세사 융의 나(nap) */
+.sutda-mat-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background:
+    linear-gradient(90deg, transparent 27.7%, rgba(255,255,255,.012) 28%, transparent 28.3%),
+    linear-gradient(90deg, transparent 71.9%, rgba(0,0,0,.022) 72.2%, transparent 72.5%),
+    radial-gradient(118% 84% at 50% 34%, #2f7048 0%, #1d5334 34%, #0e2b1c 64%, #071510 100%);
+  box-shadow: inset 0 0 0 1px rgba(232,217,184, .06);
+}
+.sutda-mat-surface::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(101deg, rgba(255,255,255,.028) 0 2px, rgba(0,0,0,.028) 2px 4px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
+  background-size: auto, 180px 180px;
+  mix-blend-mode: overlay;
+  opacity: .5;
+  pointer-events: none;
+}
+
+/* 방 조명: 위에서 내려오는 백열등의 훈기 + 구석의 어둠이 장판 위로 번지는 비네트.
+   카지노 스포트라이트가 아니라 갓 하나 켜놓은 방이다. */
+.sutda-mat-lamp {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 40% at 50% 4%, rgba(255,210,138, .16), transparent 72%),
+    radial-gradient(104% 82% at 50% 38%, transparent 38%, rgba(4,3,2, .3) 72%, rgba(4,3,2, .72) 100%);
+}
+
+/* ── 판돈: 장판 한가운데 쌓인 지폐 ─────────────────────────────────────────
+   클래스 이름에 주의 — .sutda-center 는 styles.css 에 v1 메달리온(금색 원형 테두리)
+   규칙이 살아 있어서 재사용하면 장판 위에 그 타원이 다시 그려진다. */
+.game-shell .sutda-shell .sutda-pot-zone { gap: 3px; }
+.sutda-cash { position: relative; width: 104px; height: 50px; margin: 0 auto; }
+.sutda-cash i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 58px;
+  height: 25px;
+  border-radius: 2px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.2), transparent 40%),
+    linear-gradient(94deg, #c8bf96, #ab9f74 46%, #bdb187);
+  box-shadow: 0 1px 0 rgba(0,0,0, .35), 0 3px 7px rgba(0,0,0, .4);
+}
+/* 다발 띠지. */
+.sutda-cash i::after {
+  content: "";
+  position: absolute;
+  left: 34%;
+  top: -1px;
+  bottom: -1px;
+  width: 7px;
+  background: rgba(186,64,44, .82);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0, .18);
+}
+/* 흐트러진 모양은 7가지 자세를 돌려 쓴다 — 리렌더마다 새로 굴리면 판돈이 떨리므로
+   난수 대신 nth-child 로 고정한다. */
+.sutda-cash i:nth-child(7n+1) { transform: translate(-58%, -46%) rotate(-11deg); }
+.sutda-cash i:nth-child(7n+2) { transform: translate(-44%, -52%) rotate(7deg); }
+.sutda-cash i:nth-child(7n+3) { transform: translate(-53%, -58%) rotate(-3deg); }
+.sutda-cash i:nth-child(7n+4) { transform: translate(-47%, -42%) rotate(14deg); }
+.sutda-cash i:nth-child(7n+5) { transform: translate(-56%, -55%) rotate(-7deg); }
+.sutda-cash i:nth-child(7n+6) { transform: translate(-42%, -48%) rotate(3deg); }
+.sutda-cash i:nth-child(7n+7) { transform: translate(-51%, -61%) rotate(-15deg); }
+/* 쌓일수록 위로 올라간다. */
+.sutda-cash i:nth-child(n+8)  { margin-top: -5px; }
+.sutda-cash i:nth-child(n+12) { margin-top: -9px; }
+
+.game-shell .sutda-shell .holdem-pot span {
+  font-family: var(--display-font);
+  font-size: 19px;
+  font-weight: 700;
+  color: #ffd28a;
+  letter-spacing: .02em;
+  text-shadow: 0 0 20px rgba(255,210,138, .32);
+}
+
+/* 스트리트 표기: 장판에 옅게 찍힌 표시처럼. */
+.sutda-street {
+  color: rgba(232,217,184, .36);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .18em;
+}
+
+/* ── 사람 ────────────────────────────────────────────────────────────────
+   장판 위에 앉은 사람을 그리지 않는다. 패가 장판 위에 놓이고, 사람은 그 옆의
+   어둠 쪽에 이름표로만 있다 — 그래서 가죽 테두리가 아니라 조용한 판때기다. */
+.game-shell .sutda-shell .holdem-seat-plate {
+  min-width: 78px;
+  margin-top: -5px;
+  padding: 4px 10px 5px;
+  border-radius: 3px;
+  border-color: rgba(232,217,184, .14);
+  background: rgba(10,8,5, .74);
+  box-shadow: 0 3px 10px rgba(0,0,0, .5);
+  backdrop-filter: blur(2px);
+}
+.game-shell .sutda-shell .holdem-seat.is-turn .holdem-seat-plate {
+  border-color: rgba(240,180,28, .7);
+  box-shadow: 0 0 0 1px rgba(240,180,28, .22), 0 3px 10px rgba(0,0,0, .5);
+}
+.game-shell .sutda-shell .holdem-seat.is-mine .holdem-seat-plate { border-color: rgba(240,180,28, .42); }
+
+/* 빈 자리: 장판에 눌린 자국 정도로만. */
+.game-shell .sutda-shell .holdem-seat-empty {
+  border: 1px dashed rgba(232,217,184, .16);
+  border-radius: 4px;
+  background: rgba(0,0,0, .16);
+  box-shadow: inset 0 2px 8px rgba(0,0,0, .32);
+  color: rgba(232,217,184, .34);
+}
+.game-shell .sutda-shell .holdem-seat-empty:hover,
+.game-shell .sutda-shell .holdem-seat-empty:focus-visible {
+  border-color: rgba(240,180,28, .55);
+  background: rgba(240,180,28, .1);
+  color: var(--gold-light);
+}
+
+/* 족보 이름표 — 드러난 패 밑에 바로 붙는 판때기. 승자만 놋쇠로 뒤집힌다. */
+.game-shell .sutda-shell .holdem-seat-status.hand {
+  padding: 2px 10px;
+  border: 1px solid rgba(240,180,28, .45);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(24,17,9, .94), rgba(14,10,6, .94));
+  color: var(--text);
+  font-family: var(--display-font);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.game-shell .sutda-shell .holdem-seat.is-winner .holdem-seat-status.hand {
+  border-color: rgba(255,240,200, .6);
+  background: linear-gradient(180deg, var(--gold-light), var(--gold));
+  color: var(--on-gold);
+}
+
+/* ── 화투 ────────────────────────────────────────────────────────────────── */
+
+/* 진짜 화투 뒷면 (/cards/hwatu/back.svg) — 기본 .hwatu-back 의 CSS 줄무늬는 카드가
+   아니라 UI 텍스처로 읽혔다. 뒷면이 그려지는 모든 자리(좌석·덱)에 적용된다. */
 .hwatu-back {
   background: #a80f16 url("/cards/hwatu/back.svg") center / cover no-repeat;
   border-color: #7c050a;
 }
 
-/* 섯다 felt tone: hwatu tables run warmer/deeper than a poker room's green. */
-.game-shell .sutda-shell .holdem-table-rail::before {
-  background:
-    radial-gradient(ellipse 72% 58% at 50% 36%, rgba(255, 250, 235, .09), transparent 68%),
-    radial-gradient(ellipse 130% 110% at 50% 44%, #176243 0%, #0e4a30 40%, #093a24 72%, #062a1a 100%);
-}
-
-/* ── Hwatu sizing per context ─────────────────────────────────────────────────
-   The base .hwatu-card in styles.css is a fixed 53×82 tuned for the old giant
-   table; on the shared table the opponents' cards need to be seat-sized and
-   only my own hand reads larger (same rule as Hold'em's .is-mine). */
+/* 크기: styles.css 의 .hwatu-card 는 옛 대형 테이블에 맞춘 53×82 고정이라 좌석에는
+   크다. 상대 패는 좌석 크기로, 내 패만 크게 (홀덤 .is-mine 과 같은 규칙). */
 .game-shell .sutda-shell .sutda-cards { height: auto; min-height: 56px; align-items: flex-end; gap: 0; }
 .game-shell .sutda-shell .sutda-cards .hwatu-card { width: 34px; height: 53px; }
-.game-shell .sutda-shell .sutda-cards .hwatu-month { font-size: 9px; }
+.game-shell .sutda-shell .sutda-cards .hwatu-month { font-size: 11px; }
 .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards { min-height: 74px; }
 .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-card { width: 46px; height: 71px; }
 .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-month { font-size: 11px; }
 .game-shell .sutda-shell .sutda-cards .sutda-fly + .sutda-fly { margin-left: -8px; }
 .game-shell .sutda-shell .sutda-cards .sutda-fly + .sutda-fly .hwatu-card { transform: rotate(4deg); }
 
-/* Rail hand panel minis. */
-.game-shell .sutda-shell .sutda-panel-cards .hwatu-card { width: 22px; height: 34px; border-radius: 3px; }
-.game-shell .sutda-shell .sutda-panel-cards .hwatu-month { top: 1px; left: 1px; padding: 0 .2em; border-width: .5px; font-size: 7px; }
+/* 장판에 눕힌 패: 세워둔 것처럼 길게 떨어지는 그림자가 아니라 바닥에 닿은 접지 그림자. */
+.game-shell .sutda-shell .sutda-cards .hwatu-card {
+  box-shadow: 0 1px 1px rgba(0,0,0, .5), 0 5px 9px -4px rgba(0,0,0, .6);
+}
 
-/* ── The deck on the felt ─────────────────────────────────────────────────────
-   Sits where Hold'em parks its deck (inside the action line, the dealer's
-   spot) and doubles as the [data-deck-shoe] flight origin. */
+/* 레일 족보 패널의 미니 카드. */
+.game-shell .sutda-shell .sutda-panel-cards .hwatu-card { width: 22px; height: 34px; border-radius: 3px; }
+.game-shell .sutda-shell .sutda-panel-cards .hwatu-month { top: 1px; left: 1px; padding: 0 .2em; border-width: .5px; font-size: 12.5px; }
+
+/* ── 덱 ──────────────────────────────────────────────────────────────────
+   장판 위 딜러 자리에 놓인 패 뭉치. [data-deck-shoe] 비행 원점도 겸한다. */
 .sutda-deck {
   position: absolute;
   top: 32%;
@@ -58,16 +218,15 @@
   width: 34px;
   height: 53px;
   pointer-events: none;
-  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .55));
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .55));
 }
 .sutda-deck .hwatu-card { position: absolute; inset: 0; width: 100%; height: 100%; }
 .sutda-deck .hwatu-card:first-child { transform: translate(-2.5px, -2.5px); filter: brightness(.7); }
 
-/* ── Deal flight ──────────────────────────────────────────────────────────────
-   lib/shoeFlight writes --card-deal-x/y/ms from the deck's real position; with
-   no measured flight (reduced motion, missing anchor) the defaults collapse to
-   a quiet fade-in-place. Hwatu has no back->face flip, so unlike PlayingCard
-   this is the entire deal animation. */
+/* ── 딜 비행 ─────────────────────────────────────────────────────────────
+   lib/shoeFlight 가 덱의 실제 위치에서 --card-deal-x/y/ms 를 써준다. 측정된 비행이
+   없으면(감속 모션, 앵커 없음) 기본값이 제자리 페이드로 접힌다. 화투는 뒤집기가
+   없으므로 이게 딜 애니메이션의 전부다. */
 .sutda-fly {
   display: inline-block;
   animation: sutda-deal var(--card-deal-ms, .4s) cubic-bezier(.2, .85, .32, 1) var(--card-enter-delay, 0ms) backwards;
@@ -79,40 +238,291 @@
 }
 @media (prefers-reduced-motion: reduce) { .sutda-fly { animation: none; } }
 
-/* Street label under the pot. */
-.sutda-street {
-  color: rgba(255, 244, 214, .55);
-  font-family: var(--ui-font);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: .12em;
-}
-
-/* ── Winner treatment (shared shape, lives here because 섯다 shipped it first) ── */
-.game-shell .holdem-seat.is-winner { opacity: 1; filter: drop-shadow(0 0 14px rgba(255, 210, 74, .55)); }
+/* ── 승자 (모양은 공유, 섯다가 먼저 내서 여기 산다) ───────────────────── */
+.game-shell .holdem-seat.is-winner { opacity: 1; filter: drop-shadow(0 0 14px rgba(240,180,28, .55)); }
 .game-shell .holdem-seat.is-winner .holdem-seat-plate { border-color: var(--gold-light); }
 .game-shell .holdem-seat-status.win {
   padding: 1px 8px;
   border: 1px solid var(--gold-light);
   border-radius: 999px;
   background: var(--gold-btn);
-  color: #23150a;
-  font-weight: 800;
+  color: var(--on-gold);
+  font-weight: 600;
 }
 
-/* 족보 popover opens from the rail footer; keep it above the rail and clear of
-   the viewport edge now that its trigger no longer floats mid-screen. */
+/* ── 레일과 베팅존 ───────────────────────────────────────────────────────
+   장판 옆의 어두운 방바닥. 버튼이 색으로 소리치지 않게 톤을 낮춘다 — 화면의 주인공은
+   장판 위의 패다. 액션 이름만 명조로 세워 무게를 준다. */
+.game-shell .sutda-shell .holdem-rail-v4 {
+  border-radius: 5px;
+  border-color: rgba(232,217,184, .14);
+  background: linear-gradient(to bottom, #100c07, #080603);
+}
+.game-shell .sutda-shell .pvp-act {
+  border-radius: 3px;
+  border-color: rgba(232,217,184, .16);
+  background: linear-gradient(180deg, rgba(34,25,16, .94), rgba(17,12,8, .94));
+  box-shadow: none;
+  color: var(--text);
+}
+.game-shell .sutda-shell .pvp-act:hover:not(:disabled) {
+  filter: none;
+  border-color: rgba(240,180,28, .6);
+  background: linear-gradient(180deg, rgba(48,35,20, .96), rgba(22,16,10, .96));
+}
+.game-shell .sutda-shell .pvp-act strong {
+  font-family: var(--display-font);
+  font-size: 15px;
+  letter-spacing: .06em;
+}
+.game-shell .sutda-shell .pvp-act small { color: var(--muted-dim); font-weight: 500; }
+.game-shell .sutda-shell .pvp-act.tone-red strong { color: #e3927f; }
+.game-shell .sutda-shell .pvp-act.tone-gold strong,
+.game-shell .sutda-shell .pvp-act.tone-blue strong { color: var(--gold-light); }
+
+/* 족보 팝오버는 레일 푸터에서 열린다 — 레일 위로, 뷰포트 가장자리는 피해서. */
 .game-shell .sutda-shell .sutda-guide { position: relative; flex: 1 1 0; min-width: 0; }
 .game-shell .sutda-shell .sutda-guide .outline-button { width: 100%; min-height: 34px; padding: 0 8px; font-size: 11.5px; margin-top: 0; }
 .game-shell .sutda-shell .sutda-guide-popover { right: 0; bottom: calc(100% + 10px); z-index: 41; }
 
+/* ── 가로 폰 ─────────────────────────────────────────────────────────── */
 @media (max-width: 900px), (max-height: 560px) {
+  .game-shell .sutda-shell .ot-stage { padding: 4px 6px 6px; }
   .game-shell .sutda-shell .sutda-cards { min-height: 40px; }
   .game-shell .sutda-shell .sutda-cards .hwatu-card { width: 24px; height: 37px; }
-  .game-shell .sutda-shell .sutda-cards .hwatu-month { font-size: 7px; }
+  .game-shell .sutda-shell .sutda-cards .hwatu-month { font-size: 12.5px; }
   .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards { min-height: 50px; }
   .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-card { width: 31px; height: 48px; }
-  .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-month { font-size: 8px; }
+  .game-shell .sutda-shell .sutda-seat.is-mine .sutda-cards .hwatu-month { font-size: 12.5px; }
   .sutda-deck { width: 24px; height: 37px; }
-  .game-shell .sutda-shell .sutda-guide .outline-button { min-height: 30px; padding: 0 7px; font-size: 10px; }
+  .sutda-cash { width: 76px; height: 38px; }
+  .sutda-cash i { width: 44px; height: 19px; }
+  .game-shell .sutda-shell .holdem-pot span { font-size: 16px; }
+  .game-shell .sutda-shell .holdem-seat-status.hand { font-size: 12px; padding: 1px 8px; }
+  .game-shell .sutda-shell .pvp-act strong { font-size: 13.5px; }
+  .game-shell .sutda-shell .sutda-guide .outline-button { min-height: 30px; padding: 0 7px; font-size: 12px; }
+}
+
+/* ── 세로 폰: 장판이 위, 액션 독이 아래 ───────────────────────────────
+   table-pvp.css 의 세로 규칙은 테이블 레일 좌표를 잡는 데 쓰였는데 그 요소가 이제
+   없다. 장판은 그냥 칸을 다 채우면 되고, 좌석 반경만 세로에 맞춰 다시 잡는다. */
+@media (orientation: portrait) and (max-width: 900px) {
+  .game-shell .sutda-shell .holdem-table.sutda-mat { --seat-rx: 38%; --seat-ry: 37%; }
+  .game-shell .sutda-shell .sutda-pot-zone { top: 44%; }
+  .sutda-deck { top: 27%; right: 24%; }
+  .sutda-cash { width: 70px; height: 34px; }
+  .sutda-cash i { width: 40px; height: 17px; }
+}
+
+/* ── 베팅존 ──────────────────────────────────────────────────────────────
+   액션이 넷에서 여덟로 늘었다(다이·체크·콜·삥·따당·쿼터·하프·올인). 두 칸씩 흘려보내면
+   손이 가는 자리가 매 판 바뀌므로 2열 고정 격자에 순서대로 앉힌다. */
+.game-shell .sutda-shell .sutda-act-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.game-shell .sutda-shell .sutda-act-grid .pvp-act { min-height: 44px; }
+
+/* ── 족보판 (내승률) ─────────────────────────────────────────────────────
+   판 옆에 늘 펼쳐둔 종이. 내 줄을 짚어 주고 이미 나보다 센 줄은 눌러 둔다. */
+.sutda-ladder {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid rgba(232,217,184, .13);
+  border-radius: 3px;
+  background: rgba(8,6,4, .5);
+}
+.sutda-ladder > header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 5px 8px 4px;
+  border-bottom: 1px solid rgba(232,217,184, .12);
+  color: var(--gold-light);
+  font-family: var(--display-font);
+  font-size: 12px; font-weight: 700; letter-spacing: .1em;
+}
+.sutda-ladder-head { color: var(--muted-dim); font-family: var(--ui-font); font-size: 11px; font-weight: 500; letter-spacing: .04em; }
+.sutda-ladder ol { flex: 1 1 auto; overflow-y: auto; margin: 0; padding: 3px; list-style: none; min-height: 0; }
+.sutda-ladder li {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 6px;
+  padding: 2px 6px; border-radius: 2px;
+  color: var(--muted); font-size: 12px;
+}
+.sutda-ladder li b { font-weight: 500; }
+.sutda-ladder li em { font-style: normal; color: var(--muted-dim); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.sutda-ladder li.is-beaten { opacity: .42; }
+.sutda-ladder li.is-mine {
+  background: rgba(240,180,28, .16);
+  box-shadow: inset 0 0 0 1px rgba(240,180,28, .42);
+  color: var(--text);
+}
+.sutda-ladder li.is-mine b { color: var(--gold-light); font-weight: 700; }
+.sutda-ladder li.is-mine em { color: var(--gold-light); }
+.sutda-ladder-note { margin: 0; padding: 4px 8px 6px; color: var(--muted-dim); font-size: 11px; }
+
+/* ── 게임결과 ───────────────────────────────────────────────────────────── */
+.sutda-results {
+  border: 1px solid rgba(240,180,28, .3);
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(24,17,9, .85), rgba(10,7,4, .85));
+}
+.sutda-results > header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 5px 9px 4px;
+  border-bottom: 1px solid rgba(240,180,28, .2);
+  color: var(--gold-light);
+  font-family: var(--display-font);
+  font-size: 12.5px; font-weight: 700; letter-spacing: .08em;
+}
+.sutda-results-ddaeng {
+  padding: 1px 6px; border-radius: 2px;
+  background: rgba(240,180,28, .2);
+  color: var(--gold-light);
+  font-family: var(--ui-font); font-size: 11px; font-weight: 600; letter-spacing: 0;
+}
+.sutda-results ul { margin: 0; padding: 4px; list-style: none; display: grid; gap: 1px; }
+.sutda-results li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; align-items: baseline;
+  padding: 3px 6px; border-radius: 2px;
+  font-size: 12px; color: var(--muted);
+}
+.sutda-results li.is-mine { background: rgba(232,217,184, .07); }
+.sutda-results li.is-win .sutda-results-hand { color: var(--gold-light); }
+.sutda-results-who { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text); }
+.sutda-results li.is-mine .sutda-results-who { color: var(--gold-light); font-weight: 600; }
+.sutda-results-hand { font-family: var(--display-font); font-size: 12px; white-space: nowrap; }
+.sutda-results-net { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sutda-results li.is-win .sutda-results-net { color: #7ee2a8; }
+.sutda-results-net em { display: block; font-style: normal; font-size: 10.5px; color: var(--muted-dim); }
+.sutda-results-rake { margin: 0; padding: 0 9px 6px; color: var(--muted-dim); font-size: 11px; text-align: right; }
+
+/* 올인한 좌석은 이름표에 표시가 남는다 — 더 낼 돈이 없다는 뜻이라 다음 베팅에서 빠진다. */
+.game-shell .sutda-shell .holdem-seat.is-allin .holdem-seat-plate { border-color: rgba(216,106,85, .6); }
+
+@media (max-width: 900px), (max-height: 560px) {
+  .game-shell .sutda-shell .sutda-act-grid { gap: 4px; }
+  .game-shell .sutda-shell .sutda-act-grid .pvp-act { min-height: 38px; }
+  .sutda-ladder li { font-size: 11px; padding: 1px 5px; }
+  .sutda-results li { font-size: 11px; }
+}
+
+/* ── 승부 외침 ───────────────────────────────────────────────────────────
+   이긴 족보를 판 한가운데에 크게. 섯다에서 제일 짜릿한 순간이라 상용 제품들은 여기에
+   가장 큰 그래픽을 쓴다 — 우리는 명조로 굵게 세우고 놋쇠빛 글로우만 얹는다. */
+.sutda-callout {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 7;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  animation: sutda-callout-in .34s cubic-bezier(.2, .9, .25, 1) backwards;
+}
+.sutda-callout strong {
+  font-family: var(--display-font);
+  font-size: clamp(22px, 3.4vw, 38px);
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1.1;
+  color: #ffe9b0;
+  text-shadow: 0 0 26px rgba(255,210,138, .55), 0 2px 0 rgba(0,0,0, .5);
+}
+.sutda-callout span {
+  padding: 1px 9px;
+  border: 1px solid rgba(240,180,28, .5);
+  border-radius: 2px;
+  background: rgba(10,7,4, .8);
+  color: var(--gold-light);
+  font-family: var(--ui-font);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
+}
+@keyframes sutda-callout-in {
+  from { opacity: 0; transform: translateY(8px) scale(.92); }
+}
+@media (prefers-reduced-motion: reduce) { .sutda-callout { animation: none; } }
+
+.game-shell .sutda-shell .holdem-seat-status.allin {
+  padding: 1px 8px;
+  border: 1px solid rgba(216,106,85, .7);
+  border-radius: 2px;
+  background: rgba(60,18,12, .85);
+  color: #ffb9a6;
+  font-weight: 600;
+}
+
+/* 족보판이 레일의 남는 높이를 가져간다 — 스페이서는 그 자리를 비켜준다.
+   (둘 다 flex:1 이면 서로 절반씩 먹어 표가 잘린다.) */
+.game-shell .sutda-shell .sutda-ladder { flex: 1 1 auto; min-height: 84px; }
+.game-shell .sutda-shell .holdem-rail-spacer { flex: 0 0 0; min-height: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   판을 살아 있게 — 쪼기, 말풍선, 그리고 각을 죽이는 일.
+
+   v3 초판은 모서리를 2~3px 로 바짝 깎고 색을 눌러서 차분하긴 한데 딱딱했다.
+   실제 섯다 판은 둥글고 두툼하고 따뜻하다. 아래 규칙은 그 톤으로 되돌린다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 각 죽이기 ────────────────────────────────────────────────────────────
+   같은 요소들을 둥글고 두툼하게. 값만 바꾸고 구조는 그대로다. */
+.game-shell .sutda-shell .holdem-table.sutda-mat,
+.sutda-mat-surface { border-radius: 12px; }
+
+.game-shell .sutda-shell .holdem-seat-plate {
+  padding: 5px 12px 6px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(32, 24, 15, .86), rgba(14, 10, 6, .88));
+}
+.game-shell .sutda-shell .holdem-seat-empty { border-radius: 14px; }
+.game-shell .sutda-shell .holdem-seat-status.hand,
+.game-shell .sutda-shell .holdem-seat-status.allin,
+.game-shell .sutda-shell .holdem-seat-status.fold { border-radius: 999px; padding-inline: 12px; }
+
+.game-shell .sutda-shell .holdem-rail-v4 { border-radius: 16px; }
+.game-shell .sutda-shell .sutda-act-grid .pvp-act { border-radius: 12px; }
+.sutda-ladder, .sutda-results { border-radius: 12px; }
+.sutda-ladder li, .sutda-results li { border-radius: 8px; }
+.sutda-results-ddaeng { border-radius: 999px; padding-inline: 9px; }
+.sutda-callout span { border-radius: 999px; padding-inline: 12px; }
+
+/* 등불을 한 단 더 따뜻하게 — 차분한 게 아니라 식어 보였다. */
+.sutda-mat-lamp {
+  background:
+    radial-gradient(56% 42% at 50% 2%, rgba(255, 206, 126, .26), transparent 70%),
+    radial-gradient(104% 82% at 50% 38%, transparent 40%, rgba(6, 4, 2, .28) 74%, rgba(5, 3, 2, .7) 100%);
+}
+
+/* ── 움직임 ───────────────────────────────────────────────────────────────
+   정지 화면이 딱딱함의 절반이다. 큰 동작은 넣지 않고, 손이 닿는 것들만 반응하게. */
+.game-shell .sutda-shell .sutda-act-grid .pvp-act { transition: transform .12s ease, filter .15s, box-shadow .15s; }
+.game-shell .sutda-shell .sutda-act-grid .pvp-act:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0, 0, 0, .45); }
+.game-shell .sutda-shell .sutda-act-grid .pvp-act:active:not(:disabled) { transform: translateY(1px); }
+
+/* 내 차례 이름표는 숨 쉬듯 밝아진다. */
+.game-shell .sutda-shell .holdem-seat.is-turn .holdem-seat-plate { animation: sutda-breathe 1.9s ease-in-out infinite; }
+@keyframes sutda-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(240, 180, 28, .2), 0 3px 10px rgba(0, 0, 0, .5); }
+  50% { box-shadow: 0 0 0 1px rgba(240, 180, 28, .5), 0 0 18px rgba(240, 180, 28, .3), 0 3px 10px rgba(0, 0, 0, .5); }
+}
+
+/* 지폐가 한 장씩 얹힐 때 툭 떨어지듯. */
+.sutda-cash i { animation: sutda-bill-drop .3s cubic-bezier(.2, .9, .3, 1) backwards; }
+@keyframes sutda-bill-drop { from { opacity: 0; transform: translate(-50%, -140%) rotate(-24deg); } }
+
+/* 이긴 족보는 튕겨 들어온다. */
+.sutda-callout { animation: sutda-callout-pop .42s cubic-bezier(.15, 1.4, .4, 1) backwards; }
+@keyframes sutda-callout-pop {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-bubble, .sutda-callout, .sutda-cash i,
+  .game-shell .sutda-shell .holdem-seat.is-turn .holdem-seat-plate { animation: none; }
+  .table-squeeze-hint { animation: none; opacity: .8; }
 }

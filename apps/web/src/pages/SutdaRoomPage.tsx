@@ -9,7 +9,8 @@ import { GameShell, openGameGuide } from "../components/GameShell";
 import { HwatuCard } from "../components/HwatuCard";
 import { ActionButton, HandStrengthMeter, StepBar } from "../components/PvpBits";
 import { RoomChat } from "../components/RoomChat";
-import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
+import { ActionBubble, CardSqueeze, pickLine } from "../components/TableBits";
+import { SutdaLadder, SutdaResultBoard } from "../components/SutdaPanels";
 import { sutdaGuide } from "../lib/guides/sutda";
 import { applyShoeFlight } from "../lib/shoeFlight";
 import { playSound } from "../lib/sound";
@@ -17,6 +18,26 @@ import { randomRequestId } from "../lib/requestId";
 import { readSutdaHand } from "../lib/sutdaHandRead";
 
 const ACTION_SECONDS = 20;
+/** 판 위에 뜨는 대사. 섯다판의 말투로. */
+const SUTDA_LINES: Record<SutdaAction, string[]> = {
+  die: ["죽었다", "에라, 못 먹겠네", "다음 판에 보자", "접는다"],
+  check: ["체크", "그냥 가지", "일단 보자", "……"],
+  call: ["콜", "받는다", "그래 보자", "따라가지"],
+  bbing: ["삥!", "간 좀 보자", "슬슬 가볼까"],
+  ddadang: ["따당!", "두 배다", "겁나?", "올려보자고"],
+  quarter: ["쿼터", "조금 더", "이 정도는 받아야지"],
+  half: ["하프!", "판돈 절반 간다", "이쯤에서 접든가", "세게 간다"],
+  allin: ["올인!", "다 건다", "여기서 끝내자", "가진 거 전부"],
+};
+/** 용어 밑에 붙는 한 줄 설명 — 삥·따당·쿼터는 처음 보면 금액 규칙이 안 보인다. */
+const ACTION_HINT: Record<SutdaAction, string> = {
+  die: "포기하기", check: "그냥 넘기기", call: "따라가기",
+  bbing: "기본 판돈만큼", ddadang: "앞사람 2배", quarter: "판돈 ¼", half: "판돈 ½", allin: "가진 전부",
+};
+const ACTION_TONE: Record<SutdaAction, "red" | "gold" | "blue" | "green" | "purple"> = {
+  die: "red", check: "gold", call: "blue",
+  bbing: "green", ddadang: "green", quarter: "green", half: "green", allin: "purple",
+};
 const TIMER_RING = 163.4;
 // Same table geometry as Hold'em (see its SeatView): the unit-circle position goes into
 // --sx/--sy and table-pvp.css picks the radii per layout (landscape vs portrait).
@@ -30,10 +51,9 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
   const [message, setMessage] = useState("");
   const [seconds, setSeconds] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
-  const [resultNotice, setResultNotice] = useState<RoundResultNoticeData | null>(null);
+  const [squeezed, setSqueezed] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const noticeKeyRef = useRef<string | null>(null);
-  const noticeTimerRef = useRef<number | null>(null);
   const prevPhaseRef = useRef<SutdaRoomSnapshot["room"]["phase"] | null>(null);
   const prevTurnRef = useRef(false);
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(() => io(API_URL, { auth: { token }, autoConnect: false }), [token]);
@@ -60,18 +80,24 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
     return () => window.clearInterval(id);
   }, [snapshot?.phaseEndsAt]);
 
+  // 새 판이 시작되면 둘째 장은 다시 엎어진 채로 온다.
+  useEffect(() => { setSqueezed(false); }, [snapshot?.roundId]);
+
   useEffect(() => {
     const update = () => setFullscreen(document.fullscreenElement === shellRef.current);
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
 
-  // Table cues, once per transition: the deal riffle when cards go out, the turn chime the
-  // moment it becomes my decision — same conventions as the Hold'em room.
+  // Table cues, once per transition. Only the turn call: the shared sound set is a baccarat
+  // ANNOUNCER (deal = "베팅이 마감됐습니다", chip = "베팅을 시작하겠습니다"), written for a table
+  // where a betting window opens and closes on a timer. 섯다 has no such window — the dealer
+  // deals and each player acts on their turn — so those lines were narrating a game that isn't
+  // being played. Dropped rather than replaced: silence beats a wrong announcement until this
+  // table gets its own effects (패 던지는 소리 / 돈 놓는 소리).
   useEffect(() => {
     if (!snapshot) return;
     if (snapshot.room.phase !== prevPhaseRef.current) {
-      if (snapshot.room.phase === "DEALING") playSound("deal");
       // A stale "NOT_YOUR_TURN"/rejected-action line must not sit on screen into the next street.
       if (snapshot.room.phase === "PLAYER_TURN" || snapshot.room.phase === "WAITING") setMessage("");
       prevPhaseRef.current = snapshot.room.phase;
@@ -81,9 +107,8 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
     prevTurnRef.current = myTurnNow;
   }, [snapshot]);
 
-  // Personal result banner. lastWinners persists through the between-hands WAITING, so key the
-  // notice on its content rather than the (already cleared) roundId. A win shows what was
-  // credited; a lost showdown says which hand beat mine, so the loss teaches something.
+  // 판이 끝났을 때의 소리만 남긴다 — 무엇으로 이겼고 누가 얼마를 가져갔는지는 판 한가운데의
+  // 외침과 레일의 게임결과 표가 말한다(예전엔 여기에 개인 배너가 하나 더 떠서 서로를 가렸다).
   useEffect(() => {
     if (!snapshot || snapshot.lastWinners.length === 0 || snapshot.mySeatNumber === null) return;
     const key = snapshot.lastWinners.map((w) => `${w.seatNumber}:${w.amount}`).join("|");
@@ -91,26 +116,9 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
     noticeKeyRef.current = key;
     const me = snapshot.seats.find((seat) => seat.seatNumber === snapshot.mySeatNumber);
     const mine = snapshot.lastWinners.find((w) => w.seatNumber === snapshot.mySeatNumber);
-    if (mine) {
-      setResultNotice({ net: mine.amount, amount: mine.amount, title: `${mine.handLabel} 승리` });
-      playSound("win");
-    } else if (me && me.cardCount > 0 && !me.folded) {
-      const winner = snapshot.lastWinners[0]!;
-      const isRedeal = winner.handLabel.includes("재경기");
-      setResultNotice({
-        net: isRedeal ? 0 : -me.totalContributed,
-        amount: isRedeal ? 0 : -me.totalContributed,
-        title: isRedeal ? "재경기 · 베팅금 반환" : `${winner.username}님의 ${winner.handLabel}에 패배`,
-      });
-      playSound(isRedeal ? "tie" : "lose");
-    } else return;
-    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
-    noticeTimerRef.current = window.setTimeout(() => setResultNotice(null), 4_200);
+    if (mine) playSound("win");
+    else if (me && me.cardCount > 0 && !me.folded) playSound(snapshot.lastWinners[0]!.handLabel.includes("재경기") ? "tie" : "lose");
   }, [snapshot]);
-
-  useEffect(() => () => {
-    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
-  }, []);
 
   if (!snapshot) return <div className="loading-screen"><Brand /><p>{message || "섯다방에 연결하고 있습니다…"}</p></div>;
 
@@ -120,22 +128,26 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
   const readyCount = snapshot.seats.filter((seat) => seat.userId && seat.ready).length;
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / ACTION_SECONDS));
   const winnerBySeat = new Map(snapshot.lastWinners.map((winner) => [winner.seatNumber, winner]));
-  // Mirror of the server's 하프 sizing (sutda-room-manager.apply): half the pot, at least the
-  // ante, capped by the table limit — shown on the button so a raise is never a surprise amount.
+  // 버튼 금액은 서버가 내려준 것을 그대로 쓴다. v1 은 클라이언트가 하프 금액을 따로 계산해서
+  // 서버 사이징이 바뀌면 조용히 어긋날 수 있었다 — 이제 game-core 의 sutdaBetOptions 한 곳에서 나온다.
   const toCall = snapshot.toCall;
-  const halfRaise = mine ? Math.min(Math.max(snapshot.room.minBet, Math.round(snapshot.pot.amount / 2)), Math.max(0, snapshot.room.maxBet - mine.totalContributed - toCall)) : 0;
-  const halfTotal = toCall + halfRaise;
-  const canCall = Boolean(mine && mine.stack >= toCall);
-  const canHalf = Boolean(mine && halfRaise > 0 && mine.stack >= halfTotal);
+  const betOptions = snapshot.betOptions;
   const myRead = mine && !mine.folded ? readSutdaHand(mine.cards) : null;
   const inHand = Boolean(mine && mine.cardCount > 0 && !mine.folded);
   const step = roundStep(snapshot);
   const closing = myTurn && seconds <= 5;
+  // 판돈은 숫자만이 아니라 장판 위에 실제로 쌓인다 — 삥 한 장 단위로 지폐를 얹고 14장에서 멈춘다.
+  const cashBills = snapshot.pot.amount > 0
+    ? Math.max(1, Math.min(14, Math.round(snapshot.pot.amount / Math.max(1, snapshot.room.minBet))))
+    : 0;
 
   const command = (action: SutdaAction) => {
     if (!snapshot.roundId) return;
     socket.emit("sutda.act", { requestId: randomRequestId(), roomId, roundId: snapshot.roundId, action }, (ack) => {
-      if (ack.ok) { setSnapshot(ack.data); playSound(action === "die" ? "fold" : "chip"); }
+      // No cue on a successful action for the same reason as above — "chip" announces
+      // "베팅을 시작하겠습니다" and "fold" says the English word "Fold", neither of which
+      // belongs on a 섯다 판.
+      if (ack.ok) setSnapshot(ack.data);
       else setMessage(errorText(ack.error));
     });
   };
@@ -160,36 +172,41 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
       shellRef={shellRef}
       guide={sutdaGuide}
     >
-      {/* Same two-column shell as Hold'em v4 (holdem-room-shell): table left, action rail
-          right; on a portrait phone the rail becomes a bottom dock (table-pvp.css). The
-          layout system in table-holdem.css is deliberately shared between the two PvP games. */}
+      {/* Two-column shell from Hold'em v4 (stage left, action rail right; a portrait phone
+          turns the rail into a bottom dock — table-pvp.css). The SHELL is shared; the play
+          surface is not: 섯다 draws a floor mat, not a table. See table-sutda.css. */}
       <div className="room-shell holdem-room-shell sutda-shell">
         <section className="ot-stage">
           <div className="ot-felt holdem-felt sutda-felt">
-            <RoundResultNotice notice={resultNotice} />
-            <div className="holdem-table">
-              {/* The hwatu deck on the felt — also the [data-deck-shoe] anchor every dealt
+            <div className="holdem-table sutda-mat">
+              {/* 섯다는 테이블에서 하는 게임이 아니다 — 방바닥에 편 장판 위에서 한다. 그래서
+                  가죽 레일도, 인쇄된 베팅 라인도, 타원 테두리도 없다. 장판이 곧 화면이고
+                  (사각형이라 구석까지 다 쓴다) 패는 그 위에 그냥 놓인다. */}
+              <div className="sutda-mat-surface" aria-hidden="true" />
+              <div className="sutda-mat-lamp" aria-hidden="true" />
+              {/* The hwatu deck on the mat — also the [data-deck-shoe] anchor every dealt
                   card visibly flies out of (lib/shoeFlight). */}
               <div className="sutda-deck" data-deck-shoe aria-hidden="true">
                 <span className="hwatu-card hwatu-back" />
                 <span className="hwatu-card hwatu-back" />
               </div>
-              <div className="holdem-table-rail" aria-hidden="true" />
-              <div className="holdem-action-line" aria-hidden="true" />
-              <div className="holdem-table-brand" aria-hidden="true">사인방 섯다</div>
-              <div className="holdem-board">
-                <div className="holdem-pot">{snapshot.pot.amount > 0 && <span>팟 {snapshot.pot.amount.toLocaleString()}</span>}</div>
+              {/* NOTE: not .sutda-center — that class still carries the dead v1 medallion
+                  rule in styles.css (gold border-radius:50%) and reusing it redraws it. */}
+              {snapshot.lastWinners.length > 0 && (
+                <div className="sutda-callout">
+                  <strong>{snapshot.lastWinners[0]!.handLabel}</strong>
+                  {snapshot.lastDdaeng && <span>{snapshot.lastDdaeng} 땡값</span>}
+                </div>
+              )}
+              <div className="holdem-board sutda-pot-zone">
+                {cashBills > 0 && snapshot.lastWinners.length === 0 && (
+                  <div className="sutda-cash" aria-hidden="true">
+                    {Array.from({ length: cashBills }).map((_, index) => <i key={index} />)}
+                  </div>
+                )}
+                <div className="holdem-pot">{snapshot.pot.amount > 0 && snapshot.lastWinners.length === 0 && <span>팟 {snapshot.pot.amount.toLocaleString()}</span>}</div>
                 {snapshot.street && snapshot.street !== "showdown" && (
                   <div className="sutda-street">{snapshot.street === "first" ? "1차 베팅 · 첫 패" : "2차 베팅 · 둘째 패"}</div>
-                )}
-                {snapshot.lastWinners.length > 0 && (
-                  <div className="holdem-winners">
-                    {snapshot.lastWinners.map((winner) => (
-                      <span key={winner.seatNumber} className="holdem-winner-pill">
-                        {winner.username} +{winner.amount.toLocaleString()} ({winner.handLabel})
-                      </span>
-                    ))}
-                  </div>
                 )}
               </div>
               {ordered(snapshot.seats, snapshot.mySeatNumber).map(({ seat, angle }) => (
@@ -202,6 +219,9 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
                   isMine={seat.seatNumber === snapshot.mySeatNumber}
                   showReady={snapshot.room.phase === "WAITING"}
                   showdown={snapshot.street === "showdown"}
+                  squeezed={squeezed}
+                  onSqueeze={() => setSqueezed(true)}
+                  myTurn={myTurn}
                   winnerLabel={winnerBySeat.get(seat.seatNumber) ? `WIN +${winnerBySeat.get(seat.seatNumber)!.amount.toLocaleString()}` : null}
                 />
               ))}
@@ -261,6 +281,10 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
               </div>
             )}
 
+            {snapshot.lastResults.length > 0 && snapshot.room.phase !== "PLAYER_TURN" && (
+              <SutdaResultBoard rows={snapshot.lastResults} rake={snapshot.lastRake} ddaeng={snapshot.lastDdaeng} mySeat={snapshot.mySeatNumber} />
+            )}
+
             <div className="holdem-rail-meta">
               <span>팟 <b>{snapshot.pot.amount.toLocaleString()}</b></span>
               {mine && inHand && <span>내 베팅 <b>{mine.totalContributed.toLocaleString()}</b></span>}
@@ -277,19 +301,20 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
                   <b>{seconds}</b>
                   <span className="turn-strip-bar" style={{ width: `${Math.min(100, (seconds / ACTION_SECONDS) * 100)}%` }} aria-hidden="true" />
                 </div>
-                <div className="holdem-act-row cols-3">
-                  <ActionButton label="다이" hint="포기하기" tone="red" onClick={() => command("die")} />
-                  {toCall === 0
-                    ? <ActionButton label="체크" hint="그냥 넘기기" tone="gold" onClick={() => command("check")} />
-                    : <ActionButton label={`콜 ${toCall.toLocaleString()}`} hint={canCall ? "따라가기" : "잔액 부족"} tone="blue" onClick={() => command("call")} disabled={!canCall} />}
-                  <ActionButton
-                    label={halfRaise > 0 ? `하프 ${halfTotal.toLocaleString()}` : "하프"}
-                    hint={halfRaise <= 0 ? "한도 도달" : !canHalf ? "잔액 부족" : "올리기"}
-                    tone="green"
-                    onClick={() => command("half")}
-                    disabled={!canHalf}
-                    title={halfRaise > 0 ? `콜 ${toCall.toLocaleString()} + 올리기 ${halfRaise.toLocaleString()}` : undefined}
-                  />
+                {/* 표준 섯다 베팅 세트 — 다이·체크·콜·삥·따당·쿼터·하프·올인. 금액과 활성 여부는
+                    서버가 계산해 내려준 그대로다. */}
+                <div className="sutda-act-grid">
+                  {betOptions.map((option) => (
+                    <ActionButton
+                      key={option.action}
+                      label={option.amount > 0 ? `${option.label} ${option.amount.toLocaleString()}` : option.label}
+                      hint={option.enabled ? ACTION_HINT[option.action] : option.reason ?? "지금은 불가"}
+                      tone={ACTION_TONE[option.action]}
+                      onClick={() => command(option.action)}
+                      disabled={!option.enabled}
+                      title={option.raiseBy > 0 ? `콜 ${toCall.toLocaleString()} + 올리기 ${option.raiseBy.toLocaleString()}` : undefined}
+                    />
+                  ))}
                 </div>
               </>
             )}
@@ -318,6 +343,8 @@ export function SutdaRoomPage({ token, onLogout }: { token: string; onLogout: ()
               <p className="rail-hint">테이블의 빈 자리를 누르면 참여할 수 있어요. 처음이라면 위의 <b>도움말</b>에서 족보표와 게임 방법을 확인하세요.</p>
             )}
 
+            <SutdaLadder myLabel={myRead?.complete ? myRead.label : null} />
+
             <div className="holdem-rail-spacer" />
 
             <div className="holdem-rail-footer">
@@ -341,7 +368,7 @@ function ordered(seats: SutdaSeatSnapshot[], mine: number | null) {
   return seats.map((seat, index) => ({ seat, angle: SEAT_ANGLES[(index - rotate + seats.length) % seats.length]! }));
 }
 
-function Seat({ seat, angle, canSit, onSit, isMine, showReady, showdown, winnerLabel }: { seat: SutdaSeatSnapshot; angle: number; canSit: boolean; onSit: () => void; isMine: boolean; showReady: boolean; showdown: boolean; winnerLabel: string | null }) {
+function Seat({ seat, angle, canSit, onSit, isMine, showReady, showdown, winnerLabel, squeezed, onSqueeze, myTurn }: { seat: SutdaSeatSnapshot; angle: number; canSit: boolean; onSit: () => void; isMine: boolean; showReady: boolean; showdown: boolean; winnerLabel: string | null; squeezed: boolean; onSqueeze: () => void; myTurn: boolean }) {
   // Unit-circle position; the radii live in CSS so portrait and landscape can differ.
   const style = { "--sx": Math.cos((angle * Math.PI) / 180).toFixed(4), "--sy": Math.sin((angle * Math.PI) / 180).toFixed(4) } as CSSProperties;
   if (!seat.userId) {
@@ -352,12 +379,18 @@ function Seat({ seat, angle, canSit, onSit, isMine, showReady, showdown, winnerL
     ) : <div className="holdem-seat holdem-seat-empty" style={style} />;
   }
   return (
-    <div className={`holdem-seat sutda-seat ${isMine ? "is-mine" : ""} ${seat.isTurn ? "is-turn" : ""} ${seat.folded ? "is-folded" : ""} ${seat.sittingOut ? "is-away" : ""} ${winnerLabel ? "is-winner" : ""}`} style={style}>
+    <div className={`holdem-seat sutda-seat ${isMine ? "is-mine" : ""} ${seat.isTurn ? "is-turn" : ""} ${seat.folded ? "is-folded" : ""} ${seat.sittingOut ? "is-away" : ""} ${seat.allIn ? "is-allin" : ""} ${winnerLabel ? "is-winner" : ""}`} style={style}>
       <div className="holdem-seat-cards sutda-cards">
         {/* Faces for my own seat (and everyone's at showdown); otherwise exactly as many
             backs as the seat actually holds — 섯다 deals one card, bets, then the second. */}
         {seat.cards
-          ? seat.cards.map((card, index) => <FlyingHwatu key={card.id} delayMs={index * 200}><HwatuCard card={card} /></FlyingHwatu>)
+          ? seat.cards.map((card, index) => (
+              <FlyingHwatu key={card.id} delayMs={index * 200}>
+                {isMine && index === 1 && !squeezed && !showdown
+                  ? <CardSqueeze openNow={myTurn} onOpen={onSqueeze}><HwatuCard card={card} /></CardSqueeze>
+                  : <HwatuCard card={card} />}
+              </FlyingHwatu>
+            ))
           : Array.from({ length: seat.cardCount }).map((_, index) => <FlyingHwatu key={index} delayMs={index * 200}><HwatuCard hidden /></FlyingHwatu>)}
       </div>
       <div className="holdem-seat-plate">
@@ -368,8 +401,16 @@ function Seat({ seat, angle, canSit, onSit, isMine, showReady, showdown, winnerL
         </div>
         <div className="holdem-seat-stack">{seat.stack.toLocaleString()}</div>
       </div>
+      {seat.lastAction && !showdown && (
+        <ActionBubble
+          text={pickLine(SUTDA_LINES[seat.lastAction.action], seat.seatNumber, seat.lastAction.action, seat.lastAction.amount)}
+          amount={seat.lastAction.amount}
+          tone={seat.lastAction.action === "die" ? "out" : seat.lastAction.action === "check" || seat.lastAction.action === "call" ? "calm" : "push"}
+        />
+      )}
       <ChipStack amount={seat.totalContributed} label="베팅" />
       {seat.folded && <div className="holdem-seat-status fold">다이</div>}
+      {!seat.folded && seat.allIn && <div className="holdem-seat-status allin">올인</div>}
       {winnerLabel && <div className="holdem-seat-status win">{winnerLabel}</div>}
       {!seat.folded && seat.handLabel && (showdown || !isMine) && (
         <div className="holdem-seat-status hand">{seat.handLabel}</div>

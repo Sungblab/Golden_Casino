@@ -30,25 +30,30 @@ import { randomRequestId } from "../lib/requestId";
  * table has already settled and moved on. Worst case is six cards — two third-card
  * draws — so budget against that:
  *
- *   5 × DEAL_STEP_MS + DEAL_LEAD_MS + THIRD_CARD_PAUSE_MS  =  5_100ms to mount the last card.
- *   Its longer shoe flight and flip finish during the following SETTLING window.
+ *   5 × DEAL_STEP_MS + DEAL_LEAD_MS + THIRD_CARD_PAUSE_MS  =  3_600ms to mount the last card,
+ *   plus its shoe flight (≤520ms), landing hold (120ms) and flip (520ms) ≈ 4.8s fully shown.
+ *
+ * Paced like Evolution's Speed Baccarat (face-up deal, ~27s round): cards land ~0.6s apart,
+ * a short beat before a third card, and the outcome is acknowledged within a second of the
+ * last flip — the old 0.85s/0.65s/1.8s cadence left ~6s of dead air after a four-card hand.
  */
-const DEAL_STEP_MS = 850;
+const DEAL_STEP_MS = 600;
 /** Beat before the first card lands, so the deal reads as deliberate rather than instant. */
-const DEAL_LEAD_MS = 200;
+const DEAL_LEAD_MS = 150;
 /** A natural-table pause before either side receives a third card. */
-const THIRD_CARD_PAUSE_MS = 650;
-/** Beat between the last card mounting and the road/stats update. The card can fly for 420ms,
- * rest for 140ms, then turn for 800ms; 1.45s keeps the outcome behind the full reveal. */
-const ROAD_REVEAL_DELAY_MS = 1_800;
+const THIRD_CARD_PAUSE_MS = 450;
+/** Measured from the last card *mounting*: it still has to fly (≤380ms), rest (80ms) and
+ * turn (360ms, shoeFlight.ts) before the outcome may show — this keeps a ~180ms beat behind
+ * the full reveal so the banner never precedes the card finishing its turn. */
+const ROAD_REVEAL_DELAY_MS = 1_000;
 const BET_CHOICES: BaccaratBetChoice[] = ["player", "tie", "banker", "player_bonus", "banker_bonus", "player_pair", "banker_pair"];
 /** Must match room-manager.ts's BETTING_MS (12_000ms) — drives the countdown ring. */
 const BETTING_SECONDS = 12;
 /**
  * How long the settlement notice stays up. Must be shorter than the server's RESULT phase
- * (RESULT_MS, 5_500ms) or a win notice is still on screen during the next round's betting.
+ * (RESULT_MS, 4_500ms) or a win notice is still on screen during the next round's betting.
  */
-const RESULT_NOTICE_MS = 3_800;
+const RESULT_NOTICE_MS = 3_200;
 /** Circumference of the countdown ring's r=26 circle (2πr), used for its stroke-dashoffset animation. */
 const TIMER_RING = 163.4;
 
@@ -131,6 +136,11 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   const optimisticBets = useOptimisticBets<BaccaratBetChoice>(snapshot?.roundId ?? null);
   const lastBets = useRef<Partial<RoomSnapshot["myBets"]>>({});
   const roundBetsRef = useRef<Partial<RoomSnapshot["myBets"]>>({});
+  // Every chip placed this round, in order — UNDO pops one at a time (Evolution's rule:
+  // "removes the last bet you placed… in the reverse order"; holding it clears everything).
+  const placedStack = useRef<Array<{ choice: keyof RoomSnapshot["myBets"]; amount: number }>>([]);
+  const undoHoldTimer = useRef<number | null>(null);
+  const undoHeld = useRef(false);
   const dealtRoundRef = useRef<string | null>(null);
   const dealTimers = useRef<number[]>([]);
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(() => io(API_URL, { auth: { token }, autoConnect: false }), [token]);
@@ -253,7 +263,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
     previousPhase.current = phase;
     // `message` is otherwise never cleared — a rejected-bet error (e.g. hitting the room's
     // limit) would sit on screen through settlement and into the next round's betting window.
-    if (phase === "BETTING") { playSound("chip"); setMessage(""); }
+    if (phase === "BETTING") { playSound("chip"); setMessage(""); placedStack.current = []; }
     if (phase === "LOCKED") {
       const placed = Object.fromEntries(Object.entries(snapshot.myBets).filter(([, amount]) => amount > 0));
       roundBetsRef.current = placed;
@@ -390,6 +400,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
 
   const place = (choice: keyof RoomSnapshot["myBets"], amount = chip) => {
     if (!snapshot?.roundId) return;
+    placedStack.current.push({ choice, amount });
     const ticket = optimisticBets.stage(choice, snapshot.myBets[choice] ?? 0, amount);
     try {
       // The chip flies on tap for the same reason the stack appears on tap: waiting for the
@@ -437,8 +448,50 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
   };
 
   const clearAllBets = () => {
+    placedStack.current = [];
     BET_CHOICES.forEach((choice) => {
       if ((snapshot?.myBets[choice] ?? 0) > 0) cancel(choice);
+    });
+  };
+
+  // The server's bet.cancel wipes a whole spot, so "take back one chip" is cancel + re-place
+  // the remainder. Two round trips, but it keeps the wire contract untouched.
+  const undoLast = () => {
+    if (!snapshot?.roundId) return;
+    const last = placedStack.current.pop();
+    if (!last) { clearAllBets(); return; }
+    const remaining = Math.max(0, (snapshot.myBets[last.choice] ?? 0) - last.amount);
+    const roundId = snapshot.roundId;
+    socket.emit("bet.cancel", { roomId, roundId, choice: last.choice }, (ack) => {
+      if (!ack.ok) { setMessage(ack.error); return; }
+      optimisticBets.clear(last.choice);
+      setSnapshot((current) => (!current || ack.data.sequence >= current.sequence ? ack.data : current));
+      if (remaining <= 0) { setMessage(`${choiceLabel(last.choice)} 베팅을 취소했습니다.`); return; }
+      socket.emit("bet.place", { requestId: randomRequestId(), roomId, roundId, choice: last.choice, amount: remaining }, (placed) => {
+        if (placed.ok) setSnapshot((current) => (!current || placed.data.sequence >= current.sequence ? placed.data : current));
+        else setMessage(placed.error);
+      });
+    });
+  };
+  const startUndoHold = () => {
+    undoHeld.current = false;
+    if (undoHoldTimer.current !== null) window.clearTimeout(undoHoldTimer.current);
+    undoHoldTimer.current = window.setTimeout(() => { undoHeld.current = true; clearAllBets(); }, 600);
+  };
+  const endUndoHold = () => {
+    if (undoHoldTimer.current !== null) { window.clearTimeout(undoHoldTimer.current); undoHoldTimer.current = null; }
+  };
+  const onUndoClick = () => {
+    if (undoHeld.current) { undoHeld.current = false; return; }
+    undoLast();
+  };
+
+  // DOUBLE (x2): every bet on the layout is placed again. Only offered once something is
+  // down, which is exactly when REPEAT stops being offered — the two never compete.
+  const doubleBets = () => {
+    BET_CHOICES.forEach((choice) => {
+      const amount = snapshot?.myBets[choice] ?? 0;
+      if (amount > 0) place(choice, amount);
     });
   };
 
@@ -634,6 +687,7 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
                   key={value}
                   ref={(el) => { chipRefs.current[value] = el; }}
                   className={`chip chip-option chip-tier-${chipTier(value)} ${chip === value ? "active" : ""}`}
+                  disabled={!betting || value > maxAdditional}
                   onClick={() => setChip(value)}
                 >
                   {value}
@@ -651,8 +705,22 @@ export function BaccaratRoomPage({ token, onLogout }: { token: string; onLogout:
             </div>
 
             <div className="ot-acts">
-              <button type="button" className="outline-button icon-action" aria-label="전체 베팅 되돌리기" title="전체 베팅 되돌리기" disabled={!betting || currentBet === 0} onClick={clearAllBets}>
+              <button
+                type="button"
+                className="outline-button icon-action"
+                aria-label="마지막 베팅 되돌리기 (길게 누르면 전체 취소)"
+                title="되돌리기 · 길게 누르면 전체 취소"
+                disabled={!betting || currentBet === 0}
+                onPointerDown={startUndoHold}
+                onPointerUp={endUndoHold}
+                onPointerLeave={endUndoHold}
+                onPointerCancel={endUndoHold}
+                onClick={onUndoClick}
+              >
                 <Undo2 size={17} />
+              </button>
+              <button type="button" className="outline-button icon-action" aria-label="베팅 2배" title="모든 베팅 2배" disabled={!betting || !hasCurrentBets} onClick={doubleBets}>
+                <span className="icon-action-x2">×2</span>
               </button>
               <button type="button" className="outline-button icon-action" aria-label="이전 베팅 반복" title="이전 베팅 반복" disabled={!betting || hasCurrentBets || !canRepeat} onClick={repeatBet}>
                 <Repeat2 size={17} />

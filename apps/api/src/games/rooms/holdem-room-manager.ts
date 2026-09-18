@@ -44,6 +44,23 @@ interface SeatState {
   streetContributed: number;
   totalContributed: number;
   holeCards: Card[];
+  /** 이 좌석이 방금 한 행동. 판 위에 말풍선으로 띄운다. 스트리트가 바뀌면 지워진다. */
+  lastAction: { action: HoldemActionCommand["action"]; amount: number } | null;
+  /** 남은 타임뱅크(ms)와 다음 충전까지 받은 핸드 수. 좌석에 앉아 있는 동안 유지된다. */
+  timeBankMs: number;
+  handsDealt: number;
+}
+
+/** 방이 들고 있는 한 핸드의 기록. 뷰어별 스냅샷으로 옮길 때 본인 패만 붙여 준다. */
+interface HandHistoryRecord {
+  handNumber: number;
+  board: Card[];
+  showdown: boolean;
+  winners: HoldemWinnerSnapshot[];
+  /** 쇼다운에서 실제로 공개된 패만. 폴드 승은 비어 있다. */
+  revealed: Array<{ seatNumber: number; username: string; holeCards: Card[] }>;
+  /** userId → 그 핸드에서의 손익과 본인 패. */
+  byUser: Map<string, { net: number; holeCards: Card[] }>;
 }
 
 const SEAT_COUNT = 6;
@@ -53,6 +70,16 @@ const BETWEEN_HANDS_MS = 4_000;
  *  notice and click in — not just long enough to read the result. */
 const HAND_BREAK_MS = 6_000;
 const ACTION_MS = 20_000;
+/* 타임뱅크 — 기본 시간이 다 되면 자동으로 물리는 개인 여유 시간. PokerStars 방식 그대로:
+   일정 핸드마다 조금씩 차오르고 상한이 있으며, 판에 돈이 걸린 상태에서만 발동한다.
+   다 쓰면 예전과 똑같이 자동 체크/폴드로 넘어간다. */
+const TIME_BANK_START_MS = 15_000;
+const TIME_BANK_MAX_MS = 40_000;
+const TIME_BANK_STEP_MS = 5_000;
+/** 이만큼 핸드를 받을 때마다 타임뱅크가 한 칸(STEP) 차오른다. */
+const TIME_BANK_REFILL_HANDS = 8;
+/** 방마다 들고 있는 최근 핸드 기록 수. 레일의 "지난 핸드"가 이걸 읽는다. */
+const HAND_HISTORY_SIZE = 12;
 const REVEAL_STEP_MS = 900;
 const SHOWDOWN_MS = 5_000;
 
@@ -90,6 +117,10 @@ class HoldemRoomActor {
   private paused = false;
   private actionRequests = new Set<string>();
   private turnResolve: (() => void) | null = null;
+  /** 지금 타임뱅크로 버티고 있는 좌석 번호. 화면의 타이머 링 색이 바뀐다. */
+  private timeBankSeat: number | null = null;
+  private handHistory: HandHistoryRecord[] = [];
+  private handNumber = 0;
 
   constructor(private readonly io: GoldenServer, readonly room: RoomRow) {}
 
@@ -169,6 +200,9 @@ class HoldemRoomActor {
         // seated for a hand to ever start.
         if (this.roundId && seat.totalContributed > 0 && !seat.folded) {
           this.sittingOut.add(userId);
+          // It's their turn right now: don't leave the table staring at a 20s countdown for a
+          // player who has already gone — resolve it immediately, same as standUp() does.
+          if (this.actingSeat === index + 1) this.resolveTurnEarly();
         } else {
           this.seats[index] = null;
           this.ready.delete(userId);
@@ -188,7 +222,7 @@ class HoldemRoomActor {
     if (index < 0 || index >= SEAT_COUNT || this.seats[index]) throw new Error("SEAT_TAKEN");
     const balance = await walletService.getUserBalance(userId);
     if (balance < this.room.min_bet * 2) throw new Error("INSUFFICIENT_BALANCE");
-    this.seats[index] = { userId, username: this.usernames.get(userId) ?? "player", folded: false, allIn: false, streetContributed: 0, totalContributed: 0, holeCards: [] };
+    this.seats[index] = { userId, username: this.usernames.get(userId) ?? "player", folded: false, allIn: false, streetContributed: 0, totalContributed: 0, holeCards: [], lastAction: null, timeBankMs: TIME_BANK_START_MS, handsDealt: 0 };
     this.sittingOut.delete(userId);
     this.sequence += 1;
     await this.emitSnapshots();
@@ -255,25 +289,38 @@ class HoldemRoomActor {
     const toCall = this.currentBet - seat.streetContributed;
     if (action === "fold") {
       seat.folded = true;
+      seat.lastAction = { action: "fold", amount: 0 };
       await holdemService.markFolded(this.roundId!, seat.userId);
       return;
     }
     if (action === "check") {
       if (toCall > 0) throw new Error("MUST_CALL_OR_FOLD");
+      seat.lastAction = { action: "check", amount: 0 };
       this.actedSinceLastRaise.add(seatIndex);
       return;
     }
     const balance = await walletService.getUserBalance(seat.userId);
     if (action === "call") {
-      const amountMinor = Math.min(toCall, balance) * COIN_SCALE;
-      if (amountMinor > 0) await this.contribute(seat, seatIndex, amountMinor);
-      if (Math.min(toCall, balance) < toCall) await this.setAllIn(seat, seatIndex);
+      const paid = Math.min(toCall, balance);
+      if (paid > 0) await this.contribute(seat, seatIndex, paid * COIN_SCALE);
+      if (paid < toCall) await this.setAllIn(seat, seatIndex);
+      seat.lastAction = { action: paid < toCall ? "allin" : "call", amount: paid };
       this.actedSinceLastRaise.add(seatIndex);
       return;
     }
     if (action === "bet" || action === "raise" || action === "allin") {
       const targetTotal = action === "allin" ? seat.streetContributed + balance : rawAmount;
       if (!Number.isInteger(targetTotal) || targetTotal === undefined) throw new Error("INVALID_ACTION");
+      // 콜 금액에도 못 미치는 스택으로 올인을 누른 경우. 예전에는 RAISE_TOO_SMALL 로 튕겨서,
+      // 화면에는 올인 버튼이 멀쩡히 떠 있는데 누르면 "최소 레이즈보다 적습니다"가 뜨고
+      // 대신 콜을 눌러야 했다. 올릴 수 없을 뿐 따라갈 수는 있으므로 숏 콜로 처리한다.
+      if (action === "allin" && targetTotal <= this.currentBet) {
+        if (balance > 0) await this.contribute(seat, seatIndex, balance * COIN_SCALE);
+        await this.setAllIn(seat, seatIndex);
+        seat.lastAction = { action: "allin", amount: balance };
+        this.actedSinceLastRaise.add(seatIndex);
+        return;
+      }
       if (targetTotal <= this.currentBet) throw new Error("RAISE_TOO_SMALL");
       const increment = targetTotal - seat.streetContributed;
       if (increment > balance) throw new Error("INSUFFICIENT_BALANCE");
@@ -289,6 +336,7 @@ class HoldemRoomActor {
         this.actedSinceLastRaise.add(seatIndex);
       }
       if (increment === balance) await this.setAllIn(seat, seatIndex);
+      seat.lastAction = { action: increment === balance ? "allin" : action, amount: targetTotal };
       return;
     }
   }
@@ -327,14 +375,17 @@ class HoldemRoomActor {
 
   async snapshot(userId: string): Promise<HoldemRoomSnapshot> {
     const mySeatIndex = this.seats.findIndex((seat) => seat?.userId === userId);
-    const showCards = this.street === "showdown";
+    // 쇼다운에 실제로 패를 비교한 경우에만 공개한다. 상대가 전부 폴드해 혼자 남은 승자는
+    // 패를 보이지 않는 것이 표준이고(도움말에도 그렇게 적혀 있다), 공개하면 다음 핸드를 위한
+    // 정보를 공짜로 흘리는 셈이 된다. contenderSeats().length 로 구분한다.
+    const showCards = this.street === "showdown" && this.contenderSeats().length > 1;
     const seats: HoldemSeatSnapshot[] = await Promise.all(this.seats.map(async (seat, index) => {
       const seatNumber = index + 1;
       if (!seat) {
         return {
           seatNumber, userId: null, username: null, stack: 0, streetContributed: 0, totalContributed: 0,
           folded: false, allIn: false, sittingOut: false, isButton: false, isSmallBlind: false, isBigBlind: false,
-          isTurn: false, holeCards: null, dealtIn: false, handCategory: null, ready: false,
+          isTurn: false, holeCards: null, dealtIn: false, handCategory: null, ready: false, lastAction: null, timeBankMs: 0,
         };
       }
       const mine = seat.userId === userId;
@@ -365,6 +416,8 @@ class HoldemRoomActor {
           ? evaluateBestHoldemHand([...seat.holeCards, ...this.board]).category
           : null,
         ready: this.ready.has(seat.userId),
+        lastAction: seat.lastAction,
+        timeBankMs: Math.round(seat.timeBankMs),
       };
     }));
     const mySeat = mySeatIndex >= 0 ? this.seats[mySeatIndex] : null;
@@ -383,6 +436,22 @@ class HoldemRoomActor {
       minRaiseTo: this.currentBet + this.minRaise,
       actingSeat: this.phase === "PLAYER_TURN" ? this.actingSeat : null,
       lastWinners: this.lastWinners,
+      /** 지금 타임뱅크로 버티는 좌석(있으면). 타이머 링이 색을 바꿔 "추가 시간"임을 알린다. */
+      timeBankSeat: this.timeBankSeat,
+      // 지난 핸드 — 본인 패와 손익은 보는 사람 기준으로만 붙인다.
+      recentHands: this.handHistory.map((record) => {
+        const mine = record.byUser.get(userId);
+        return {
+          handNumber: record.handNumber,
+          board: record.board,
+          showdown: record.showdown,
+          winners: record.winners,
+          revealed: record.revealed,
+          myHoleCards: mine?.holeCards ?? null,
+          myNet: mine?.net ?? 0,
+          played: Boolean(mine),
+        };
+      }),
       walletBalance: await walletService.getUserBalance(userId),
     };
   }
@@ -532,6 +601,11 @@ class HoldemRoomActor {
       seat.folded = false;
       seat.allIn = false;
       seat.streetContributed = 0;
+      seat.lastAction = null;
+      // 핸드를 거듭할수록 타임뱅크가 조금씩 차오른다(상한까지). 오래 앉아 있는 사람에게
+      // 결정적인 순간의 여유를 주되, 무한정 쌓이지는 않게.
+      seat.handsDealt += 1;
+      if (seat.handsDealt % TIME_BANK_REFILL_HANDS === 0) seat.timeBankMs = Math.min(TIME_BANK_MAX_MS, seat.timeBankMs + TIME_BANK_STEP_MS);
       seat.totalContributed = 0;
       seat.holeCards = [];
     }
@@ -556,7 +630,7 @@ class HoldemRoomActor {
     for (const seatNumber of order) {
       const seat = this.seats[seatNumber - 1]!;
       seat.holeCards = [this.shoe.draw(), this.shoe.draw()];
-      await holdemService.recordHoleCards(this.roundId, seat.userId, seat.holeCards);
+      await holdemService.recordHoleCards(this.roundId, this.room.id, seat.userId, seatNumber, seat.holeCards);
     }
     await delay(REVEAL_STEP_MS);
     if (token !== this.cycleToken) return;
@@ -626,7 +700,8 @@ class HoldemRoomActor {
     // tool to anyone with database access, so it deliberately is not.
     await pool.query("UPDATE game_rounds SET result_data=$2 WHERE id=$1", [this.roundId, JSON.stringify({ board: this.board, street })]);
     this.street = street;
-    for (const seat of this.seats) if (seat) seat.streetContributed = 0;
+    // 새 스트리트 — 이번 거리의 베팅과 말풍선을 함께 비운다.
+    for (const seat of this.seats) if (seat) { seat.streetContributed = 0; seat.lastAction = null; }
     this.currentBet = 0;
     this.minRaise = this.room.min_bet * 2;
     this.actedSinceLastRaise.clear();
@@ -651,10 +726,36 @@ class HoldemRoomActor {
         continue;
       }
       if (this.contenderSeats().length <= 1) break;
-      await this.setPhase("PLAYER_TURN", ACTION_MS);
       const seatIndexAtPrompt = this.actingSeat;
-      await this.waitForTurn(ACTION_MS);
+      // Arm the early-resolve hook before the phase-change notification goes out, not after —
+      // otherwise a disconnect landing in the gap while setPhase's snapshot emit is still in
+      // flight finds turnResolve still null and falls through to the full ACTION_MS wait anyway.
+      // A seat already sitting-out from earlier this hand will never answer at all; skip the
+      // wait outright and fall straight into the same resolution the timeout path below does.
+      const waitPromise = this.sittingOut.has(seat.userId) ? null : this.waitForTurn(ACTION_MS);
+      await this.setPhase("PLAYER_TURN", ACTION_MS);
+      if (waitPromise) await waitPromise;
       if (token !== this.cycleToken) return;
+      // 기본 시간이 다 됐는데 아직 행동하지 않았다면 타임뱅크가 자동으로 물린다. 받을 돈이
+      // 없어(체크로 끝낼 수 있어) 잃을 게 없는 자리에는 쓰지 않는다 — 자리를 비운 사람 때문에
+      // 테이블 전체가 매번 추가로 기다리게 되기 때문이다.
+      const bankSeat = this.seats[seatIndexAtPrompt - 1];
+      const owesMoney = bankSeat ? this.currentBet - bankSeat.streetContributed > 0 : false;
+      if (
+        this.actingSeat === seatIndexAtPrompt && bankSeat && !bankSeat.folded && owesMoney &&
+        bankSeat.timeBankMs > 0 && !this.sittingOut.has(bankSeat.userId) &&
+        !this.actedSinceLastRaise.has(seatIndexAtPrompt - 1)
+      ) {
+        const slice = Math.min(bankSeat.timeBankMs, TIME_BANK_MAX_MS);
+        this.timeBankSeat = seatIndexAtPrompt;
+        const bankWait = this.waitForTurn(slice);
+        await this.setPhase("PLAYER_TURN", slice);
+        const startedAt = Date.now();
+        await bankWait;
+        bankSeat.timeBankMs = Math.max(0, bankSeat.timeBankMs - (Date.now() - startedAt));
+        this.timeBankSeat = null;
+        if (token !== this.cycleToken) return;
+      }
       // A disconnected seat, or one whose slow client never answers, auto-folds (or checks for free).
       if (this.actingSeat === seatIndexAtPrompt && !this.actedSinceLastRaise.has(seatIndexAtPrompt - 1)) {
         const stillThere = this.seats[seatIndexAtPrompt - 1];
@@ -696,6 +797,38 @@ class HoldemRoomActor {
     return null;
   }
 
+  /**
+   * 핸드가 끝날 때마다 한 줄 남긴다 — 무슨 보드였고 누가 무엇으로 가져갔는지, 그리고 각자
+   * 자기 패와 손익. 여태 남는 건 DB 의 손익 한 줄뿐이라 "방금 그 핸드 뭐였지"에 답할 수
+   * 없었다. 방 메모리에만 두고(최근 12핸드) 스냅샷으로 내려보낸다.
+   *
+   * 공개 범위는 판에서와 같다: 쇼다운에서 실제로 깐 패만 `revealed` 에 들어가고, 폴드 승은
+   * 비어 있다. 본인 패는 본인 스냅샷에서만 붙는다.
+   */
+  private recordHand(wins: Array<{ userId: string; amountMinor: number }>): void {
+    const showdown = this.contenderSeats().length > 1;
+    const byUser = new Map<string, { net: number; holeCards: Card[] }>();
+    for (const seat of this.seats) {
+      if (!seat || seat.holeCards.length === 0) continue;
+      const won = wins.find((win) => win.userId === seat.userId);
+      byUser.set(seat.userId, { net: (won ? won.amountMinor / COIN_SCALE : 0) - seat.totalContributed, holeCards: [...seat.holeCards] });
+    }
+    this.handNumber += 1;
+    this.handHistory.unshift({
+      handNumber: this.handNumber,
+      board: [...this.board],
+      showdown,
+      winners: this.lastWinners.map((win) => ({ ...win })),
+      revealed: showdown
+        ? this.seats.flatMap((seat, index) => (seat && !seat.folded && seat.holeCards.length > 0
+          ? [{ seatNumber: index + 1, username: seat.username, holeCards: [...seat.holeCards] }]
+          : []))
+        : [],
+      byUser,
+    });
+    if (this.handHistory.length > HAND_HISTORY_SIZE) this.handHistory.length = HAND_HISTORY_SIZE;
+  }
+
   private async showdown(): Promise<void> {
     this.street = "showdown";
     await this.setPhase("SETTLING", SHOWDOWN_MS);
@@ -712,6 +845,7 @@ class HoldemRoomActor {
         handCategory: win.handCategory,
       };
     });
+    this.recordHand(winners);
     this.broadcastWinners(this.lastWinners);
     await pool.query("UPDATE game_rounds SET phase='RESULT',result_data=$2,settled_at=now() WHERE id=$1", [this.roundId, JSON.stringify({ board: this.board, winners: this.lastWinners })]);
     await this.setPhase("RESULT", SHOWDOWN_MS);

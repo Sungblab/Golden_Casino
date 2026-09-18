@@ -25,7 +25,7 @@
     color: var(--gold-light);
     font-family: var(--ui-font);
     font-size: clamp(9px, .82vw, 12px);
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: .2em;
     text-align: center;
     text-shadow: 0 1px 3px rgba(0, 0, 0, .5);

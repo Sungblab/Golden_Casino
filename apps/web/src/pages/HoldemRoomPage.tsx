@@ -20,6 +20,8 @@ import { ActionButton, StepBar } from "../components/PvpBits";
 import { RoomChat } from "../components/RoomChat";
 import { WinnerFeed } from "../components/WinnerFeed";
 import { RoundResultNotice, type RoundResultNoticeData } from "../components/RoundResultNotice";
+import { HoldemHandHistory } from "../components/HoldemHandHistory";
+import { ActionBubble, CardSqueeze, pickLine } from "../components/TableBits";
 import { holdemGuide } from "../lib/guides/holdem";
 import { playSound } from "../lib/sound";
 import { cardKey, readHoldemHand, HOLDEM_HAND_LABEL } from "../lib/holdemHandRead";
@@ -30,6 +32,18 @@ const TIMER_RING = 163.4;
 // Seat layout around the oval, clockwise from the bottom (viewer's own seat is re-centered there).
 // Each seat gets its unit-circle position as --sx/--sy; table-pvp.css picks the radii per layout.
 const SEAT_ANGLES = [90, 150, 210, 270, 330, 30];
+/** 1 = 타원, 작을수록 좌석이 모서리 쪽으로 밀린다. 0.62 는 6석이 서로 겹치지 않으면서
+ *  네 귀퉁이를 쓰는 값(더 낮추면 위·아래 가운데 좌석이 옆 좌석과 붙는다). */
+const SEAT_CORNER_PULL = 0.62;
+/** 판 위에 뜨는 대사. 홀덤 테이블의 말투로(섯다판과 다르다). */
+const HOLDEM_LINES: Record<string, string[]> = {
+  fold: ["폴드", "접을게", "이번엔 빠진다", "안 맞네"],
+  check: ["체크", "넘어가지", "일단 보자", "……"],
+  call: ["콜", "받는다", "가보자", "따라간다"],
+  bet: ["벳", "가볼까", "얼마나 받나 보자"],
+  raise: ["레이즈", "올린다", "이 정도는 받아야지", "더 가자"],
+  allin: ["올인!", "다 건다", "여기서 끝내자", "가진 거 전부"],
+};
 const STREET_STEPS = ["프리플랍", "플랍", "턴", "리버", "쇼다운"];
 const STREET_STEPS_SHORT = ["프리", "플랍", "턴", "리버", "쇼다운"];
 
@@ -45,6 +59,7 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const noticeTimerRef = useRef<number | null>(null);
   const prevActingSeatRef = useRef<number | null>(null);
   const prevPhaseRef = useRef<HoldemRoomSnapshot["room"]["phase"] | null>(null);
+  const [squeezed, setSqueezed] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
     () => io(API_URL, { auth: { token }, autoConnect: false }),
@@ -79,6 +94,9 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
     const timer = window.setInterval(update, 250);
     return () => window.clearInterval(timer);
   }, [snapshot?.phaseEndsAt]);
+
+  // 새 핸드가 시작되면 홀카드는 다시 엎어진 채로 온다.
+  useEffect(() => { setSqueezed(false); }, [snapshot?.roundId]);
 
   useEffect(() => {
     const handler = () => setIsFullscreen(document.fullscreenElement === shellRef.current);
@@ -158,7 +176,10 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   // a beginner see "지금 뭐 만들었는지" without opening the 족보 reference or waiting for the
   // server's showdown reveal. Drives both the rail's hand panel and the gold ring on the
   // cards that actually make the hand.
-  const myHandRead = mySeat?.folded ? null : readHoldemHand(mySeat?.holeCards ?? null, snapshot.board);
+  // 아직 쪼지 않았으면 내 패를 읽어 주지 않는다 — 레일 패널이 먼저 "Q 하이"라고 말해 버리면
+  // 카드를 엎어 둔 의미가 없다. (쇼다운에는 어차피 다 열려 있다.)
+  const handHidden = !squeezed && snapshot.street !== "showdown" && (mySeat?.holeCards?.length ?? 0) > 0;
+  const myHandRead = mySeat?.folded || handHidden ? null : readHoldemHand(mySeat?.holeCards ?? null, snapshot.board);
   const potTotal = snapshot.pots.reduce((sum, pot) => sum + pot.amount, 0);
   const timerOffset = TIMER_RING * (1 - Math.min(1, seconds / ACTION_SECONDS));
   const winnerBySeat = new Map(snapshot.lastWinners.map((winner) => [winner.seatNumber, winner]));
@@ -201,17 +222,30 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const maxRaiseTo = (mySeat?.stack ?? 0) + (mySeat?.streetContributed ?? 0);
   const minRaiseClamped = Math.min(snapshot.minRaiseTo, maxRaiseTo);
   const clampRaise = (value: number): number => Math.max(minRaiseClamped, Math.min(maxRaiseTo, value));
-  // Pot-relative presets instead of a bare drag slider — one tap gets a legal sizing, the
-  // stepper is only for fine adjustment from there. Korean poker rooms (한게임/피망) name
-  // these 쿼터/하프/팟/맥스 and players expect that vocabulary, so the labels follow it
-  // rather than inventing a second set of names for the same sizings.
-  const raisePresets = [
-    { key: "min", label: "MIN", hint: "최소", value: minRaiseClamped },
-    { key: "quarter", label: "쿼터", hint: "팟 ¼", value: clampRaise(Math.round(potTotal / 4)) },
-    { key: "half", label: "하프", hint: "팟 ½", value: clampRaise(Math.round(potTotal / 2)) },
-    { key: "pot", label: "팟", hint: "팟 크기", value: clampRaise(potTotal) },
-    { key: "max", label: "맥스", hint: "올인", value: maxRaiseTo },
-  ];
+  // 프리셋 금액. 예전엔 raise-to 를 그냥 '팟의 N분의 1'로 잡았는데, 그건 팟 레이즈가 아니다:
+  // 표준은 "콜을 받은 뒤의 팟"을 기준으로 그 비율만큼 더 올리는 것이라 raise-to 는
+  //   지금 기준 금액 + 콜 + 비율 × (팟 + 콜)
+  // 이 된다. 옛 식은 작은 팟에서 쿼터·하프·팟이 전부 최소 레이즈로 뭉개져 버튼 네 개가
+  // 같은 숫자를 보여 줬다. 프리플랍에서 아직 아무도 안 올렸으면 포커 관례대로 BB 배수를 쓴다.
+  const myStreet = mySeat?.streetContributed ?? 0;
+  const standingBet = myStreet + snapshot.toCall;
+  const potAfterCall = potTotal + snapshot.toCall;
+  const potRaise = (fraction: number) => clampRaise(standingBet + Math.round(fraction * potAfterCall));
+  const openingPreflop = snapshot.street === "preflop" && standingBet <= bigBlind;
+  const raisePresets = openingPreflop
+    ? [
+        { key: "open2h", label: "2.5x", hint: "BB 2.5배", value: clampRaise(Math.round(bigBlind * 2.5)) },
+        { key: "open3", label: "3x", hint: "BB 3배", value: clampRaise(bigBlind * 3) },
+        { key: "open4", label: "4x", hint: "BB 4배", value: clampRaise(bigBlind * 4) },
+        { key: "max", label: "맥스", hint: "올인", value: maxRaiseTo },
+      ]
+    : [
+        { key: "min", label: "MIN", hint: "최소", value: minRaiseClamped },
+        { key: "third", label: "1/3", hint: "팟 ⅓", value: potRaise(1 / 3) },
+        { key: "half", label: "하프", hint: "팟 ½", value: potRaise(0.5) },
+        { key: "pot", label: "팟", hint: "팟 크기", value: potRaise(1) },
+        { key: "max", label: "맥스", hint: "올인", value: maxRaiseTo },
+      ];
   const canRaise = maxRaiseTo > snapshot.toCall + (mySeat?.streetContributed ?? 0);
   const raiseValue = Math.min(raiseTo, maxRaiseTo);
   const callAmount = Math.min(snapshot.toCall, mySeat?.stack ?? 0);
@@ -219,6 +253,9 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
   const readyCount = snapshot.seats.filter((seat) => seat.userId && seat.ready).length;
   const seatedCount = snapshot.seats.filter((seat) => seat.userId).length;
   const step = streetStep(snapshot);
+  // 기본 시간이 끝나고 타임뱅크로 버티는 중인지. 링과 턴 스트립의 색이 바뀐다.
+  const onTimeBank = snapshot.timeBankSeat !== null && snapshot.timeBankSeat === snapshot.mySeatNumber;
+  const myTimeBankSeconds = Math.round((mySeat?.timeBankMs ?? 0) / 1000);
 
   return (
     <GameShell
@@ -290,13 +327,18 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
                   isMine={seat.seatNumber === snapshot.mySeatNumber}
                   highlightKeys={seat.seatNumber === snapshot.mySeatNumber ? myHandRead?.usedKeys : undefined}
                   showReady={snapshot.room.phase === "WAITING"}
+                  squeezed={squeezed}
+                  onSqueeze={() => setSqueezed(true)}
+                  myTurn={myTurn}
+                  showdown={snapshot.street === "showdown"}
                   winnerLabel={winnerBySeat.get(seat.seatNumber) ? `WIN +${winnerBySeat.get(seat.seatNumber)!.amount.toLocaleString()}` : null}
                 />
               ))}
               {myTurn && (
-                <div className={`ot-timer holdem-timer ${closing ? "closing" : ""}`}>
+                <div className={`ot-timer holdem-timer ${closing ? "closing" : ""} ${onTimeBank ? "is-timebank" : ""}`}>
                   <svg viewBox="0 0 60 60"><circle className="ot-timer-track" cx="30" cy="30" r="26" /><circle className="ot-timer-ring" cx="30" cy="30" r="26" style={{ strokeDashoffset: timerOffset }} /></svg>
                   <span className="ot-timer-num">{seconds}</span>
+                  {onTimeBank && <span className="holdem-timebank-tag">타임뱅크</span>}
                 </div>
               )}
             </div>
@@ -314,11 +356,26 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
           <aside className="holdem-rail-v4" aria-label="홀덤 액션">
             <StepBar steps={STREET_STEPS} shortSteps={STREET_STEPS_SHORT} current={step} ariaLabel="이번 핸드 진행 단계" />
 
+            {handHidden && (
+              <div className="holdem-hand-panel is-hint">
+                <header>
+                  <span className="holdem-hand-panel-eyebrow">내 패</span>
+                  <span className="holdem-hand-panel-private">나만 보여요</span>
+                </header>
+                <div className="holdem-hand-panel-body">
+                  <div className="holdem-hand-panel-text">
+                    <strong>아직 안 봤어요</strong>
+                    <span>테이블의 내 카드를 눌러 확인하세요</span>
+                  </div>
+                </div>
+              </div>
+            )}
             {myHandRead && mySeat?.holeCards && (
               <HoldemHandPanel read={myHandRead} holeCards={mySeat.holeCards} />
             )}
 
             <div className="holdem-rail-meta">
+              {mySeat && myTimeBankSeconds > 0 && <span>여유 <b className={onTimeBank ? "gold" : ""}>{myTimeBankSeconds}초</b></span>}
               <span>POT <b>{potTotal.toLocaleString()}</b></span>
               {mySeat && inHand && <span>내 베팅 <b>{mySeat.totalContributed.toLocaleString()}</b></span>}
               {myTurn && snapshot.toCall > 0 && <span>콜 <b className="gold">{callAmount.toLocaleString()}</b></span>}
@@ -326,10 +383,14 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
 
             {mySeat && myTurn && (
               <>
-                <div className={`turn-strip ${closing ? "is-closing" : ""}`} role="status" aria-live="polite">
+                <div className={`turn-strip ${closing ? "is-closing" : ""} ${onTimeBank ? "is-timebank" : ""}`} role="status" aria-live="polite">
                   <div>
-                    <strong>내 차례예요</strong>
-                    <small>{snapshot.toCall > 0 ? `콜 ${callAmount.toLocaleString()} 또는 폴드 · 레이즈 가능` : "체크로 넘기거나 베팅 가능"}</small>
+                    <strong>{onTimeBank ? "타임뱅크 사용 중" : "내 차례예요"}</strong>
+                    <small>
+                      {onTimeBank
+                        ? "기본 시간이 끝나 여유 시간을 쓰고 있어요. 다 쓰면 자동으로 처리돼요."
+                        : snapshot.toCall > 0 ? `콜 ${callAmount.toLocaleString()} 또는 폴드 · 레이즈 가능` : "체크로 넘기거나 베팅 가능"}
+                    </small>
                   </div>
                   <b>{seconds}</b>
                   <span className="turn-strip-bar" style={{ width: `${Math.min(100, (seconds / ACTION_SECONDS) * 100)}%` }} aria-hidden="true" />
@@ -410,6 +471,8 @@ export function HoldemRoomPage({ token, onLogout }: { token: string; onLogout: (
 
             {/* Fills the gap between the actions and the footer controls on desktop; hidden in
                 the bottom-dock layout. */}
+            <HoldemHandHistory hands={snapshot.recentHands} />
+
             <div className="holdem-rail-spacer" />
 
             <div className="holdem-rail-footer">
@@ -438,11 +501,17 @@ function orderedSeats(seats: HoldemSeatSnapshot[], mySeatNumber: number | null):
   return seats.map((seat, index) => ({ seat, angle: SEAT_ANGLES[(index - rotation + seats.length) % seats.length]! }));
 }
 
-function SeatView({ seat, angle, onSit, canSit, isMine, highlightKeys, showReady, winnerLabel }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; isMine: boolean; highlightKeys?: Set<string>; showReady: boolean; winnerLabel: string | null }) {
+function SeatView({ seat, angle, onSit, canSit, isMine, highlightKeys, showReady, winnerLabel, squeezed, onSqueeze, myTurn, showdown }: { seat: HoldemSeatSnapshot; angle: number; onSit: () => void; canSit: boolean; isMine: boolean; highlightKeys?: Set<string>; showReady: boolean; winnerLabel: string | null; squeezed: boolean; onSqueeze: () => void; myTurn: boolean; showdown: boolean }) {
   // Unit-circle position only; the x/y radii are CSS variables (table-pvp.css) so the
   // landscape racetrack (45%/33%, tuned against the action-line ellipse — see
   // table-holdem.css) and the upright portrait oval can differ without touching this code.
-  const style = { "--sx": Math.cos((angle * Math.PI) / 180).toFixed(4), "--sy": Math.sin((angle * Math.PI) / 180).toFixed(4) } as CSSProperties;
+  // 좌석을 타원이 아니라 '모서리가 둥근 사각형'의 둘레에 앉힌다. 지수를 1보다 작게 주면
+  // (초타원) 같은 각도라도 점이 바깥으로 밀려 네 귀퉁이 쪽을 쓰게 된다 — 테이블이 사각형이
+  // 된 이상 좌석만 타원에 남으면 그만큼이 다시 빈다. 1이면 예전 타원 그대로.
+  const cos = Math.cos((angle * Math.PI) / 180);
+  const sin = Math.sin((angle * Math.PI) / 180);
+  const squircle = (value: number) => (Math.sign(value) * Math.pow(Math.abs(value), SEAT_CORNER_PULL)).toFixed(4);
+  const style = { "--sx": squircle(cos), "--sy": squircle(sin) } as CSSProperties;
   if (!seat.userId) {
     return canSit ? (
       <button className="holdem-seat holdem-seat-empty" style={style} onClick={onSit} aria-label={`${seat.seatNumber}번 좌석 앉기`}>
@@ -457,20 +526,35 @@ function SeatView({ seat, angle, onSit, canSit, isMine, highlightKeys, showReady
             opponent who was dealt in but is still hidden shows card BACKS; and only a
             genuinely undealt seat shows the empty slot. */}
         {seat.holeCards
-          ? seat.holeCards.map((card, index) => (
-            <PlayingCard
-              key={index}
-              card={card}
-              animate={false}
-              highlighted={highlightKeys?.has(cardKey(card)) ?? false}
-            />
-          ))
+          ? seat.holeCards.map((card, index) => {
+            const face = (
+              <PlayingCard
+                card={card}
+                animate={false}
+                highlighted={highlightKeys?.has(cardKey(card)) ?? false}
+              />
+            );
+            if (!isMine || squeezed || showdown) return <span key={index}>{face}</span>;
+            // 두 장 다 엎어 두되 힌트는 한 번만 — 어느 쪽을 눌러도 손패가 함께 열린다.
+            return (
+              <CardSqueeze key={index} openNow={myTurn} onOpen={onSqueeze} hint={index === 1 ? "눌러서 쪼기" : ""}>
+                {face}
+              </CardSqueeze>
+            );
+          })
           : Array.from({ length: 2 }).map((_, index) => (
             seat.dealtIn
               ? <span key={index} className="playing-card holdem-hole-back"><span className="playing-card-inner"><span className="playing-card-back"><CardBackFace /></span></span></span>
               : <span key={index} className="ot-card-slot holdem-hole-slot" />
           ))}
       </div>
+      {seat.lastAction && !showdown && (
+        <ActionBubble
+          text={pickLine(HOLDEM_LINES[seat.lastAction.action] ?? [seat.lastAction.action], seat.seatNumber, seat.lastAction.action, seat.lastAction.amount)}
+          amount={seat.lastAction.action === "fold" || seat.lastAction.action === "check" ? undefined : seat.lastAction.amount}
+          tone={seat.lastAction.action === "fold" ? "out" : seat.lastAction.action === "check" || seat.lastAction.action === "call" ? "calm" : "push"}
+        />
+      )}
       {/* Name + stack share one dark nameplate, the way every real client draws seats. The
           position badges (D / SB / BB) sit beside the name so a beginner can see who posts
           the blinds and where the action starts. */}

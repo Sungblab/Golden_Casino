@@ -48,7 +48,7 @@ export function BigRoad({ history, compact = false, prediction, onPredict, label
         </div>
       </div>
       <div className="big-road-grid" ref={gridRef}>
-        {!hasData && <p className="big-road-empty">라운드가 진행되면 여기에 결과가 쌓입니다.</p>}
+        {!hasData && <p className="big-road-empty" aria-label="아직 결과 없음" />}
         {leadingTies > 0 && (
           <div className="big-road-column">
             {Array.from({ length: leadingTies }).map((_, index) => (

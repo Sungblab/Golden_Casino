@@ -231,3 +231,133 @@ export function sutdaSecondCardOutlook(first: HwatuCard): SutdaOutlookEntry[] {
   }
   return [...byLabel.values()].sort((a, b) => b.rank - a.rank);
 }
+
+/* ===========================================================================
+   베팅 사이징과 땡값 — 서버와 클라이언트가 같은 계산을 쓰도록 여기 한 곳에 둔다.
+   (v1 에서는 클라이언트가 하프 금액을 따로 계산해 서버와 어긋날 여지가 있었다.)
+   =========================================================================== */
+
+/** 한 번의 선택에서 좌석이 낼 수 있는 금액을 정하는 데 필요한 판의 상태. */
+export interface SutdaBetContext {
+  /** 방의 삥(기본 판돈). 모든 최소 베팅 단위. */
+  minBet: number;
+  /** 1인 1판 총 기여 상한. */
+  maxBet: number;
+  /** 지금까지 판에 깔린 총액. */
+  pot: number;
+  /** 이번 스트리트의 기준 금액. */
+  currentBet: number;
+  /** 이 좌석이 이번 스트리트에 낸 금액. */
+  seatStreet: number;
+  /** 이 좌석이 이번 판에 낸 총액. */
+  seatTotal: number;
+  /** 이 좌석 주인의 지갑 잔액. */
+  balance: number;
+}
+
+export type SutdaBetAction = "die" | "check" | "call" | "bbing" | "ddadang" | "quarter" | "half" | "allin";
+
+export interface SutdaBetOption {
+  action: SutdaBetAction;
+  /** 버튼에 찍히는 이름. */
+  label: string;
+  /** 이 선택으로 스택에서 빠져나가는 총액(콜 포함). */
+  amount: number;
+  /** 그중 기준 금액 위로 올리는 몫. 콜·체크·다이는 0. */
+  raiseBy: number;
+  enabled: boolean;
+  /** 못 쓰는 이유. 버튼 아래 한 줄로 그대로 보여줄 수 있다. */
+  reason: string | null;
+  /** 이 선택을 하면 남은 돈이 0이 된다(올인). */
+  allIn: boolean;
+}
+
+const LIMIT_REACHED = "한도 도달";
+const NOT_ENOUGH = "잔액 부족";
+
+/**
+ * 한국 온라인 섯다의 표준 베팅 세트. 삥·따당·쿼터·하프는 모두 "콜을 받은 뒤 그 위로
+ * 얼마를 더 얹느냐"로 정의된다 — 한게임 가이드의 하프 정의("앞사람이 베팅한 금액을 받고,
+ * 이를 포함한 전체 판돈의 1/2를 추가로 베팅")가 그대로 이 형태다.
+ *
+ * 올인은 두 가지를 겸한다: 콜 금액에 못 미치는 잔액이면 가진 만큼만 넣고 따라가는 숏 콜이고,
+ * 잔액이 충분하면 한도까지 올리는 최대 베팅이다. 덕분에 "돈이 모자라면 다이밖에 못 한다"는
+ * v1 의 막다른 길이 사라진다.
+ */
+export function sutdaBetOptions(ctx: SutdaBetContext): SutdaBetOption[] {
+  const toCall = Math.max(0, ctx.currentBet - ctx.seatStreet);
+  const callable = Math.min(toCall, ctx.balance);
+  /** 한도까지 이 좌석이 더 낼 수 있는 총액. */
+  const headroom = Math.max(0, ctx.maxBet - ctx.seatTotal);
+  /** 실제로 낼 수 있는 최대치 = 한도와 잔액 중 작은 쪽. */
+  const ceiling = Math.min(headroom, ctx.balance);
+
+  const raise = (action: SutdaBetAction, label: string, desired: number): SutdaBetOption => {
+    // 올릴 몫은 최소 삥 한 장이고, 콜까지 합쳐 한도·잔액을 넘을 수 없다.
+    const wanted = Math.max(ctx.minBet, desired);
+    const room = ceiling - toCall;
+    const raiseBy = Math.min(wanted, room);
+    const amount = toCall + raiseBy;
+    if (room <= 0) return { action, label, amount: 0, raiseBy: 0, enabled: false, reason: headroom - toCall <= 0 ? LIMIT_REACHED : NOT_ENOUGH, allIn: false };
+    return { action, label, amount, raiseBy, enabled: true, reason: null, allIn: amount >= ceiling };
+  };
+
+  const options: SutdaBetOption[] = [];
+  options.push({ action: "die", label: "다이", amount: 0, raiseBy: 0, enabled: true, reason: null, allIn: false });
+
+  if (toCall === 0) {
+    options.push({ action: "check", label: "체크", amount: 0, raiseBy: 0, enabled: true, reason: null, allIn: false });
+  } else {
+    // 잔액이 콜에 못 미치면 콜 버튼은 막고 올인으로 따라가게 한다(숏 콜).
+    const canCall = ctx.balance >= toCall && headroom >= toCall;
+    options.push({
+      action: "call", label: "콜", amount: callable, raiseBy: 0,
+      enabled: canCall, reason: canCall ? null : headroom < toCall ? LIMIT_REACHED : "올인으로 따라가세요",
+      allIn: canCall && callable >= ceiling,
+    });
+  }
+
+  options.push(raise("bbing", "삥", ctx.minBet));
+  // 따당은 앞사람 베팅의 2배 — 기준 금액만큼 더 얹으면 총액이 2배가 된다.
+  if (toCall > 0) options.push(raise("ddadang", "따당", ctx.currentBet));
+  options.push(raise("quarter", "쿼터", Math.round(ctx.pot / 4)));
+  options.push(raise("half", "하프", Math.round(ctx.pot / 2)));
+
+  const allInAmount = ceiling;
+  options.push({
+    action: "allin", label: "올인", amount: allInAmount, raiseBy: Math.max(0, allInAmount - toCall),
+    enabled: allInAmount > 0, reason: allInAmount > 0 ? null : headroom <= 0 ? LIMIT_REACHED : NOT_ENOUGH,
+    allIn: true,
+  });
+  return options;
+}
+
+/** 한 판에서 특정 선택이 실제로 얼마를 내는지 — 서버가 검증에 쓰는 단일 경로. */
+export function sutdaBetOption(ctx: SutdaBetContext, action: SutdaBetAction): SutdaBetOption | null {
+  return sutdaBetOptions(ctx).find((option) => option.action === action) ?? null;
+}
+
+/* --------------------------------------------------------------------------
+   땡값 — 땡·광땡으로 이긴 사람이 끝까지 따라온 아랫패들에게 따로 더 받는 돈.
+   비율형(피망식)을 쓴다: 진 사람이 이번 판에 낸 금액의 몇 %를 얹어 준다.
+   -------------------------------------------------------------------------- */
+export interface SutdaDdaengRule {
+  /** 진 사람이 낸 금액 대비 비율. */
+  rate: number;
+  label: string;
+  /** 이 순위 이하인 패만 땡값을 낸다. 땡끼리는 주고받지 않는다. */
+  payerMaxRank: number;
+}
+
+/**
+ * 이긴 패가 받을 땡값 규칙. 특수패(암행어사·땡잡이)로 캐치해서 이긴 경우는 자기 끗이
+ * 낮으므로 땡값이 없고, 알리 이하의 평범한 끗 승리도 마찬가지다.
+ */
+export function sutdaDdaengRule(winner: SutdaHand): SutdaDdaengRule | null {
+  if (winner.special !== "none") return null;
+  if (winner.rank === 1000) return { rate: 0.5, label: "38광땡", payerMaxRank: 999 };
+  if (winner.rank === 990) return { rate: 0.3, label: "광땡", payerMaxRank: 989 };
+  if (winner.rank === 910) return { rate: 0.2, label: "장땡", payerMaxRank: 900 };
+  if (winner.rank >= 901 && winner.rank <= 909) return { rate: 0.1, label: "땡", payerMaxRank: 800 };
+  return null;
+}

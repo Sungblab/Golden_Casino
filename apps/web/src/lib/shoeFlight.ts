@@ -9,16 +9,16 @@
  * the measured values on its very first frame.
  */
 
-const FLIGHT_MIN_MS = 360;
+const FLIGHT_MIN_MS = 220;
 /** Flight duration ceiling. Reveal timing is budgeted against this in each shoe game. */
-const FLIGHT_MAX_MS = 600;
+const FLIGHT_MAX_MS = 340;
 /** Baccarat, Dragon Tiger and Blackjack use the larger table-to-hand travel. */
-const CASINO_FLIGHT_MIN_MS = 400;
-const CASINO_FLIGHT_MAX_MS = 680;
+const CASINO_FLIGHT_MIN_MS = 240;
+const CASINO_FLIGHT_MAX_MS = 380;
 /** Cards pause briefly after touchdown instead of beginning to turn in mid-air. */
-export const SHOE_REVEAL_HOLD_MS = 140;
-/** A slower, readable back-to-face turn for cards dealt from a shoe. */
-export const SHOE_FLIP_MS = 800;
+export const SHOE_REVEAL_HOLD_MS = 80;
+/** Back-to-face turn for cards dealt from a shoe — quick, but still a visible turn, not a cut. */
+export const SHOE_FLIP_MS = 360;
 
 const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&

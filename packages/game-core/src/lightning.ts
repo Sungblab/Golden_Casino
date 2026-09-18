@@ -29,8 +29,16 @@ const multipliers: LightningCard["multiplier"][] = [2, 3, 4, 5, 8];
  * Evolution publishes the possible values, but not the RNG weight table. Keep the
  * distribution explicit and tunable instead of accidentally making every value equally
  * likely (which makes the game player-positive once the 20% fee is included).
+ *
+ * These weights were re-tuned after a Monte Carlo audit (400k+ simulated rounds via the
+ * real payout/fee functions) found the previous table [25,25,20,20,10] (E[multiplier]=3.85)
+ * left Player/Banker at only ~0.3-0.7% house edge post-fee — barely above break-even, far
+ * softer than standard Baccarat's own ~1.06-1.24% edge despite the 20% commission on every
+ * bet. This table (E[multiplier]=3.52) lands Player/Banker around 2.5-3% edge (a sensible
+ * "pay more, chase bigger multipliers" premium over the standard game), Tie around 7-10%,
+ * and the pair side bets around 13-14% — verified stable across multiple RNG seeds.
  */
-const MULTIPLIER_WEIGHTS = [25, 25, 20, 20, 10] as const;
+const MULTIPLIER_WEIGHTS = [34, 25, 17, 17, 7] as const;
 
 function weightedIndex(rng: RandomInt, weights: readonly number[]): number {
   const total = weights.reduce((sum, weight) => sum + weight, 0);

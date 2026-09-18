@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode, type RefObject } from "react";
 import { Link } from "react-router-dom";
 import { CircleHelp, Expand, Minimize2 } from "lucide-react";
-import { GameGuide, hasSeenGuide, markGuideSeen, type GameGuideContent } from "./GameGuide";
+import { GameGuide, type GameGuideContent } from "./GameGuide";
 import { ProfileMenu } from "./ProfileMenu";
 import { SoundToggle } from "./SoundToggle";
 import { useCountUp } from "../lib/useCountUp";
@@ -13,8 +13,8 @@ import { useCountUp } from "../lib/useCountUp";
  * and everything lives in a single strip so the felt below gets the rest of the viewport.
  *
  * Every table also gets the same help button in the same place: the game's 족보 / rules /
- * glossary sheet (GameGuide), plus a one-time "처음이신가요?" nudge toward it. Putting it in
- * the shell rather than each room keeps "where is the help" identical across all five games.
+ * glossary sheet (GameGuide). Putting it in the shell rather than each room keeps "where is
+ * the help" identical across all five games.
  */
 export function GameShell({
   title,
@@ -48,32 +48,16 @@ export function GameShell({
   const closing = typeof phaseSeconds === "number" && phaseSeconds <= 5;
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideSection, setGuideSection] = useState<string | undefined>(undefined);
-  const [tipVisible, setTipVisible] = useState(false);
-  const gameKey = guide?.gameKey;
 
   useEffect(() => {
     document.body.classList.add("game-screen-active");
     return () => document.body.classList.remove("game-screen-active");
   }, []);
 
-  // First visit to this game: nudge toward the guide a beat after the table has loaded, so
-  // it never competes with the connecting screen. Dismissed or opened once → never again.
-  useEffect(() => {
-    if (!gameKey || hasSeenGuide(gameKey)) return;
-    const timer = window.setTimeout(() => setTipVisible(true), 1_200);
-    return () => window.clearTimeout(timer);
-  }, [gameKey]);
-
   const openGuide = useCallback((section?: string) => {
-    if (gameKey) markGuideSeen(gameKey);
-    setTipVisible(false);
     setGuideSection(section);
     setGuideOpen(true);
-  }, [gameKey]);
-  const dismissTip = () => {
-    if (gameKey) markGuideSeen(gameKey);
-    setTipVisible(false);
-  };
+  }, []);
 
   // Rooms can open the guide on a specific tab (e.g. "족보표" from the hand panel) without
   // threading callbacks through every component: dispatch a DOM event on window.
@@ -105,7 +89,7 @@ export function GameShell({
             <div className="game-help-anchor">
               <button
                 type="button"
-                className={`game-help-button ${tipVisible ? "is-nudging" : ""}`}
+                className="game-help-button"
                 onClick={() => openGuide()}
                 aria-label="게임 방법과 족보 보기"
                 title="게임 방법 · 족보"
@@ -115,16 +99,6 @@ export function GameShell({
                 <CircleHelp size={17} />
                 <span>도움말</span>
               </button>
-              {tipVisible && (
-                <div className="game-help-tip" role="status">
-                  <strong>{guide.title}{subjectParticle(guide.title)} 처음이신가요?</strong>
-                  <span>게임 방법과 족보를 1분만 보고 시작해보세요.</span>
-                  <div className="game-help-tip-actions">
-                    <button type="button" className="game-help-tip-primary" onClick={() => openGuide()}>도움말 보기</button>
-                    <button type="button" className="game-help-tip-secondary" onClick={dismissTip}>괜찮아요</button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
           <SoundToggle />
@@ -147,13 +121,6 @@ export function GameShell({
       {guide && <GameGuide content={guide} open={guideOpen} initialSection={guideSection} onClose={() => setGuideOpen(false)} />}
     </div>
   );
-}
-
-/** 이/가 by whether the word ends in a 받침 — "섯다가", "홀덤이", "바카라가". */
-function subjectParticle(word: string): string {
-  const last = word.charCodeAt(word.length - 1);
-  if (last < 0xac00 || last > 0xd7a3) return "이";
-  return (last - 0xac00) % 28 === 0 ? "가" : "이";
 }
 
 /** Opens the shell's guide sheet from anywhere inside a room, optionally on one tab. */

@@ -26,13 +26,14 @@ import { chipTier, chipValuesForRoom, maximumAdditionalBet } from "../lib/bettin
 import { playSound } from "../lib/sound";
 import { randomRequestId } from "../lib/requestId";
 
-const BETTING_SECONDS = 12;
+const BETTING_SECONDS = 15;
 const TIMER_RING = 163.4;
 const RESULT_NOTICE_MS = 2_600;
 const ROAD_LABELS = { player: "D", banker: "T" } as const;
 const BET_CHOICES: DragonTigerBetChoice[] = ["dragon", "tie", "suited_tie", "tiger"];
-/** Leave enough room for both cards' shoe flight, landing pause and 800ms flip before updating. */
-const ROAD_REVEAL_DELAY_MS = 1_800;
+/** Measured from the pair mounting: both cards fly (≤380ms), rest (80ms) and flip (360ms,
+ * shoeFlight.ts) before the outcome may show, plus a beat. */
+const ROAD_REVEAL_DELAY_MS = 1_000;
 /** Dragon Tiger deals both sides together; the physical game draws the pair simultaneously. */
 const TIGER_DEAL_DELAY_MS = 40;
 

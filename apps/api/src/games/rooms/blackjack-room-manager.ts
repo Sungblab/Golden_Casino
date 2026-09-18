@@ -85,10 +85,10 @@ function delay(milliseconds: number): Promise<void> {
 
 const BETTING_MS = 12_000;
 const PLAYER_TURN_MS = 30_000;
-const DEALER_STEP_MS = 950;
+const DEALER_STEP_MS = 650;
 const RESULT_MS = 4_500;
-/** Longer than the web card's maximum 680ms flight, so cards land one at a time. */
-const DEAL_STEP_MS = 900;
+/** Longer than the web card's maximum 380ms flight (shoeFlight.ts), so cards land one at a time. */
+const DEAL_STEP_MS = 550;
 const INSURANCE_MS = 7_000;
 const SEAT_COUNT = 7;
 
@@ -341,12 +341,12 @@ class BlackjackRoomActor {
           await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
         }
       } else if (command.action === "surrender") {
-        if (hand.cards.length !== 2 || hand.fromSplit || this.userHands(userId).length !== 1 || hand.bet % 2 !== 0) throw new Error("SURRENDER_NOT_ALLOWED");
-        hand.status = "surrendered";
-        await blackjackHandService.syncHand(hand.handId, hand.cards, hand.status);
+        // Evolution's live blackjack has no surrender; the outcome type stays for old rows.
+        throw new Error("SURRENDER_NOT_ALLOWED");
       } else if (command.action === "split") {
         const userHands = this.userHands(userId);
-        if (!canSplitPair(hand.cards) || userHands.length >= 4 || hand.splitAces) throw new Error("SPLIT_NOT_ALLOWED");
+        // One split per hand (two hands max), like Evolution's 8-deck S17 rules.
+        if (!canSplitPair(hand.cards) || userHands.length >= 2 || hand.splitAces) throw new Error("SPLIT_NOT_ALLOWED");
         const originalCard = hand.cards[0]!;
         const splitCard = hand.cards[1]!;
         const splitAces = originalCard.rank === "A" && splitCard.rank === "A";

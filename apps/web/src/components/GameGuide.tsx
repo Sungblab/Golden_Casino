@@ -10,30 +10,12 @@ export interface GuideSection {
 }
 
 export interface GameGuideContent {
-  /** Stable key for the "seen" flag in localStorage — one per game, not per room. */
+  /** Stable per-game identifier — which guide this is, not tied to any particular room. */
   gameKey: string;
   title: string;
   /** One sentence a first-timer reads before anything else. */
   intro: string;
   sections: GuideSection[];
-}
-
-const SEEN_PREFIX = "golden.guide-seen.";
-
-export function hasSeenGuide(gameKey: string): boolean {
-  try {
-    return window.localStorage.getItem(`${SEEN_PREFIX}${gameKey}`) === "1";
-  } catch {
-    return true;
-  }
-}
-
-export function markGuideSeen(gameKey: string): void {
-  try {
-    window.localStorage.setItem(`${SEEN_PREFIX}${gameKey}`, "1");
-  } catch {
-    // Private mode / blocked storage: the tip simply shows again next time.
-  }
 }
 
 /**
